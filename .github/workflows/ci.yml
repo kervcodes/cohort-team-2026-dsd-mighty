@@ -33,6 +33,14 @@ jobs:
 
       - name: Run backend tests
         run: uv run pytest -v
+
+      - name: Check Ruff linting
+        run: uv run ruff check .
+
+      - name: Check Ruff formatting
+        run: uv run ruff format --check .
+
+    
   frontend:
     name: Frontend (Next.js + React)
     runs-on: ubuntu-latest
