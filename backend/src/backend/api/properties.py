@@ -1,5 +1,7 @@
 from uuid import UUID, uuid4
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from fastapi import APIRouter, HTTPException, Query, status
+
 from backend.schemas.property import (
     PagePropertyRead,
     PropertyCreate,
@@ -7,18 +9,17 @@ from backend.schemas.property import (
     PropertyUpdate,
 )
 
-
 router = APIRouter(prefix="/properties", tags=["properties"])
 
-@router.get("", response_model=PagePropertyRead)
-def list_properties(name: str | None = None, skip: int = Query(default=0, ge=0), limit: int = Query(default=25, ge=1, le=100)):
 
-    return {
-        "items": [],
-        "total": len([]),
-        "skip": skip,
-        "limit": limit
-    }
+@router.get("", response_model=PagePropertyRead)
+def list_properties(
+    name: str | None = None,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=25, ge=1, le=100),
+):
+
+    return {"items": [], "total": len([]), "skip": skip, "limit": limit}
 
 
 @router.post("", response_model=PropertyRead, status_code=status.HTTP_201_CREATED)
@@ -29,6 +30,7 @@ def create_property(property: PropertyCreate):
     )
 
     return new_property
+
 
 @router.get("/{property_id}", response_model=PropertyRead)
 def get_property(property_id: UUID):
@@ -45,6 +47,7 @@ def get_property(property_id: UUID):
         state="SC",
         zip_code="12345",
     )
+
 
 @router.patch("/{property_id}", response_model=PropertyRead)
 def update_property(property_id: UUID, updates: PropertyUpdate):

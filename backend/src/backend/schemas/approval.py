@@ -1,14 +1,17 @@
 from datetime import datetime
-from typing import Literal
-from uuid import UUID
-from pydantic import BaseModel,  ConfigDict, model_validator
 from enum import Enum
-from backend.schemas.user import UserSummary
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
+
 from backend.schemas.common import ApprovalStatus
+from backend.schemas.user import UserSummary
+
 
 class ApprovalDecisionType(Enum):
     APPROVE = "approve"
     REJECT = "reject"
+
 
 class ApprovalDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
