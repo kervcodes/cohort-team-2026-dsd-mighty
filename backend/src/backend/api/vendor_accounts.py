@@ -1,8 +1,7 @@
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, status
 
 from backend.schemas.vendor_account import (
     VendorAccountCreate,
@@ -24,7 +23,7 @@ vendor_accounts: dict[UUID, VendorAccountRead] = {}
     status_code=status.HTTP_201_CREATED,
 )
 def create_vendor_account(account: VendorAccountCreate):
-  
+
     for existing in vendor_accounts.values():
         if (
             existing.property_id == account.property_id
@@ -47,7 +46,7 @@ def create_vendor_account(account: VendorAccountCreate):
         payment_method=account.payment_method,
         portal_url=account.portal_url,
         status=account.status,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
     vendor_accounts[account_id] = new_account

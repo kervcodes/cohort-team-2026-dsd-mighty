@@ -1,5 +1,5 @@
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -7,14 +7,13 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from backend.schemas.common import ActiveStatus
 
 
-class UserRole(str, Enum):
+class UserRole(StrEnum):
     submitter = "submitter"
     approver = "approver"
     admin = "admin"
 
 
 class UserSummary(BaseModel):
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -29,14 +28,12 @@ class UserRead(UserSummary):
 
 
 class UserSelfUpdate(BaseModel):
-
     model_config = ConfigDict(extra="forbid")
 
     full_name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class UserAdminUpdate(BaseModel):
-
     model_config = ConfigDict(extra="forbid")
 
     full_name: str | None = Field(default=None, min_length=1, max_length=200)

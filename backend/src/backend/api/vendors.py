@@ -1,21 +1,23 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
-from fastapi import APIRouter, HTTPException, status, Query
+
+from fastapi import APIRouter, HTTPException, status
+
 from backend.schemas.vendor import VendorCreate, VendorRead, VendorUpdate
 
-router= APIRouter(
+router = APIRouter(
     prefix="/vendors",
     tags=["vendors"],
 )
 
 vendors: dict[UUID, VendorRead] = {}
 
+
 @router.post(
     "",
     response_model=VendorRead,
     status_code=status.HTTP_201_CREATED,
 )
-
 def create_vendor(vendor: VendorCreate):
     vendor_id = uuid4()
 
@@ -25,12 +27,13 @@ def create_vendor(vendor: VendorCreate):
         contact_email=vendor.contact_email,
         contact_phone=vendor.contact_phone,
         default_payment_method=vendor.default_payment_method,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
     vendors[vendor_id] = new_vendor
 
     return new_vendor
+
 
 @router.get("/{vendor_id}", response_model=VendorRead)
 def get_vendor(vendor_id: UUID):
@@ -43,6 +46,7 @@ def get_vendor(vendor_id: UUID):
         )
 
     return vendor
+
 
 @router.patch("/{vendor_id}", response_model=VendorRead)
 def update_vendor(vendor_id: UUID, updates: VendorUpdate):
