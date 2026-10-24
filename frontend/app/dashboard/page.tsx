@@ -1,3 +1,5 @@
+'use client';
+
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { InvoiceTable } from '@/components/Invoice-table/invoice-table';
@@ -35,35 +37,13 @@ const invoices: Invoice[] = [
   },
 ];
 
-const currency = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-});
-
-function sum(list: Invoice[]) {
-  return list.reduce((total, inv) => total + inv.amount, 0);
-}
-
-function toISODate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
+const placeholderStats = {
+  outstanding: { value: '$1,960.50', count: 2 },
+  dueThisWeek: { value: '$1,180.50', count: 4 },
+  paidThisMonth: { value: '$1,102.64', count: 3 },
+};
 
 export default function DashboardPage() {
-  const now = new Date();
-  const today = toISODate(now);
-  const weekFromNow = toISODate(
-    new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
-  );
-  const thisMonth = today.slice(0, 7); // "YYYY-MM"
-
-  const outstanding = invoices.filter((i) => i.status !== 'paid');
-  const dueThisWeek = outstanding.filter(
-    (i) => i.dueDate >= today && i.dueDate <= weekFromNow,
-  );
-  const paidThisMonth = invoices.filter(
-    (i) => i.status === 'paid' && i.dueDate.startsWith(thisMonth),
-  );
-
   return (
     <div className="mx-auto max-w-6xl space-y-6 pt-16">
       <div className="flex items-center justify-between gap-4">
@@ -83,18 +63,18 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
           label="Outstanding"
-          value={currency.format(sum(outstanding))}
-          hint={`${outstanding.length} invoices`}
+          value={placeholderStats.outstanding.value}
+          hint={`${placeholderStats.outstanding.count} invoices`}
         />
         <StatCard
           label="Due this week"
-          value={currency.format(sum(dueThisWeek))}
-          hint={`${dueThisWeek.length} invoices`}
+          value={placeholderStats.dueThisWeek.value}
+          hint={`${placeholderStats.dueThisWeek.count} invoices`}
         />
         <StatCard
           label="Paid this month"
-          value={currency.format(sum(paidThisMonth))}
-          hint={`${paidThisMonth.length} invoices`}
+          value={placeholderStats.paidThisMonth.value}
+          hint={`${placeholderStats.dueThisWeek.value} invoices`}
         />
       </div>
 
