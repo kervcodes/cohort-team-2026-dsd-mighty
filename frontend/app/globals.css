@@ -1,56 +1,55 @@
-@import "tailwindcss";
-
+@import 'tailwindcss';
 
 :root {
-  --background: #F8FAFC;
-  --surface: #FFFFFF;
-  --surface-muted: #F1F5F9;
-  --border: #E2E8F0;
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --border: #e2e8f0;
 
-  --foreground: #0F172A;
-  --foreground-muted: #64748B;
+  --foreground: #0f172a;
+  --foreground-muted: #64748b;
 
-  --primary: #0F766E;
-  --primary-hover: #115E59;
-  --primary-foreground: #FFFFFF;
-  --accent: #CCFBF1;
-  --accent-foreground: #134E4A;
+  --primary: #0f766e;
+  --primary-hover: #115e59;
+  --primary-foreground: #ffffff;
+  --accent: #ccfbf1;
+  --accent-foreground: #134e4a;
 
-  --paid: #16A34A;
-  --paid-bg: #DCFCE7;
-  --due-soon: #B45309;
-  --due-soon-bg: #FEF3C7;
-  --overdue: #DC2626;
-  --overdue-bg: #FEE2E2;
-  --pending: #64748B;
-  --pending-bg: #F1F5F9;
+  --paid: #16a34a;
+  --paid-bg: #dcfce7;
+  --due-soon: #b45309;
+  --due-soon-bg: #fef3c7;
+  --overdue: #dc2626;
+  --overdue-bg: #fee2e2;
+  --pending: #64748b;
+  --pending-bg: #f1f5f9;
 
   --ring: rgba(15, 118, 110, 0.45);
 }
 
 .dark {
-  --background: #0B1120;
+  --background: #0b1120;
   --surface: #111827;
-  --surface-muted: #1F2937;
+  --surface-muted: #1f2937;
   --border: #334155;
 
-  --foreground: #F1F5F9;
-  --foreground-muted: #94A3B8;
+  --foreground: #f1f5f9;
+  --foreground-muted: #94a3b8;
 
-  --primary: #2DD4BF;
-  --primary-hover: #5EEAD4;
-  --primary-foreground: #042F2E;
-  --accent: #134E4A;
-  --accent-foreground: #99F6E4;
+  --primary: #2dd4bf;
+  --primary-hover: #5eead4;
+  --primary-foreground: #042f2e;
+  --accent: #134e4a;
+  --accent-foreground: #99f6e4;
 
-  --paid: #4ADE80;
-  --paid-bg: #14532D;
-  --due-soon: #FBBF24;
-  --due-soon-bg: #451A03;
-  --overdue: #F87171;
-  --overdue-bg: #450A0A;
-  --pending: #94A3B8;
-  --pending-bg: #1E293B;
+  --paid: #4ade80;
+  --paid-bg: #14532d;
+  --due-soon: #fbbf24;
+  --due-soon-bg: #451a03;
+  --overdue: #f87171;
+  --overdue-bg: #450a0a;
+  --pending: #94a3b8;
+  --pending-bg: #1e293b;
 
   --ring: rgba(45, 212, 191, 0.5);
 }
