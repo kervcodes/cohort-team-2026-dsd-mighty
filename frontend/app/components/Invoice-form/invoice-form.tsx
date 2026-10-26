@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -23,9 +23,7 @@ export function InvoiceForm() {
   const {
     register,
     handleSubmit,
-    getValues,
-    reset,
-    watch,
+
     formState: { errors, isSubmitting },
   } = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
@@ -60,11 +58,12 @@ export function InvoiceForm() {
           <p role="status" className="text-sm text-foreground-muted">
             {draftMessage}
           </p>
-          <Button label="Save" />
+          <Button label="Save" type="button" />
           <Button
             label="Cancel"
             variant="secondary"
             onClick={() => router.push('/dashboard')}
+            type="button"
           />
         </div>
       </div>
@@ -87,7 +86,13 @@ export function InvoiceForm() {
           htmlFor="accountNumber"
           error={errors.accountNumber?.message}
         >
-          <input {...register('accountNumber')} className={inputClass} />
+          {(field) => (
+            <input
+              {...field}
+              {...register('accountNumber')}
+              className={inputClass}
+            />
+          )}
         </FormField>
 
         <FormField
@@ -95,7 +100,13 @@ export function InvoiceForm() {
           htmlFor="statementId"
           error={errors.statementId?.message}
         >
-          <input {...register('statementId')} className={inputClass} />
+          {(field) => (
+            <input
+              {...field}
+              {...register('statementId')}
+              className={inputClass}
+            />
+          )}
         </FormField>
 
         <FormField
@@ -103,7 +114,13 @@ export function InvoiceForm() {
           htmlFor="companyName"
           error={errors.companyName?.message}
         >
-          <input {...register('companyName')} className={inputClass} />
+          {(field) => (
+            <input
+              {...field}
+              {...register('companyName')}
+              className={inputClass}
+            />
+          )}
         </FormField>
 
         <FormField
@@ -111,11 +128,14 @@ export function InvoiceForm() {
           htmlFor="propertyAddress"
           error={errors.propertyAddress?.message}
         >
-          <input
-            {...register('propertyAddress')}
-            placeholder="Enter property address"
-            className={inputClass}
-          />
+          {(field) => (
+            <input
+              {...field}
+              {...register('propertyAddress')}
+              placeholder="Enter property address"
+              className={inputClass}
+            />
+          )}
         </FormField>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -124,11 +144,14 @@ export function InvoiceForm() {
             htmlFor="issueDate"
             error={errors.issueDate?.message}
           >
-            <input
-              type="date"
-              {...register('issueDate')}
-              className={inputClass}
-            />
+            {(field) => (
+              <input
+                {...field}
+                type="date"
+                {...register('issueDate')}
+                className={inputClass}
+              />
+            )}
           </FormField>
 
           <FormField
@@ -137,11 +160,14 @@ export function InvoiceForm() {
 
             error={errors.dueDate?.message}
           >
-            <input
-              type="date"
-              {...register('dueDate')}
-              className={inputClass}
-            />
+            {(field) => (
+              <input
+                {...field}
+                type="date"
+                {...register('dueDate')}
+                className={inputClass}
+              />
+            )}
           </FormField>
         </div>
       </fieldset>
@@ -156,11 +182,14 @@ export function InvoiceForm() {
           htmlFor="description"
           error={errors.description?.message}
         >
-          <input
-            {...register('description')}
-            placeholder="e.g. Utility, rent"
-            className={inputClass}
-          />
+          {(field) => (
+            <input
+              {...field}
+              {...register('description')}
+              placeholder="e.g. Utility, rent"
+              className={inputClass}
+            />
+          )}
         </FormField>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -169,17 +198,20 @@ export function InvoiceForm() {
             htmlFor="previousPayments"
             error={errors.previousPayments?.message}
           >
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-muted">
-                $
-              </span>
-              <input
-                {...register('previousPayments')}
-                inputMode="decimal"
-                placeholder="0.00"
-                className={`${inputClass} pl-7 tabular-nums`}
-              />
-            </div>
+            {(field) => (
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-muted">
+                  $
+                </span>
+                <input
+                  {...field}
+                  {...register('previousPayments')}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  className={`${inputClass} pl-7 tabular-nums`}
+                />
+              </div>
+            )}
           </FormField>
 
           <FormField
@@ -187,17 +219,20 @@ export function InvoiceForm() {
             htmlFor="currentDue"
             error={errors.currentDue?.message}
           >
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-muted">
-                $
-              </span>
-              <input
-                {...register('currentDue')}
-                inputMode="decimal"
-                placeholder="0.00"
-                className={`${inputClass} pl-7 tabular-nums`}
-              />
-            </div>
+            {(field) => (
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-muted">
+                  $
+                </span>
+                <input
+                  {...field}
+                  {...register('currentDue')}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  className={`${inputClass} pl-7 tabular-nums`}
+                />
+              </div>
+            )}
           </FormField>
         </div>
 
@@ -206,16 +241,19 @@ export function InvoiceForm() {
           htmlFor="accountStatus"
           error={errors.accountStatus?.message}
         >
-          <select
-            {...register('accountStatus')}
-            className={`${inputClass} capitalize`}
-          >
-            {accountStatuses.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
+          {(field) => (
+            <select
+              {...field}
+              {...register('accountStatus')}
+              className={`${inputClass} capitalize`}
+            >
+              {accountStatuses.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          )}
         </FormField>
 
         <FormField
@@ -223,7 +261,14 @@ export function InvoiceForm() {
           htmlFor="notes"
           error={errors.notes?.message}
         >
-          <textarea {...register('notes')} rows={4} className={inputClass} />
+          {(field) => (
+            <textarea
+              {...field}
+              {...register('notes')}
+              rows={4}
+              className={inputClass}
+            />
+          )}
         </FormField>
 
         <FormField
@@ -231,11 +276,14 @@ export function InvoiceForm() {
           htmlFor="websiteName"
           error={errors.websiteName?.message}
         >
-          <input
-            {...register('websiteName')}
-            placeholder="https://domainname.com"
-            className={inputClass}
-          />
+          {(field) => (
+            <input
+              {...field}
+              {...register('websiteName')}
+              placeholder="https://domainname.com"
+              className={inputClass}
+            />
+          )}
         </FormField>
       </fieldset>
 
