@@ -5,14 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { FileUp } from 'lucide-react';
-import Button from '@/app/components/Button';
-import { FormField, inputClass } from '@/app/components/Form-field/form-field';
+import Button from '@/components/Button';
+import { FormField, inputClass } from '@/components/Form-field/form-field';
 import {
   accountStatuses,
   emptyInvoiceForm,
   invoiceFormSchema,
   type InvoiceFormValues,
-} from '@/app/lib/invoice-form-schema';
+} from '@/lib/invoice-form-schema';
 
 const DRAFT_KEY = 'invoice-draft';
 

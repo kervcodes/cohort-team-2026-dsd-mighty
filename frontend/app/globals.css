@@ -1,26 +1,86 @@
 @import 'tailwindcss';
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --border: #e2e8f0;
+
+  --foreground: #0f172a;
+  --foreground-muted: #64748b;
+
+  --primary: #0f766e;
+  --primary-hover: #115e59;
+  --primary-foreground: #ffffff;
+  --accent: #ccfbf1;
+  --accent-foreground: #134e4a;
+
+  --paid: #16a34a;
+  --paid-bg: #dcfce7;
+  --due-soon: #b45309;
+  --due-soon-bg: #fef3c7;
+  --overdue: #dc2626;
+  --overdue-bg: #fee2e2;
+  --pending: #64748b;
+  --pending-bg: #f1f5f9;
+
+  --ring: rgba(15, 118, 110, 0.45);
+}
+
+.dark {
+  --background: #0b1120;
+  --surface: #111827;
+  --surface-muted: #1f2937;
+  --border: #334155;
+
+  --foreground: #f1f5f9;
+  --foreground-muted: #94a3b8;
+
+  --primary: #2dd4bf;
+  --primary-hover: #5eead4;
+  --primary-foreground: #042f2e;
+  --accent: #134e4a;
+  --accent-foreground: #99f6e4;
+
+  --paid: #4ade80;
+  --paid-bg: #14532d;
+  --due-soon: #fbbf24;
+  --due-soon-bg: #451a03;
+  --overdue: #f87171;
+  --overdue-bg: #450a0a;
+  --pending: #94a3b8;
+  --pending-bg: #1e293b;
+
+  --ring: rgba(45, 212, 191, 0.5);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-border: var(--border);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-foreground-muted: var(--foreground-muted);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-paid: var(--paid);
+  --color-paid-bg: var(--paid-bg);
+  --color-due-soon: var(--due-soon);
+  --color-due-soon-bg: var(--due-soon-bg);
+  --color-overdue: var(--overdue);
+  --color-overdue-bg: var(--overdue-bg);
+  --color-pending: var(--pending);
+  --color-pending-bg: var(--pending-bg);
+
+  --color-ring: var(--ring);
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }
