@@ -1,4 +1,8 @@
-import { accountStatuses, emptyInvoiceForm, invoiceFormSchema } from "./invoice-form-schema";
+import {
+  accountStatuses,
+  emptyInvoiceForm,
+  invoiceFormSchema,
+} from './invoice-form-schema';
 
 const validData = {
   accountNumber: '12345',
@@ -19,18 +23,18 @@ describe('invoiceFormSchema', () => {
   it('accepts a fully valid form', () => {
     expect(invoiceFormSchema.safeParse(validData).success).toBe(true);
   });
-    it('rejects the empty default form', () => {
+  it('rejects the empty default form', () => {
     expect(invoiceFormSchema.safeParse(emptyInvoiceForm).success).toBe(false);
   });
-})
+});
 
-describe('dates', () => { 
-   it('allows a due date on the same day as the issue date', () => {
-      const result = invoiceFormSchema.safeParse({
-        ...validData,
-        issueDate: '2026-10-15',
-        dueDate: '2026-10-15',
-      });
-      expect(result.success).toBe(true);
+describe('dates', () => {
+  it('allows a due date on the same day as the issue date', () => {
+    const result = invoiceFormSchema.safeParse({
+      ...validData,
+      issueDate: '2026-10-15',
+      dueDate: '2026-10-15',
     });
-})
+    expect(result.success).toBe(true);
+  });
+});
