@@ -1,5 +1,7 @@
 export type InvoiceStatus = 'pending' | 'approved' | 'paid' | 'overdue';
 
+export type AccountStatus = 'unpaid' | 'outstanding' | 'paid';
+
 export type Invoice = {
   id: string;
   property: string;

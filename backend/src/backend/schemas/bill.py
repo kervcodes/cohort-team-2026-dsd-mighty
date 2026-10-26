@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.schemas.user import UserSummary
+from backend.schemas.common import AccountStatus
 
 Money = Annotated[Decimal, Field(max_digits=12, decimal_places=2)]
 
@@ -31,6 +32,9 @@ class BillBase(BaseModel):
     prev_payments: Money | None = Field(default=None, ge=0)
     description: str | None = Field(default=None, max_length=2000)
     processing_notes: str | None = Field(default=None, max_length=2000)
+    property_address: str | None = Field(default=None, max_length=300)
+    account_status: AccountStatus | None = None
+    website_name: str | None = Field(default=None, max_length=500)
 
 
 class BillCreate(BillBase):
@@ -49,6 +53,9 @@ class BillUpdate(BaseModel):
     prev_payments: Money | None = Field(default=None, ge=0)
     description: str | None = Field(default=None, max_length=2000)
     processing_notes: str | None = Field(default=None, max_length=2000)
+    property_address: str | None = Field(default=None, min_length=1, max_length=300)
+    account_status: AccountStatus | None = None
+    website_name: str | None = Field(default=None, max_length=500)
 
 
 class BillRead(BillBase):
