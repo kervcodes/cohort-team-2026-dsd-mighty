@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { accountStatuses } from '@/app/lib/invoice-form-schema';
+import { accountStatuses } from '@/lib/invoice-form-schema';
 import { InvoiceForm } from './invoice-form';
 
 const push = jest.fn();
@@ -43,7 +43,7 @@ describe('InvoiceForm', () => {
   it('offers an option for every account status', () => {
     render(<InvoiceForm />);
 
-    accountStatuses.forEach((status) => {
+    accountStatuses.forEach((status: string) => {
       expect(screen.getByRole('option', { name: status })).toBeInTheDocument();
     });
   });
