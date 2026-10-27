@@ -17,6 +17,7 @@ Backend, from `backend/`:
 Frontend, from `frontend/`:
 
 - `pnpm install --frozen-lockfile` - install dependencies
+- `pnpm lint` - Biome (the only linter and formatter; `pnpm format` fixes)
 - `pnpm run type-check` - `next typegen && tsc --noEmit`
 - `pnpm test` - Jest
 - `pnpm build` - `next build`

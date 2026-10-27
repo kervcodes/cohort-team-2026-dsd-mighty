@@ -15,6 +15,6 @@ The checker runs by `node` from the repo root because the root has no `package.j
 | Frontend builds before merge | ci | `.github/workflows/ci.yml` | - |
 | Every rule above has an enforcer that exists; no exception has expired | ci | `scripts/check-enforcement.mjs`, `.github/workflows/ci.yml` | - |
 | Commit messages follow `type(scope): description` | review | - | 2026-12-31 no commit-msg hook until the hooks change lands |
-| Frontend formatting follows Prettier (single quotes) | ci | `frontend/.prettierrc`, `.github/workflows/ci.yml` | - |
-| Biome is the only linter and formatter (no ESLint, no Prettier) | convention | - | 2026-12-31 frontend still uses ESLint and Prettier until the Biome change lands |
+| Biome is the only linter and formatter (no ESLint, no Prettier); lint passes before merge | ci | `frontend/biome.json`, `.github/workflows/ci.yml` | - |
+| No literal user-visible text in components | convention | - | 2026-12-31 Biome `noJsxLiterals` runs at warn, not error: literals not yet extracted (14 in 3 files) |
 | Required status checks and squash-only merges on `main` | audit | - | 2026-12-31 repository admin settings, not changeable from a PR |
