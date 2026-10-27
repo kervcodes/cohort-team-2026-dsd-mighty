@@ -1,0 +1,122 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "a11y": {
+        "preset": "recommended",
+        "useAltText": "warn",
+        "useAriaPropsForRole": "warn",
+        "useButtonType": "warn",
+        "useHeadingContent": "warn",
+        "useHtmlLang": "warn",
+        "useValidAriaRole": "warn",
+        "noLabelWithoutControl": "warn",
+        "noSvgWithoutTitle": "warn",
+        "useKeyWithClickEvents": "warn",
+        "useSemanticElements": "warn",
+        "useValidAnchor": "warn",
+        "useAnchorContent": "warn"
+      },
+      "correctness": {
+        "noUnusedImports": "warn",
+        "useExhaustiveDependencies": "warn",
+        "useHookAtTopLevel": "warn",
+        "noInvalidUseBeforeDeclaration": "warn"
+      },
+      "suspicious": {
+        "noExplicitAny": "warn",
+        "noArrayIndexKey": "warn"
+      },
+      "style": {
+        "useConst": "error",
+        "useImportType": "warn",
+        "noNonNullAssertion": "warn",
+        "noJsxLiterals": "warn"
+      },
+      "complexity": {
+        "noUselessFragments": "warn",
+        "noCommaOperator": "warn"
+      },
+      "performance": {
+        "noImgElement": "warn"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "error",
+        "noBlankTarget": "error"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    },
+    "formatter": {
+      "enabled": true
+    },
+    "linter": {
+      "enabled": true
+    }
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/.next",
+      "!**/dist",
+      "!**/build",
+      "!**/coverage",
+      "!**/.vercel",
+      "!**/supabase/.temp"
+    ]
+  },
+  "overrides": [
+    {
+      "includes": ["*.test.ts", "*.test.tsx", "**/__tests__/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          },
+          "style": {
+            "noJsxLiterals": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["scripts/check-no-emoji.mjs"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noMisleadingCharacterClass": "off"
+          }
+        }
+      }
+    }
+  ]
+}

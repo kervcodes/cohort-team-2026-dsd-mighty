@@ -1,24 +1,24 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { FileUp } from 'lucide-react';
-import Button from '@/components/Button';
-import { FormField, inputClass } from '@/components/Form-field/form-field';
+import { zodResolver } from "@hookform/resolvers/zod";
+import { FileUp } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import Button from "@/components/Button";
+import { FormField, inputClass } from "@/components/Form-field/form-field";
 import {
   accountStatuses,
   emptyInvoiceForm,
-  invoiceFormSchema,
   type InvoiceFormValues,
-} from '@/lib/invoice-form-schema';
-import { createBill } from '@/lib/api/bills';
-import type { BillCreatePayload } from '@/lib/api/bills';
+} from "@/lib/invoice-form-schema";
+import { createBill } from "@/lib/api/bills";
+import type { BillCreatePayload } from "@/lib/api/bills";
+import { invoiceFormSchema } from "@/lib/invoice-form-schema";
 
 export function InvoiceForm() {
   const router = useRouter();
-  const [submitError, setSubmitError] = useState('');
+  const [submitError, setSubmitError] = useState("");
 
   const {
     register,
@@ -31,7 +31,7 @@ export function InvoiceForm() {
   });
 
   async function onSubmit(values: InvoiceFormValues) {
-    setSubmitError('');
+    setSubmitError("");
 
     const payload: BillCreatePayload = {
       account_number_raw: values.accountNumber.trim(),
@@ -48,12 +48,12 @@ export function InvoiceForm() {
     try {
       await createBill(payload);
 
-      router.push('/dashboard');
+      router.push("/dashboard");
     } catch (err) {
       setSubmitError(
         err instanceof Error
           ? err.message
-          : 'Unable to create the bill. Please try again.',
+          : "Unable to create the bill. Please try again.",
       );
     }
   }
@@ -82,7 +82,7 @@ export function InvoiceForm() {
           <Button
             label="Cancel"
             variant="secondary"
-            onClick={() => router.push('/dashboard')}
+            onClick={() => router.push("/dashboard")}
             type="button"
           />
         </div>
@@ -109,7 +109,7 @@ export function InvoiceForm() {
           {(field) => (
             <input
               {...field}
-              {...register('accountNumber')}
+              {...register("accountNumber")}
               className={inputClass}
             />
           )}
@@ -123,7 +123,7 @@ export function InvoiceForm() {
           {(field) => (
             <input
               {...field}
-              {...register('statementId')}
+              {...register("statementId")}
               className={inputClass}
             />
           )}
@@ -137,7 +137,7 @@ export function InvoiceForm() {
           {(field) => (
             <input
               {...field}
-              {...register('companyName')}
+              {...register("companyName")}
               className={inputClass}
             />
           )}
@@ -151,7 +151,7 @@ export function InvoiceForm() {
           {(field) => (
             <input
               {...field}
-              {...register('propertyAddress')}
+              {...register("propertyAddress")}
               placeholder="Enter property address"
               className={inputClass}
             />
@@ -168,7 +168,7 @@ export function InvoiceForm() {
               <input
                 {...field}
                 type="date"
-                {...register('issueDate')}
+                {...register("issueDate")}
                 className={inputClass}
               />
             )}
@@ -177,14 +177,13 @@ export function InvoiceForm() {
           <FormField
             label="Due / Pay Date"
             htmlFor="dueDate"
-
             error={errors.dueDate?.message}
           >
             {(field) => (
               <input
                 {...field}
                 type="date"
-                {...register('dueDate')}
+                {...register("dueDate")}
                 className={inputClass}
               />
             )}
@@ -205,7 +204,7 @@ export function InvoiceForm() {
           {(field) => (
             <input
               {...field}
-              {...register('description')}
+              {...register("description")}
               placeholder="e.g. Utility, rent"
               className={inputClass}
             />
@@ -225,7 +224,7 @@ export function InvoiceForm() {
                 </span>
                 <input
                   {...field}
-                  {...register('previousPayments')}
+                  {...register("previousPayments")}
                   inputMode="decimal"
                   placeholder="0.00"
                   className={`${inputClass} pl-7 tabular-nums`}
@@ -246,7 +245,7 @@ export function InvoiceForm() {
                 </span>
                 <input
                   {...field}
-                  {...register('currentDue')}
+                  {...register("currentDue")}
                   inputMode="decimal"
                   placeholder="0.00"
                   className={`${inputClass} pl-7 tabular-nums`}
@@ -264,7 +263,7 @@ export function InvoiceForm() {
           {(field) => (
             <select
               {...field}
-              {...register('accountStatus')}
+              {...register("accountStatus")}
               className={`${inputClass} capitalize`}
             >
               {accountStatuses.map((status) => (
@@ -284,7 +283,7 @@ export function InvoiceForm() {
           {(field) => (
             <textarea
               {...field}
-              {...register('notes')}
+              {...register("notes")}
               rows={4}
               className={inputClass}
             />
@@ -299,7 +298,7 @@ export function InvoiceForm() {
           {(field) => (
             <input
               {...field}
-              {...register('websiteName')}
+              {...register("websiteName")}
               placeholder="https://domainname.com"
               className={inputClass}
             />
@@ -308,7 +307,7 @@ export function InvoiceForm() {
       </fieldset>
 
       <Button
-        label={isSubmitting ? 'Creating…' : 'Create'}
+        label={isSubmitting ? "Creating…" : "Create"}
         type="submit"
         disabled={isSubmitting}
         className="w-full border-2"

@@ -1,21 +1,20 @@
-import type { ButtonHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes } from "react";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   label: string;
-  variant?: 'primary' | 'secondary';
+  variant?: "primary" | "secondary";
 };
 
 const variants = {
-  primary: 'bg-primary text-primary-foreground hover:bg-primary-hover',
-  secondary:
-    'border border-border bg-surface text-foreground hover:bg-surface-muted',
+  primary: "bg-primary text-primary-foreground hover:bg-primary-hover",
+  secondary: "border border-border bg-surface text-foreground hover:bg-surface-muted",
 };
 
 export default function Button({
   label,
-  variant = 'primary',
-  className = '',
-  type = 'button',
+  variant = "primary",
+  className = "",
+  type = "button",
   ...props
 }: ButtonProps) {
   return (
