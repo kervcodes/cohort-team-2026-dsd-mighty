@@ -1,10 +1,10 @@
-import type { InvoiceStatus } from '../../types/invoice';
+import type { InvoiceStatus } from "../../types/invoice";
 
 const styles: Record<InvoiceStatus, string> = {
-  pending: 'bg-pending-bg text-pending',
-  approved: 'bg-accent text-accent-foreground',
-  paid: 'bg-paid-bg text-paid',
-  overdue: 'bg-overdue-bg text-overdue',
+  pending: "bg-pending-bg text-pending",
+  approved: "bg-accent text-accent-foreground",
+  paid: "bg-paid-bg text-paid",
+  overdue: "bg-overdue-bg text-overdue",
 };
 
 type StatusBadgeProps = {
