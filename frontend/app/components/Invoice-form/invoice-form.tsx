@@ -13,12 +13,12 @@ import {
   invoiceFormSchema,
   type InvoiceFormValues,
 } from '@/lib/invoice-form-schema';
-
-const DRAFT_KEY = 'invoice-draft';
+import { createBill } from '@/lib/api/bills';
+import type { BillCreatePayload } from '@/lib/api/bills';
 
 export function InvoiceForm() {
   const router = useRouter();
-  const [draftMessage, setDraftMessage] = useState('');
+  const [submitError, setSubmitError] = useState('');
 
   const {
     register,
@@ -31,16 +31,31 @@ export function InvoiceForm() {
   });
 
   async function onSubmit(values: InvoiceFormValues) {
-    // TODO: POST to FastAPI. Mapping to the table's Invoice type:
+    setSubmitError('');
 
-    console.log('Create invoice', values);
+    const payload: BillCreatePayload = {
+      account_number_raw: values.accountNumber.trim(),
+      invoice_number: values.statementId.trim(),
+      vendor_name_raw: values.companyName.trim() || undefined,
+      invoice_date: values.issueDate,
+      due_date: values.dueDate,
+      amount: values.currentDue.trim(),
+      prev_payments: values.previousPayments.trim() || undefined,
+      description: values.description.trim() || undefined,
+      processing_notes: values.notes.trim() || undefined,
+    };
 
     try {
-      localStorage.removeItem(DRAFT_KEY);
-    } catch {
-      // ignore
+      await createBill(payload);
+
+      router.push('/dashboard');
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to create the bill. Please try again.',
+      );
     }
-    router.push('/dashboard');
   }
 
   return (
@@ -49,15 +64,20 @@ export function InvoiceForm() {
       noValidate
       className="mx-auto max-w-3xl space-y-6"
     >
+      {submitError && (
+        <p
+          role="alert"
+          className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800"
+        >
+          {submitError}
+        </p>
+      )}
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">
           New Invoice
         </h1>
 
         <div className="flex items-center gap-3">
-          <p role="status" className="text-sm text-foreground-muted">
-            {draftMessage}
-          </p>
           <Button label="Save" type="button" />
           <Button
             label="Cancel"
