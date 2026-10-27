@@ -1,46 +1,46 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { Plus } from 'lucide-react';
-import { InvoiceTable } from '@/components/Invoice-table/invoice-table';
-import { StatCard } from '@/components/Stat-card/stat-card';
-import { Invoice } from '@/types/invoice';
+import { Plus } from "lucide-react";
+import Link from "next/link";
+import { InvoiceTable } from "@/components/Invoice-table/invoice-table";
+import { StatCard } from "@/components/Stat-card/stat-card";
+import type { Invoice } from "@/types/invoice";
 
 //examples
 const invoices: Invoice[] = [
   {
-    id: 'INV-1013',
-    property: 'Oak Terrace',
-    company: 'Northgate LLC',
-    dueDate: '2026-10-28',
-    vendor: 'Rapid Plumbing & Rooter',
+    id: "INV-1013",
+    property: "Oak Terrace",
+    company: "Northgate LLC",
+    dueDate: "2026-10-28",
+    vendor: "Rapid Plumbing & Rooter",
     amount: 1180.5,
-    status: 'pending',
+    status: "pending",
   },
   {
-    id: 'INV-1011',
-    property: 'Maple Court',
-    company: 'Westside Holdings',
-    dueDate: '2026-10-20',
-    vendor: 'ProGuard Security',
+    id: "INV-1011",
+    property: "Maple Court",
+    company: "Westside Holdings",
+    dueDate: "2026-10-20",
+    vendor: "ProGuard Security",
     amount: 780.0,
-    status: 'overdue',
+    status: "overdue",
   },
   {
-    id: 'INV-1010',
-    property: 'Harbor View',
-    company: 'Bluebird Realty',
-    dueDate: '2026-10-15',
-    vendor: 'LADWP',
+    id: "INV-1010",
+    property: "Harbor View",
+    company: "Bluebird Realty",
+    dueDate: "2026-10-15",
+    vendor: "LADWP",
     amount: 1102.64,
-    status: 'paid',
+    status: "paid",
   },
 ];
 
 const placeholderStats = {
-  outstanding: { value: '$1,960.50', count: 2 },
-  dueThisWeek: { value: '$1,180.50', count: 4 },
-  paidThisMonth: { value: '$1,102.64', count: 3 },
+  outstanding: { value: "$1,960.50", count: 2 },
+  dueThisWeek: { value: "$1,180.50", count: 4 },
+  paidThisMonth: { value: "$1,102.64", count: 3 },
 };
 
 export default function DashboardPage() {

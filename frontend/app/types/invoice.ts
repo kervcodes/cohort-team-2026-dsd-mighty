@@ -1,4 +1,4 @@
-export type InvoiceStatus = 'pending' | 'approved' | 'paid' | 'overdue';
+export type InvoiceStatus = "pending" | "approved" | "paid" | "overdue";
 
 export type Invoice = {
   id: string;
