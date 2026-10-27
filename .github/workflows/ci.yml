@@ -115,3 +115,16 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build frontend
         run: pnpm build
+
+  enforcement:
+    name: Enforcement Table
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check enforcement table
+        run: node scripts/check-enforcement.mjs
