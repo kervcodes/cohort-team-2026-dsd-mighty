@@ -18,7 +18,11 @@ export const invoiceFormSchema = z
       .string()
       .trim()
       .refine((v) => v === "" || money.test(v), "Enter an amount like 1180.50"),
-    currentDue: z.string().trim().regex(money, "Enter an amount like 1180.50"),
+    currentDue: z
+      .string()
+      .trim()
+      .regex(money, "Enter an amount like 1180.50")
+      .refine((v) => Number(v) > 0, "Amount must be greater than 0"),
     accountStatus: z.enum(accountStatuses),
     notes: z.string().trim(),
     websiteName: z
