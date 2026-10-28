@@ -44,7 +44,8 @@ describe("InvoiceForm", () => {
     render(<InvoiceForm />);
 
     accountStatuses.forEach((status: string) => {
-      expect(screen.getByRole("option", { name: status })).toBeInTheDocument();
+      const optionName = status || "Select status";
+      expect(screen.getByRole("option", { name: optionName })).toBeInTheDocument();
     });
   });
 

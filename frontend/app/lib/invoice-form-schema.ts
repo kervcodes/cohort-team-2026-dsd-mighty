@@ -9,10 +9,7 @@ export const invoiceFormSchema = z
   .object({
     accountNumber: z.string().trim().min(1, "Account / customer # is required"),
     statementId: z.string().trim().min(1, "Statement # is required"),
-    companyName: z
-      .string()
-      .trim()
-      .min(1, "Customer / business name is required"),
+    companyName: z.string().trim().min(1, "Customer / business name is required"),
     propertyAddress: z.string().trim().min(1, "Property address is required"),
     issueDate: z.string().regex(isoDate, "Issue date is required"),
     dueDate: z.string().regex(isoDate, "Due date is required"),
