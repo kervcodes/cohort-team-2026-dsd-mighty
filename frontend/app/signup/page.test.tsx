@@ -45,6 +45,17 @@ describe("Signup Page", () => {
     ).toBeInTheDocument();
     expect(mockSignUp).not.toHaveBeenCalled();
   });
+  it("redirects to the dashboard when a session is returned", async () => {
+    mockSignUp.mockResolvedValue({
+      data: { session: { access_token: "token" } },
+      error: null,
+    });
+    render(<SignupPage />);
+    await fillForm("a@b.com", "password123", "password123");
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/dashboard"));
+    expect(mockRefresh).toHaveBeenCalled();
+  });
   it("shows the Supabase error message", async () => {
     mockSignUp.mockResolvedValue({
       data: { session: null },
