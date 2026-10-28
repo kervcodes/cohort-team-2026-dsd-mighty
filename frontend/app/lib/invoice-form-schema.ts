@@ -9,11 +9,14 @@ export const invoiceFormSchema = z
   .object({
     accountNumber: z.string().trim().min(1, "Account / customer # is required"),
     statementId: z.string().trim().min(1, "Statement # is required"),
-    companyName: z.string().trim().min(1, "Customer / business name is required"),
+    companyName: z
+      .string()
+      .trim()
+      .min(1, "Customer / business name is required"),
     propertyAddress: z.string().trim().min(1, "Property address is required"),
     issueDate: z.string().regex(isoDate, "Issue date is required"),
     dueDate: z.string().regex(isoDate, "Due date is required"),
-    description: z.string().min(1, "Add a short description"),
+    description: z.string().trim().min(1, "Add a short description"),
     previousPayments: z
       .string()
       .trim()
@@ -27,8 +30,8 @@ export const invoiceFormSchema = z
       .refine((v) => {
         if (v === "") return true;
         try {
-          new URL(v);
-          return true;
+          const { protocol } = new URL(v);
+          return protocol === "http:" || protocol === "https:";
         } catch {
           return false;
         }

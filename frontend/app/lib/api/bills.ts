@@ -21,6 +21,9 @@ export type BillCreatePayload = {
   prev_payments?: string;
   description?: string;
   processing_notes?: string;
+  property_address?: string;
+  account_status?: AccountStatus;
+  website_name?: string;
 };
 
 export type Bill = {
@@ -34,6 +37,9 @@ export type Bill = {
   prev_payments: string | null;
   description: string | null;
   processing_notes: string | null;
+  property_address: string | null;
+  account_status: AccountStatus | null;
+  website_name: string | null;
   vendor_account_id: string | null;
   submitted_by: { id: string; full_name: string };
   status: BillStatus;
