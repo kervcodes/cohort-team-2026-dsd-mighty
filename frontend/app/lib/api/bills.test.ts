@@ -1,4 +1,3 @@
-import { create } from "domain";
 import { type BillCreatePayload, createBill } from "./bills";
 
 const payload: BillCreatePayload = {

@@ -20,7 +20,7 @@ function formatDate(iso: string) {
 const columns = ["Invoice ID", "Property", "Company", "Due Date", "Vendor", "Amount", "Status"];
 
 export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
-  const [page, setPage] = useState<number>(1);
+  const [_page, _setPage] = useState<number>(1);
 
   const rows = invoices.slice(0, 10);
 
