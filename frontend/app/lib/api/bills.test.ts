@@ -1,5 +1,5 @@
 import { create } from "domain";
-import { createBill, type BillCreatePayload } from "./bills";
+import { type BillCreatePayload, createBill } from "./bills";
 
 const payload: BillCreatePayload = {
   account_number_raw: "ACC-123",
@@ -46,12 +46,12 @@ describe("createBill", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result).toEqual(savedBill);
   });
-  it ('throws the server detail message on an HTTP Error', async () => { 
+  it("throws the server detail message on an HTTP Error", async () => {
     fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        json: async () => ({ detail: 'Bill not found.'})
-    })
-    await expect(createBill(payload)).rejects.toThrow('Bill not found.')
-  })
+      ok: false,
+      status: 404,
+      json: async () => ({ detail: "Bill not found." }),
+    });
+    await expect(createBill(payload)).rejects.toThrow("Bill not found.");
+  });
 });

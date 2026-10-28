@@ -1,15 +1,15 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export type BillStatus =
-  | 'draft'
-  | 'pending_approval'
-  | 'approved'
-  | 'rejected'
-  | 'paid'
-  | 'failed'
-  | 'exception';
+  | "draft"
+  | "pending_approval"
+  | "approved"
+  | "rejected"
+  | "paid"
+  | "failed"
+  | "exception";
 
-export type AccountStatus = 'unpaid' | 'outstanding' | 'paid';
+export type AccountStatus = "unpaid" | "outstanding" | "paid";
 
 export type BillCreatePayload = {
   account_number_raw: string;
@@ -46,14 +46,12 @@ export async function createBill(payload: BillCreatePayload): Promise<Bill> {
   let res: Response;
   try {
     res = await fetch(`${API_URL}/bills`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
   } catch {
-    throw new Error(
-      'Unable to reach the backend. Check your connection and try again.',
-    );
+    throw new Error("Unable to reach the backend. Check your connection and try again.");
   }
 
   if (!res.ok) {

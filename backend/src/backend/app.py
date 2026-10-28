@@ -1,13 +1,11 @@
-from fastapi import FastAPI
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.supabase_client import get_supabase
-from backend.api.bills import router as bills_router
 from backend.api.approvals import router as approvals_router
+from backend.api.bills import router as bills_router
 from backend.api.vendor_accounts import router as vendor_accounts_router
 from backend.api.vendors import router as vendors_router
-
+from backend.supabase_client import get_supabase
 
 app = FastAPI(
     title="Property Bill Automation API",
@@ -51,8 +49,8 @@ def test_database():
 
         return {"connected": True, "records": response.data}
 
-    except Exception:
+    except Exception as err:
         raise HTTPException(
             status_code=503,
             detail="Database connection failed",
-        )
+        ) from err

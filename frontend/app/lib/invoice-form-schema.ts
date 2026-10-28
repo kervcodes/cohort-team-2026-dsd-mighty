@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const accountStatuses = ['', 'paid', 'unpaid', 'outstanding'] as const;
+export const accountStatuses = ["", "paid", "unpaid", "outstanding"] as const;
 
 const money = /^\d{1,10}(\.\d{1,2})?$/;
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;

@@ -6,8 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.schemas.user import UserSummary
 from backend.schemas.common import AccountStatus
+from backend.schemas.user import UserSummary
 
 Money = Annotated[Decimal, Field(max_digits=12, decimal_places=2)]
 
