@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { Mail, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, UserPlus } from "lucide-react";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
@@ -67,9 +67,8 @@ export default function SignupPage() {
             Check your email
           </h1>
           <p className="text-sm text-foreground-muted">
-            We sent a confirmation link to{" "}
-            <strong className="text-foreground">{email}</strong>. Click it to
-            finish creating your account.
+            We sent a confirmation link to <strong className="text-foreground">{email}</strong>.
+            Click it to finish creating your account.
           </p>
           <Link
             href="/login"
@@ -92,9 +91,7 @@ export default function SignupPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             Create an account
           </h1>
-          <p className="mt-1 text-sm text-foreground-muted">
-            Get started in less than a minute
-          </p>
+          <p className="mt-1 text-sm text-foreground-muted">Get started in less than a minute</p>
         </div>
 
         <form
@@ -111,10 +108,7 @@ export default function SignupPage() {
           )}
 
           <div className="space-y-1.5">
-            <label
-              htmlFor="email"
-              className="text-sm font-medium text-foreground"
-            >
+            <label htmlFor="email" className="text-sm font-medium text-foreground">
               Email
             </label>
             <input
@@ -130,10 +124,7 @@ export default function SignupPage() {
           </div>
 
           <div className="space-y-1.5">
-            <label
-              htmlFor="password"
-              className="text-sm font-medium text-foreground"
-            >
+            <label htmlFor="password" className="text-sm font-medium text-foreground">
               Password
             </label>
             <input
@@ -149,10 +140,7 @@ export default function SignupPage() {
           </div>
 
           <div className="space-y-1.5">
-            <label
-              htmlFor="confirm"
-              className="text-sm font-medium text-foreground"
-            >
+            <label htmlFor="confirm" className="text-sm font-medium text-foreground">
               Confirm password
             </label>
             <input

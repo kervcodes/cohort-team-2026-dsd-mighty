@@ -31,18 +31,14 @@ describe("Signup Page", () => {
     render(<SignupPage />);
     await fillForm("a@b.com", "short", "short");
 
-    expect(
-      await screen.findByText("Password must be at least 8 characters."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Password must be at least 8 characters.")).toBeInTheDocument();
     expect(mockSignUp).not.toHaveBeenCalled();
   });
   it("rejects mismatched passwords", async () => {
     render(<SignupPage />);
     await fillForm("a@b.com", "password123", "password124");
 
-    expect(
-      await screen.findByText("Passwords do not match."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Passwords do not match.")).toBeInTheDocument();
     expect(mockSignUp).not.toHaveBeenCalled();
   });
   it("redirects to the dashboard when a session is returned", async () => {
@@ -64,8 +60,6 @@ describe("Signup Page", () => {
     render(<SignupPage />);
     await fillForm("a@b.com", "password123", "password123");
 
-    expect(
-      await screen.findByText("Email rate limit exceeded"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Email rate limit exceeded")).toBeInTheDocument();
   });
 });
