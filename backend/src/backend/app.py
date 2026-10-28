@@ -41,11 +41,7 @@ def test_database():
     try:
         client = get_supabase()
 
-        response = (
-            client.table("test_connection")
-            .select("*")
-            .execute()
-        )
+        response = client.table("test_connection").select("*").execute()
 
         return {"connected": True, "records": response.data}
 

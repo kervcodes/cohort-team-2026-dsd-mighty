@@ -21,6 +21,7 @@ BillStatus = Literal[
 
 ApprovalStatus = Literal["pending", "approved", "rejected"]
 
+
 class AccountStatus(StrEnum):
     unpaid = "unpaid"
     outstanding = "outstanding"
