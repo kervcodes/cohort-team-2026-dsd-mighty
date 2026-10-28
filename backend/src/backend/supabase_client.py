@@ -14,7 +14,7 @@ def get_supabase() -> Client:
     elif not key:
         print("Supabase key was not found or ")
     elif not key.startswith("sk-proj-"):
-                print(
+        print(
             "Supabase key was found, but it doesn't start with sk-proj-; "
             "please check you're using the right key"
         )
