@@ -10,7 +10,8 @@
     "format": "biome check --write .",
     "type-check": "next typegen && tsc --noEmit",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "prepare": "cd .. && husky .husky || true"
   },
   "dependencies": {
     "@hookform/resolvers": "^6.0.0",
@@ -34,8 +35,10 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "husky": "^9.1.7",
     "jest": "^30.5.2",
     "jest-environment-jsdom": "^30.5.2",
+    "lint-staged": "^17.6.0",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
     "typescript": "^5"

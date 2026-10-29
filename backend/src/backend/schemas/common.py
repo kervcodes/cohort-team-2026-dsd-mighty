@@ -1,3 +1,4 @@
+from enum import StrEnum
 from typing import Literal
 
 ActiveStatus = Literal["active", "inactive"]
@@ -19,3 +20,9 @@ BillStatus = Literal[
 ]
 
 ApprovalStatus = Literal["pending", "approved", "rejected"]
+
+
+class AccountStatus(StrEnum):
+    unpaid = "unpaid"
+    outstanding = "outstanding"
+    paid = "paid"
