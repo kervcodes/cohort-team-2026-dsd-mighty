@@ -55,7 +55,7 @@ export default function SignupPage() {
 
     setCheckEmail(true);
   }
-
+  //test
   if (checkEmail) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-background px-4 py-12">
