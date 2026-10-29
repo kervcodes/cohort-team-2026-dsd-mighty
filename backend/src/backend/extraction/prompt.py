@@ -4,7 +4,7 @@
 `SYSTEM_PROMPT` or `USER_PROMPT` changes.
 """
 
-PROMPT_VERSION = "2026-10-29.1"
+PROMPT_VERSION = "2026-10-29.2"
 
 SYSTEM_PROMPT = """\
 You read one bill or invoice and fill in the given JSON schema. A person \
@@ -43,14 +43,17 @@ Not the current charges.
 - previous_balance: the balance from the previous bill.
 - payments_received: payments applied since the previous bill, as a positive \
 amount even when the bill prints it as negative or in parentheses.
-- current_charges: the new charges for this bill only.
+- current_charges: the new charges for this bill only, including tax, fees \
+and surcharges. On an invoice with no previous balance this is the invoice \
+total, not the subtotal before tax. A single charge line counts.
 - line_items: each separate charge line that makes up current_charges, \
 including tax, fee and surcharge lines, so the amounts add up to \
 current_charges. Never subtotals, totals, balances or payments. [] when the \
 bill shows only a single charge without itemizing it.
 - service_address: only an address the bill labels as the service, property, \
-premises or job-site location. Never the bill-to, remit-to or mailing \
-address. null if there is none.
+premises, location or job-site address (for example "Service location" or \
+"Customer / Location"). Never the bill-to, remit-to or mailing address. null \
+if there is none.
 - service_period_start, service_period_end: the period the charges cover.
 """
 
