@@ -1,14 +1,27 @@
 # Fix staged files and re-stage them. Skip in an emergency: git commit --no-verify
 if [ ! -x frontend/node_modules/.bin/lint-staged ]; then
-  # Backend-only setup (no frontend install): still run Ruff on staged Python files.
-  files=$(git diff --cached --name-only --diff-filter=ACM -- 'backend/*.py')
-  if [ -n "$files" ] && command -v uv >/dev/null 2>&1; then
-    echo "$files" | xargs uv run --project backend ruff check --fix &&
-      echo "$files" | xargs uv run --project backend ruff format &&
-      echo "$files" | xargs git add
-    exit $?
+  # Backend-only setup (no frontend install): run Ruff on staged Python files ourselves.
+  if git diff --cached --quiet --diff-filter=ACM -- 'backend/*.py'; then
+    git diff --cached --quiet --diff-filter=ACM -- 'frontend/' ||
+      echo "pre-commit: frontend files not checked; run 'pnpm install' in frontend/ to enable Biome"
+    exit 0
   fi
-  echo "pre-commit: frontend not installed (run 'pnpm install' in frontend/); only Ruff ran for backend files"
-  exit 0
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "pre-commit: uv not found, skipping Ruff for backend files (CI will still check them)"
+    exit 0
+  fi
+  # Files with unstaged edits are only checked, never rewritten, so WIP hunks are not committed.
+  git diff --cached -z --name-only --diff-filter=ACM -- 'backend/*.py' | xargs -0 sh -c '
+    rc=0
+    for f; do
+      if git diff --quiet -- "$f"; then
+        uv run --project backend ruff check --fix "$f" && uv run --project backend ruff format "$f" && git add -- "$f" || rc=1
+      else
+        echo "pre-commit: $f has unstaged changes; checking only (not auto-fixing)"
+        uv run --project backend ruff check "$f" && uv run --project backend ruff format --check "$f" || rc=1
+      fi
+    done
+    exit $rc' _
+  exit $?
 fi
 frontend/node_modules/.bin/lint-staged --config lint-staged.config.mjs
