@@ -1,6 +1,14 @@
 # Fix staged files and re-stage them. Skip in an emergency: git commit --no-verify
 if [ ! -x frontend/node_modules/.bin/lint-staged ]; then
-  echo "pre-commit: run 'pnpm install' in frontend/ to enable the hook; skipping"
+  # Backend-only setup (no frontend install): still run Ruff on staged Python files.
+  files=$(git diff --cached --name-only --diff-filter=ACM -- 'backend/*.py')
+  if [ -n "$files" ] && command -v uv >/dev/null 2>&1; then
+    echo "$files" | xargs uv run --project backend ruff check --fix &&
+      echo "$files" | xargs uv run --project backend ruff format &&
+      echo "$files" | xargs git add
+    exit $?
+  fi
+  echo "pre-commit: frontend not installed (run 'pnpm install' in frontend/); only Ruff ran for backend files"
   exit 0
 fi
 frontend/node_modules/.bin/lint-staged --config lint-staged.config.mjs

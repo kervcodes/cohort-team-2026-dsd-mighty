@@ -105,7 +105,9 @@ A commit runs [husky](https://typicode.github.io/husky/) and [lint-staged](https
 
 Fixes are re-staged automatically, so they land in the same commit. Problems that cannot be fixed automatically stop the commit. Warnings do not block a commit.
 
-**Setup:** run `pnpm install` in `frontend/`. Its `prepare` script sets git's `core.hooksPath` to `.husky/_` (generated from the repo-root `.husky/` folder), so there is nothing else to do. The hook is configured in `.husky/pre-commit` and `lint-staged.config.mjs`.
+**Setup (frontend contributors):** run `pnpm install` in `frontend/` with Node 22.22.1 or newer (`.nvmrc` pins it; `nvm use` picks it up). Its `prepare` script sets git's `core.hooksPath` to `.husky/_` (generated from the repo-root `.husky/` folder). If husky cannot install, it prints `husky: hook not installed` instead of failing the install. The hook is configured in `.husky/pre-commit` and `lint-staged.config.mjs`.
+
+**Setup (backend only, no Node needed):** run `git config core.hooksPath .husky` once from the repo root. The hook then runs Ruff on staged `backend/` Python files (needs `uv`). Installing the frontend later switches you to the full hook.
 
 **Skipping in an emergency:** `git commit --no-verify`. CI stays read-only (`pnpm lint`, `ruff check`, `ruff format --check`) and will still fail the PR if the code is not clean, so run `pnpm format` in `frontend/` or `uv run ruff check --fix . && uv run ruff format .` in `backend/` afterwards.
 
