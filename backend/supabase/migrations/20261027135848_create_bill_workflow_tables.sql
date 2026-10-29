@@ -7,6 +7,9 @@ create table public.bills (
     property_id uuid references public.properties(property_id),
     vendor_id uuid references public.vendors(vendor_id),
     vendor_account_id uuid references public.vendor_accounts(account_id),
+    property_address text not null,
+    account_status text not null,
+    website_name text not null,
 
     -- Required submitter
     submitted_by uuid not null references public.app_users(user_id),
