@@ -34,9 +34,10 @@ describe("Signup Page", () => {
     expect(await screen.findByText("Password must be at least 8 characters.")).toBeInTheDocument();
     expect(mockSignUp).not.toHaveBeenCalled();
   });
+
   it("rejects mismatched passwords", async () => {
     render(<SignupPage />);
-    await fillForm("a@b.com", "password123", "password124");
+    await fillForm("a@b.com", "password1235", "password124");
 
     expect(await screen.findByText("Passwords do not match.")).toBeInTheDocument();
     expect(mockSignUp).not.toHaveBeenCalled();
