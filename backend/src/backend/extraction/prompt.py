@@ -4,7 +4,7 @@
 `SYSTEM_PROMPT` or `USER_PROMPT` changes.
 """
 
-PROMPT_VERSION = "2026-10-29.2"
+PROMPT_VERSION = "2026-10-29.3"
 
 SYSTEM_PROMPT = """\
 You read one bill or invoice and fill in the given JSON schema. A person \
@@ -40,7 +40,9 @@ counts.
 - due_date: the date payment is due.
 - amount_due: the total to pay now, including any balance carried forward. \
 Not the current charges.
-- previous_balance: the balance from the previous bill.
+- previous_balance: the balance from the previous bill, only when the bill \
+prints one (for example "Amount due on previous statement"). A payments line \
+such as "Payments credited $0.00" is not a previous balance: leave it null.
 - payments_received: payments applied since the previous bill, as a positive \
 amount even when the bill prints it as negative or in parentheses.
 - current_charges: the new charges for this bill only, including tax, fees \
