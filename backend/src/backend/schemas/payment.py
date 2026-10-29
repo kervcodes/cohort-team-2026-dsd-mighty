@@ -5,17 +5,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-class PaymentMethod(StrEnum):
-    ACH = "ACH"
-    CHECK = "CHECK"
-    WIRE = "WIRE"
+from backend.schemas.common import PaymentMethod
 
 
 class PaymentStatus(StrEnum):
-    PENDING = "PENDING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class PaymentCreate(BaseModel):
