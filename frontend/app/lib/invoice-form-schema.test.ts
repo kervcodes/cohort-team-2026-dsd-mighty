@@ -1,4 +1,4 @@
-import { accountStatuses, emptyInvoiceForm, invoiceFormSchema } from "./invoice-form-schema";
+import { emptyInvoiceForm, invoiceFormSchema } from "./invoice-form-schema";
 
 const validData = {
   accountNumber: "12345",

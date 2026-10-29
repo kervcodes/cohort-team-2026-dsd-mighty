@@ -1,8 +1,7 @@
 from datetime import UTC, datetime
-from http.client import HTTPException
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, HTTPException, status
 
 from backend.schemas.bill import BillCreate, BillRead, BillStatus
 from backend.schemas.user import UserSummary
