@@ -1,7 +1,11 @@
 """Test data modelled on a real utility bill. Helpers, not tests."""
 
+import io
 from datetime import date
 from typing import Any
+
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from backend.extraction.schema import (
     BillExtraction,
@@ -92,3 +96,32 @@ def not_an_invoice() -> BillExtraction:
         service_period_start=null(),
         service_period_end=null(),
     )
+
+
+def _pdf_string(line: str) -> bytes:
+    escaped = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    return f"({escaped}) Tj T*".encode("latin-1")
+
+
+def make_pdf(text: str = TEXT_LAYER, pages: int = 1) -> bytes:
+    """A real PDF whose text layer is `text` on every page (Helvetica)."""
+    writer = PdfWriter()
+    font = DictionaryObject(
+        {
+            NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/Type1"),
+            NameObject("/BaseFont"): NameObject("/Helvetica"),
+        }
+    )
+    lines = b" ".join(_pdf_string(line) for line in text.strip().splitlines())
+    for _ in range(pages):
+        page = writer.add_blank_page(612, 792)
+        page[NameObject("/Resources")] = DictionaryObject(
+            {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})}
+        )
+        content = DecodedStreamObject()
+        content.set_data(b"BT /F1 10 Tf 12 TL 50 750 Td " + lines + b" ET")
+        page.replace_contents(content)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
