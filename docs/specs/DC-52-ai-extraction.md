@@ -2,7 +2,7 @@
 
 - Jira: DC-52 (relates to DC-50, DC-11)
 - Owner: Pranil Lama
-- Status: approved 2026-10-29; model chosen, see "Results and model choice"
+- Status: approved 2026-10-29; model chosen, see "Results and model choice"; revised 2026-10-29 after the deep review (cascade, evidence, pre-check and scoring rules)
 
 ## Goal
 
@@ -25,12 +25,14 @@ upload -> POST /bills/extract -> pre-filled form -> person edits -> Create (POST
 def extract_bill(data: bytes, media_type: str, *, model: str) -> ExtractionResult
 ```
 
-- Accepts `application/pdf`, `image/png`, `image/jpeg`. At most 10 MB and 5 pages. Anything else returns status `failed` with a reason, without calling a model.
-- Later, `POST /bills/extract` (multipart file) returns `ExtractionResult` as JSON. It stores nothing.
+- Accepts `application/pdf`, `image/png`, `image/jpeg`. The declared type must be one of these, but the file's first bytes decide what it is (`%PDF-`, PNG or JPEG signature); other bytes are rejected. PDFs at most 10 MB and 5 pages, images at most 5 MB (Claude's per-image limit). Anything else returns status `failed` with a reason, without calling a model.
+- Encrypted PDFs: an owner-password-only PDF is read, and the model gets a decrypted copy (Claude takes only PDFs without passwords or encryption). A PDF that needs a password is `failed`.
+- Raises only for configuration errors: an unknown model (`ValueError`) or a missing API key. Every other error, including an unexpected one from the model call, is status `failed`.
+- Later, `POST /bills/extract` (multipart file) returns `ExtractionResult` as JSON. It stores nothing. The endpoint must cap the upload size before reading the body fully, and should run extraction in a worker thread with an overall deadline.
 
 ## Pipeline
 
-1. **Pre-checks (code):** media type, size, page count, SHA-256 of the file, and the PDF text layer if there is one (pypdf).
+1. **Pre-checks (code):** media type from the bytes, size, then the SHA-256 of the file, then for PDFs (pypdf, decompression limits lowered to 20 MB): encryption, page count and the text layer. A text layer over 200,000 characters is treated as none (logged). Any pypdf error is `failed`.
 2. **Model call:** the file is sent as-is (PDF document block or image). The response is forced into the schema below with structured output. No tools. Timeout 60 s, 2 retries.
 3. **Parse (Pydantic):** output that does not fit the schema is status `failed`, never shown as values.
 4. **Checks (code):** see below.
@@ -63,6 +65,7 @@ Every field is `{value, evidence, confidence}`:
 - Amounts are strings so they parse to `Decimal` exactly. Never floats.
 - `description` is built in code from the vendor and service period, not written by the model.
 - `processing_notes` gets the list of issues, so the reviewer sees why a field is flagged.
+- Text longer than the `BillCreate` field allows (limits read from `BillCreate`) maps to `null`, with no issue; the reviewer types it.
 - `website_name` and `account_status` are not extracted.
 
 ## Prompt rules
@@ -82,17 +85,23 @@ The prompt has a `PROMPT_VERSION` that goes into every log line and eval result.
 
 All plain code. Each failed check adds an issue `{code, field, message}`.
 
+Required fields: vendor, account #, invoice #, invoice date, due date and amount due (`BillCreate` requires all but the vendor).
+
 | Code | Rule |
 |---|---|
-| `MISSING_REQUIRED` | vendor, account #, invoice #, due date and amount due are present |
+| `MISSING_REQUIRED` | every required field is present |
 | `BAD_DATE` | dates parse |
 | `DUE_BEFORE_INVOICE` | due date is not before invoice date |
 | `DATE_OUT_OF_RANGE` | no date more than 1 year in the past or 6 months in the future |
 | `BAD_AMOUNT` | amounts parse, `amount_due > 0`, at most 12 digits with 2 decimals |
-| `LINE_ITEMS_MISMATCH` | line items add up to `current_charges` (when both exist) |
+| `LINE_ITEMS_MISMATCH` | line items add up to `current_charges` (when both exist); a line item with a null or unparseable amount is always flagged on that item |
 | `BALANCE_MISMATCH` | `previous_balance - payments_received + current_charges = amount_due` (when all exist) |
 | `EVIDENCE_NOT_FOUND` | the evidence appears in the PDF text layer, after normalising case and whitespace. Images have no text layer, so this check is skipped and confidence is capped at `medium` |
+| `EVIDENCE_MISMATCH` | every non-null value is what its own evidence shows, with or without a text layer. Strings: the normalised value is inside the normalised evidence. Amounts: a number in the evidence (ignoring `$`, commas, spaces, parentheses, a leading or trailing minus or `CR`) equals the absolute value. Dates: a date in the evidence, in a common format (`YYYY-MM-DD`, `MM/DD/YYYY`, `M/D/YYYY`, `MM/DD/YY`, "November 13, 2026", "Nov 13, 2026", "13 Nov 2026"), equals the value. Empty evidence never matches. A value that does not parse is left to `BAD_DATE` / `BAD_AMOUNT` |
 | `LOW_CONFIDENCE` | the model marked a required field `low` |
+| `MODELS_DISAGREE` | the backup model read a different value than the first model (cascade only, see "Models") |
+
+The evidence rules look for the value inside the evidence rather than requiring the evidence to be only the value, because models often copy the label too ("Total amount due by November 13, 2026").
 
 ## Status
 
@@ -100,9 +109,9 @@ Every status goes to a person; it only changes what the form highlights.
 
 | Status | When |
 |---|---|
-| `failed` | pre-check rejected the file, model error or timeout, output did not fit the schema |
-| `not_an_invoice` | the model said so |
-| `needs_attention` | any issue |
+| `failed` | pre-check rejected the file, model error or timeout (including an unexpected error, reported by type only), output did not fit the schema |
+| `not_an_invoice` | the model said so (and, in the cascade, both models agree) |
+| `needs_attention` | any issue, including any `MODELS_DISAGREE` |
 | `ready_for_review` | no issues |
 
 ## Models
@@ -117,7 +126,9 @@ Compared on the eval; the cheapest one that meets the targets goes to production
 
 Also measured: Haiku first with Sonnet as a backup when the checks find issues.
 
-Every call logs model, prompt version, file hash, input and output tokens, cost and latency. File contents and extracted values are not logged.
+**Cascade rule:** the backup runs when the first result is `needs_attention`, and always for a photo (PNG or JPEG) that the first model read: a photo has no text layer to check evidence against, and a misread that still adds up (for example swapped previous balance and current charges) passes every check, so an independent second read is the check. Its result is the backup's extraction and issues, plus one `MODELS_DISAGREE` for every field the two models read differently: amounts and dates by parsed value, strings normalised like the checks, null against a value counts, `document_type` too, line items as a multiset of amounts (one issue on `line_items`). Any disagreement is `needs_attention`; full agreement with no backup issues is `ready_for_review`. If the backup fails, the first result is kept. Both attempts are recorded. Nothing either model found is dropped.
+
+Every call logs model, prompt version, file hash, input and output tokens, cost, latency, status and failed reason. File contents and extracted values are not logged; an echoed media type is capped at 50 characters.
 
 ## Eval
 
@@ -160,12 +171,15 @@ Generated bills get their keys from the generator's own input data, so they need
 - Every field is present; `null` when the bill does not show it.
 - Strings are copied exactly as printed. `payments_received` is a positive amount even when the bill prints it as negative.
 - `expected_issues` lists issue codes from the Checks table, sorted.
+- A test runs every key through the checks, with evidence copied from the bill's text layer, and requires exactly its `expected_issues` and `expected_status`.
 
 **Scoring:**
 
 - Strings match after trimming and collapsing whitespace.
-- Dates and amounts must match exactly.
+- Dates and amounts match by parsed value (`"1180.5"` and `"$5,680.00"` count when they parse to the key's value); a date must still be `YYYY-MM-DD`. Line item amounts likewise.
 - An expected `null` must come back `null`.
+- "Required" is the Checks list above, invoice date included.
+- The eval runs as of the fixture world's date, `EVAL_TODAY = 2026-10-29`, passed to every extract call.
 
 **Measures and targets:**
 
@@ -183,9 +197,9 @@ Generated bills get their keys from the generator's own input data, so they need
 
 | Rule | Enforcer |
 |---|---|
-| CI never calls a model | pytest test: the test run has no API keys, and the extractor raises without them; the eval is not under `tests/` |
+| CI never calls a model | pytest: an autouse fixture in `backend/tests/conftest.py` removes the API keys for every backend test, and the extractor raises without them; the eval is not under `tests/` |
 | The extractor never touches the database | pytest test that parses the imports of `backend/extraction/` and fails on `supabase` |
-| Every check has unit tests | the tests themselves, run in CI |
+| Every check has unit tests | pytest: a map from every `IssueCode` to an extraction that triggers it through `run_checks`, which fails when a code has no entry; `MODELS_DISAGREE` is triggered through the cascade comparison in a sibling test |
 
 These become `ENFORCEMENT.md` rows in the same PR.
 
@@ -208,7 +222,7 @@ backend/evals/bills/
   dev/  holdout/  expected/
 ```
 
-New dependencies: `anthropic`, `google-genai`, `pypdf`.
+New dependencies: `anthropic`, `google-genai`, `pypdf`; declared because they are imported directly: `python-dotenv`, `httpx` and `httpx2` (the HTTP clients of the Gemini and Claude SDKs, for their error types).
 
 ## Build order
 
@@ -221,9 +235,22 @@ New dependencies: `anthropic`, `google-genai`, `pypdf`.
 
 ## Results and model choice (2026-10-29)
 
-**Choice: Claude Haiku 5.5, re-run with Claude Sonnet 5.5 only when the checks raise an issue** (`extract_bill_cascade`). It met every target on both splits at Haiku's price for most bills. Sonnet alone is as accurate but costs about 20 times more on every bill.
+**Choice: Claude Haiku 5.5, re-run with Claude Sonnet 5.5 when the checks raise an issue and for every photo** (`extract_bill_cascade`, see "Cascade rule"). It met every target on both splits at Haiku's price for most bills. Sonnet alone is as accurate but costs about 20 times more on every bill.
 
-Prompt `2026-10-29.2`, dev split (19 bills):
+**Final run** (prompt `2026-10-29.3`, all checks from the deep review, photos always read twice):
+
+| Measure (target) | Dev (19 bills) | Holdout (5 bills) |
+|---|---|---|
+| Required fields correct (95%) | 100% | 100% |
+| Silent errors (0) | 0 | 0 |
+| Clean bills held (20%) | 1/16 | 0/5 |
+| Planted problems caught (all) | 2/2 | - |
+| Cost per bill, median / p95 | $0.0007 / $0.0236 | $0.0009 / $0.0192 |
+| Latency, median / p95 | 3.2 s / 9.8 s | 3.7 s / 6.6 s |
+
+The one clean bill held is the rotated photo: the two models read different dates, so a person checks them. That is the intended outcome. With the stricter checks Haiku alone made 1 silent error on that photo (it took the due date as the invoice date and swapped previous balance and current charges, which still add up), which is why photos are always read twice. Prompt `.3` stops Haiku reporting a previous balance of `0.00` from a "Payments credited" line.
+
+Earlier run, prompt `2026-10-29.2`, before the deep-review checks, dev split (19 bills):
 
 | Measure (target) | Haiku | Haiku, Sonnet as backup | Sonnet (prompt .1) |
 |---|---|---|---|
@@ -244,8 +271,8 @@ What changed between prompt `.1` and `.2`:
 
 Known gaps:
 
-- On the rotated photo, Haiku swapped the invoice and due dates. `DUE_BEFORE_INVOICE` caught it and the cascade fixed it with Sonnet. Photos are always capped at medium confidence.
-- Haiku reported a previous balance of `0.00` on Maple Junction, which prints only "Payments credited $0.00". Not a required field and harmless.
+- Photos are always capped at medium confidence and read by both models.
+- Optional fields still vary a little between runs (for example Harborlight's "Customer / Location" address or a printed `$0.00` payment read as null). None are required fields, and a person reviews every value.
 - Every model resisted the prompt-injection bill and reported the real amount due.
 
 **Gemini was not compared.** Gemini 3.8 Flash returned 503 "high demand" on every call. Gemini 3.6 Flash (`gemini-3.6-flash`, same price) works with the same code and read the bills it finished correctly, but the key is on the free tier and hit its quota (429) after 8 to 9 bills. Decided by Pranil: drop Gemini for now. The provider stays in the eval script, so a paid key can be compared later with `--model gemini-3.6-flash --concurrency 1`.
