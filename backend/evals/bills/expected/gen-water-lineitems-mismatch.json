@@ -1,0 +1,43 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Quarry Hill Water Works",
+  "account_number": "QH-7714-0388",
+  "invoice_number": "QHW-202610-5611",
+  "invoice_date": "2026-10-22",
+  "due_date": "2026-11-13",
+  "amount_due": "1358.55",
+  "previous_balance": "1310.25",
+  "payments_received": "1310.25",
+  "current_charges": "1358.55",
+  "line_items": [
+    {
+      "description": "Water service charge, 1-1/2 in. meter (30 days)",
+      "amount": "112.40"
+    },
+    {
+      "description": "Water usage",
+      "amount": "656.64"
+    },
+    {
+      "description": "Sewer usage",
+      "amount": "395.52"
+    },
+    {
+      "description": "Stormwater fee",
+      "amount": "18.50"
+    },
+    {
+      "description": "Infrastructure surcharge (3.0%)",
+      "amount": "35.49"
+    }
+  ],
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
+  "service_period_start": "2026-09-17",
+  "service_period_end": "2026-10-16",
+  "expected_issues": [
+    "LINE_ITEMS_MISMATCH"
+  ],
+  "expected_status": "needs_attention",
+  "case": "Planted problem: page-2 line items add up to less than the current charges printed on page 1",
+  "notes": "The page-2 lines sum to $140.00 less than the printed current charges. The page-1 summary itself balances."
+}
