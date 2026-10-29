@@ -1,0 +1,6 @@
+# Fix staged files and re-stage them. Skip in an emergency: git commit --no-verify
+if [ ! -x frontend/node_modules/.bin/lint-staged ]; then
+  echo "pre-commit: run 'pnpm install' in frontend/ to enable the hook; skipping"
+  exit 0
+fi
+frontend/node_modules/.bin/lint-staged --config lint-staged.config.mjs
