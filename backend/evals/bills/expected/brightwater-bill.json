@@ -8,7 +8,7 @@
   "amount_due": "324.16",
   "previous_balance": null,
   "payments_received": "0.00",
-  "current_charges": null,
+  "current_charges": "324.16",
   "line_items": [
     {
       "description": "Monthly water usage and sewer service",
@@ -20,6 +20,6 @@
   "service_period_end": null,
   "expected_issues": [],
   "expected_status": "ready_for_review",
-  "notes": "Key drafted independently by two models (no disagreements) and decided by Pranil.",
+  "notes": "The single charge line is the bill's current charges (decided by Pranil after the first eval). Key drafted independently by two models (no disagreements) and decided by Pranil.",
   "case": "DSD sample bill: one page, one charge, unusual labels"
 }
