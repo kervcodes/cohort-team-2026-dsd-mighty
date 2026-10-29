@@ -1,6 +1,7 @@
 """The eval scorer and runner helpers. Pure functions: no model is called."""
 
 import copy
+from datetime import date
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from backend.evals.scoring import (
     summarize,
     value_matches,
 )
+from backend.extraction.extract import CascadeResult
 from backend.extraction.schema import (
     BillExtraction,
     ExtractionResult,
@@ -89,13 +91,27 @@ def test_strings_are_case_sensitive():
         ("amount_due", "1180.50", "1,180.50"),
         ("amount_due", "1180.50", "1180.5"),
         ("amount_due", "1180.50", " 1180.50"),
-        ("due_date", "2026-11-10", "11/10/2026"),
+        ("amount_due", "5680.00", "$5,680.00"),
         ("due_date", "2026-11-10", "2026-11-10 "),
     ],
 )
-def test_dates_and_amounts_must_match_exactly(name: str, expected: str, actual: str):
+def test_dates_and_amounts_match_by_parsed_value(name: str, expected: str, actual):
+    assert value_matches(name, expected, actual)
+
+
+@pytest.mark.parametrize(
+    ("name", "expected", "actual"),
+    [
+        ("amount_due", "1180.50", "1180.51"),
+        ("amount_due", "1180.50", "-1180.50"),
+        ("amount_due", "1180.50", "abc"),
+        ("due_date", "2026-11-10", "11/10/2026"),  # not a value the form accepts
+        ("due_date", "2026-11-10", "2026-11-11"),
+        ("document_type", "invoice", "not_an_invoice"),
+    ],
+)
+def test_dates_and_amounts_with_another_value_do_not_match(name: str, expected, actual):
     assert not value_matches(name, expected, actual)
-    assert value_matches(name, expected, expected)
 
 
 def test_expected_null_must_come_back_null():
@@ -112,7 +128,7 @@ def test_a_perfect_clean_bill():
     score = score_bill("b", KEY, result(cost_usd=0.001, latency_ms=1200))
     assert score.misses == ()
     assert score.fields_correct == score.fields_total == 13  # 12 values + type
-    assert score.required_correct == score.required_total == 5
+    assert score.required_correct == score.required_total == 6
     assert score.silent_errors == ()
     assert score.status_match and score.is_clean
     assert score.line_items_match
@@ -123,7 +139,7 @@ def test_a_wrong_required_field_without_an_issue_is_a_silent_error():
     extraction = clean_extraction(account_number=ex("88-2110-4417"))
     score = score_bill("b", KEY, result(extraction))
     assert [m.field for m in score.misses] == ["account_number"]
-    assert score.required_correct == 4
+    assert score.required_correct == 5
     assert score.silent_errors == ("account_number",)
 
 
@@ -135,7 +151,7 @@ def test_a_wrong_required_field_with_an_issue_on_it_is_not_silent():
         [issue(IssueCode.BALANCE_MISMATCH, "amount_due")],
     )
     score = score_bill("b", KEY, flagged)
-    assert score.required_correct == 4
+    assert score.required_correct == 5
     assert score.silent_errors == ()
     assert score.misses[0].flagged
 
@@ -152,7 +168,7 @@ def test_an_issue_on_another_field_does_not_cover_a_wrong_one():
 def test_a_wrong_optional_field_is_not_a_required_error():
     extraction = clean_extraction(service_period_end=ex("2026-10-13"))
     score = score_bill("b", KEY, result(extraction))
-    assert score.required_correct == 5
+    assert score.required_correct == 6
     assert score.fields_correct == 12
     assert score.silent_errors == ()
 
@@ -194,10 +210,17 @@ def test_an_invoice_called_not_an_invoice_is_silent():
         "vendor_name",
         "account_number",
         "invoice_number",
+        "invoice_date",
         "due_date",
         "amount_due",
     )
     assert "document_type" in {m.field for m in score.misses}
+
+
+def test_a_wrong_invoice_date_is_a_required_error():
+    extraction = clean_extraction(invoice_date=ex("2026-10-21"))
+    score = score_bill("b", KEY, result(extraction))
+    assert score.silent_errors == ("invoice_date",)
 
 
 def test_planted_problems_are_caught_when_the_code_is_raised():
@@ -236,6 +259,16 @@ def test_line_items_compare_amounts_as_a_multiset():
     assert not score_bill(
         "b", KEY, result(clean_extraction(line_items=[]))
     ).line_items_match
+
+
+def test_line_item_amounts_compare_by_parsed_value():
+    formatted = clean_extraction(
+        line_items=[
+            LineItem(description=ex("Water service"), amount=ex("$5,000.00")),
+            LineItem(description=ex("Sewer service"), amount=ex("680")),
+        ]
+    )
+    assert score_bill("b", KEY, result(formatted)).line_items_match
 
 
 def test_cost_and_latency_overrides_for_a_cascade():
@@ -294,7 +327,7 @@ def test_summary_measures():
     ]
     summary = summarize(scores)
     assert summary.bills == 5
-    assert summary.required_accuracy == pytest.approx((5 + 4 + 4 + 5 + 0) / 25)
+    assert summary.required_accuracy == pytest.approx((6 + 5 + 5 + 6 + 0) / 30)
     assert summary.silent_errors == 1
     assert (summary.clean_bills, summary.clean_held) == (4, 1)
     assert summary.clean_held_rate == pytest.approx(0.25)
@@ -366,6 +399,29 @@ def test_main_asks_before_calling_and_stops_on_no(
     out = capsys.readouterr().out
     assert "up to 1 model calls, estimated cost at most $" in out
     assert "Cancelled" in out
+
+
+def test_every_extract_call_gets_the_fixture_worlds_date(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    seen: list[Any] = []
+    failed = result(status=ExtractionStatus.failed, failed_reason="fake")
+
+    def fake_extract(*args: Any, **kwargs: Any) -> ExtractionResult:
+        seen.append(kwargs["today"])
+        return failed
+
+    def fake_cascade(*args: Any, **kwargs: Any) -> CascadeResult:
+        seen.append(kwargs["today"])
+        return CascadeResult(failed, (failed,))
+
+    monkeypatch.setattr(run, "extract_bill", fake_extract)
+    monkeypatch.setattr(run, "extract_bill_cascade", fake_cascade)
+    bill = run.find_bills("dev", "gen-electric-clean*")[0]
+    run.run_bill(bill, ("claude-haiku-5-5",))
+    run.run_bill(bill, ("claude-haiku-5-5", "claude-sonnet-5-5"))
+    assert run.EVAL_TODAY == date(2026, 10, 29)
+    assert seen == [run.EVAL_TODAY, run.EVAL_TODAY]
 
 
 def test_details_show_a_failed_bill_as_one_line(capsys: pytest.CaptureFixture[str]):

@@ -4,18 +4,22 @@ Pure functions: an answer key (`expected/<bill>.json` as a dict) and an
 `ExtractionResult` in, scores out. Nothing here calls a model.
 
 - Strings match after trimming and collapsing whitespace; dates and amounts
-  must match exactly; an expected null must come back null.
+  match by parsed value (`parse_date`, `parse_amount`, so "1180.5" equals
+  "1180.50"); an expected null must come back null.
 - A failed extraction has no values, so every expected non-null field is wrong
   (but never silent: the person sees `failed`).
-- Line items are compared as a multiset of amounts; descriptions are reported,
-  not scored.
+- Line items are compared as a multiset of parsed amounts; descriptions are
+  reported, not scored.
+
+Nothing here depends on the date: the eval's "today" (`EVAL_TODAY` in run.py)
+only matters to the checks, which run inside `extract_bill`.
 """
 
 import math
 import re
 import statistics
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -26,10 +30,11 @@ from backend.extraction.schema import (
     REQUIRED_FIELDS,
     ExtractionResult,
     ExtractionStatus,
+    parse_amount,
+    parse_date,
 )
 
 SCORED_FIELDS = ("document_type", *FIELD_NAMES)
-_EXACT_FIELDS = frozenset((*DATE_FIELDS, *AMOUNT_FIELDS, "document_type"))
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -37,10 +42,20 @@ def normalize_string(text: str) -> str:
     return _WHITESPACE_RE.sub(" ", text).strip()
 
 
+def _parsed(parse: Callable[[str], object], text: str) -> object:
+    """The parsed value; text that does not parse never equals a parsed one."""
+    value = parse(text)
+    return ("unparsed", text) if value is None else value
+
+
 def value_matches(name: str, expected: str | None, actual: str | None) -> bool:
     if expected is None or actual is None:
         return expected is None and actual is None
-    if name in _EXACT_FIELDS:
+    if name in DATE_FIELDS:
+        return _parsed(parse_date, expected) == _parsed(parse_date, actual)
+    if name in AMOUNT_FIELDS:
+        return _parsed(parse_amount, expected) == _parsed(parse_amount, actual)
+    if name == "document_type":
         return expected == actual
     return normalize_string(expected) == normalize_string(actual)
 
@@ -54,6 +69,10 @@ def actual_values(result: ExtractionResult) -> dict[str, str | None]:
     for name in FIELD_NAMES:
         values[name] = getattr(extraction, name).value
     return values
+
+
+def _item_amount(text: str | None) -> object:
+    return None if text is None else _parsed(parse_amount, text)
 
 
 @dataclass(frozen=True)
@@ -138,8 +157,8 @@ def score_bill(
         is_clean=expected["expected_status"] == ExtractionStatus.ready_for_review,
         planted=planted,
         caught=tuple(code for code in planted if code in result_codes),
-        line_items_match=Counter(i["amount"] for i in expected_items)
-        == Counter(i.amount.value for i in actual_items),
+        line_items_match=Counter(_item_amount(i["amount"]) for i in expected_items)
+        == Counter(_item_amount(i.amount.value) for i in actual_items),
         line_item_descriptions_missed=tuple(
             sorted(
                 (

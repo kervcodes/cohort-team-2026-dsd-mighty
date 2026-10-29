@@ -18,7 +18,7 @@ import sys
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +39,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[3]
 BILLS_DIR = BACKEND_DIR / "evals" / "bills"
 RESULTS_DIR = BACKEND_DIR / "evals" / "results"
 SPLITS = ("dev", "holdout")
+# "Today" in the fixture world (scripts/make-demo-bills.mjs): the bills' dates
+# are only in range relative to it, so results do not change with the calendar.
+EVAL_TODAY = date(2026, 10, 29)
 MEDIA_TYPES = {
     ".pdf": "application/pdf",
     ".png": "image/png",
@@ -130,10 +133,12 @@ def run_bill(bill: Bill, models: tuple[str, ...]) -> BillRun:
     data = bill.path.read_bytes()
     expected = load_expected(bill)
     if len(models) == 1:
-        result = extract_bill(data, bill.media_type, model=models[0])
+        result = extract_bill(data, bill.media_type, model=models[0], today=EVAL_TODAY)
         score = score_bill(bill.name, expected, result)
         return BillRun(bill, result, (result,), score)
-    cascade = extract_bill_cascade(data, bill.media_type, models=models)
+    cascade = extract_bill_cascade(
+        data, bill.media_type, models=models, today=EVAL_TODAY
+    )
     score = score_bill(
         bill.name,
         expected,
