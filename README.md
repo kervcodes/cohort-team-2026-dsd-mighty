@@ -96,6 +96,19 @@ No output and an exit code of `0` normally mean actionlint found no errors.
 
 The frontend has not been initialized yet. Setup instructions will be added when the team chooses and configures the frontend stack.
 
+## Pre-commit hook
+
+A commit runs [husky](https://typicode.github.io/husky/) and [lint-staged](https://github.com/lint-staged/lint-staged) on the files you staged:
+
+- `frontend/` files: `biome check --write` (format, lint fixes and import sorting).
+- `backend/` Python files: `ruff check --fix` and `ruff format`, through `uv`. If `uv` is not installed, the Python step is skipped with a message.
+
+Fixes are re-staged automatically, so they land in the same commit. Problems that cannot be fixed automatically stop the commit.
+
+**Setup:** run `pnpm install` in `frontend/`. Its `prepare` script points git at the repo-root `.husky/` folder (`core.hooksPath`), so there is nothing else to do. The hook is configured in `.husky/pre-commit` and `lint-staged.config.mjs`.
+
+**Skipping in an emergency:** `git commit --no-verify`. CI stays read-only (`pnpm lint`, `ruff check`, `ruff format --check`) and will still fail the PR if the code is not clean, so run `pnpm format` in `frontend/` or `uv run ruff check --fix . && uv run ruff format .` in `backend/` afterwards.
+
 ## Continuous Integration
 
 GitHub Actions configuration lives in [`.github/workflows/`](./.github/workflows/). It runs on pull requests to `main` and pushes to `main`.
