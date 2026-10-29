@@ -18,3 +18,5 @@ The checker runs by `node` from the repo root because the root has no `package.j
 | Biome is the only linter and formatter (no ESLint, no Prettier); lint passes before merge | ci | `frontend/biome.json`, `.github/workflows/ci.yml` | - |
 | No literal user-visible text in components | convention | - | 2026-12-31 Biome `noJsxLiterals` runs at warn, not error: literals not yet extracted (14 in 3 files) |
 | Required status checks and squash-only merges on `main` | audit | - | 2026-12-31 repository admin settings, not changeable from a PR |
+| The extractor never imports Supabase | test | `backend/tests/extraction/test_extraction_rules.py` | - |
+| Tests never call a model: API keys are removed for the test run | test | `backend/tests/extraction/conftest.py`, `backend/tests/extraction/test_extraction_rules.py` | - |
