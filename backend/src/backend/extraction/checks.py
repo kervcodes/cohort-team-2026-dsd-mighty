@@ -11,11 +11,13 @@ How `extract.py` should call this module:
     status = decide_status(extraction, issues, failed_reason=None)
 
 The cap is a separate step on purpose: `run_checks` never changes the extraction.
+`check_models_agree` is the cascade's check and is not part of `run_checks`.
 """
 
 import re
 import unicodedata
 from calendar import monthrange
+from collections import Counter
 from datetime import date
 from decimal import Decimal
 
@@ -206,14 +208,28 @@ def check_amounts(extraction: BillExtraction) -> list[Issue]:
 
 
 def check_line_items_total(extraction: BillExtraction) -> list[Issue]:
-    """Line items add up to `current_charges`, when both exist."""
-    charges = _valid_amount(extraction.current_charges)
-    if charges is None or not extraction.line_items:
-        return []
+    """Line items add up to `current_charges`, when both exist.
+
+    A line item whose amount is null or unusable cannot be part of the sum, so
+    it is flagged on its own (whether or not `current_charges` exists) and the
+    total is not compared.
+    """
     amounts = [_valid_amount(item.amount) for item in extraction.line_items]
-    if any(amount is None for amount in amounts):
+    unusable = [
+        _issue(
+            IssueCode.LINE_ITEMS_MISMATCH,
+            f"line_items[{i}].amount",
+            f"line_items[{i}] has no usable amount",
+        )
+        for i, amount in enumerate(amounts)
+        if amount is None
+    ]
+    if unusable:
+        return unusable
+    charges = _valid_amount(extraction.current_charges)
+    if charges is None or not amounts:
         return []
-    if sum(amounts, Decimal(0)) != charges:
+    if sum((a for a in amounts if a is not None), Decimal(0)) != charges:
         return [
             _issue(
                 IssueCode.LINE_ITEMS_MISMATCH,
@@ -270,6 +286,129 @@ def check_evidence(extraction: BillExtraction, text_layer: str | None) -> list[I
     return issues
 
 
+_MONTHS = (
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+)
+# Numbers as bills print them; sign, "$", "CR" and parentheses are ignored.
+_NUMBER_RE = re.compile(r"[0-9][0-9,]*(?:\.[0-9]+)?")
+_NUMBER_DECORATION_RE = re.compile(r"[\s$,()]|^-|-$|^cr|cr$", re.IGNORECASE)
+_ISO_DATE_RE = re.compile(r"\b([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})\b")
+_US_DATE_RE = re.compile(r"\b([0-9]{1,2})/([0-9]{1,2})/([0-9]{4}|[0-9]{2})\b")
+_MONTH_DAY_YEAR_RE = re.compile(r"\b([a-z]+)\.?\s+([0-9]{1,2}),?\s+([0-9]{4})\b", re.I)
+_DAY_MONTH_YEAR_RE = re.compile(r"\b([0-9]{1,2})\s+([a-z]+)\.?,?\s+([0-9]{4})\b", re.I)
+
+
+def _month(word: str) -> int | None:
+    """1-12 for an English month name or its abbreviation ("Nov", "Sept")."""
+    word = word.lower()
+    for number, name in enumerate(_MONTHS, start=1):
+        if word == name or word == name[:3] or (number == 9 and word == "sept"):
+            return number
+    return None
+
+
+def _date_or_none(year: int, month: int | None, day: int) -> date | None:
+    if month is None:
+        return None
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def evidence_dates(text: str) -> set[date]:
+    """Every date written in `text` in a common format.
+
+    YYYY-MM-DD, MM/DD/YYYY, M/D/YYYY, MM/DD/YY (20YY), "November 13, 2026",
+    "Nov 13, 2026" and "13 Nov 2026". Slashed dates are read month first (US).
+    """
+    candidates = [
+        *(
+            _date_or_none(int(y), int(m), int(d))
+            for y, m, d in _ISO_DATE_RE.findall(text)
+        ),
+        *(
+            _date_or_none(int(y) + (2000 if len(y) == 2 else 0), int(m), int(d))
+            for m, d, y in _US_DATE_RE.findall(text)
+        ),
+        *(
+            _date_or_none(int(y), _month(word), int(d))
+            for word, d, y in _MONTH_DAY_YEAR_RE.findall(text)
+        ),
+        *(
+            _date_or_none(int(y), _month(word), int(d))
+            for d, word, y in _DAY_MONTH_YEAR_RE.findall(text)
+        ),
+    ]
+    return {day for day in candidates if day is not None}
+
+
+def evidence_numbers(text: str) -> set[Decimal]:
+    """The absolute value of every number in `text`.
+
+    The whole text with `$`, commas, spaces, parentheses and a leading or
+    trailing minus or "CR" removed counts (so "$ 1 942.34" is one number), and
+    so does every number inside it, because models often copy the label too
+    ("Total amount due $1,942.34").
+    """
+    candidates = [_NUMBER_DECORATION_RE.sub("", text.strip())]
+    candidates += _NUMBER_RE.findall(text)
+    found = set()
+    for candidate in candidates:
+        if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", candidate.replace(",", "")):
+            found.add(Decimal(candidate.replace(",", "")))
+    return found
+
+
+def _value_in_evidence(name: str, value: str, evidence: str) -> bool | None:
+    """Whether `evidence` shows `value`; None when the value itself does not
+    parse (BAD_DATE or BAD_AMOUNT reports that instead)."""
+    if name in DATE_FIELDS:
+        day = parse_date(value)
+        return None if day is None else day in evidence_dates(evidence)
+    if name in AMOUNT_FIELDS or name.endswith(".amount"):
+        amount = parse_amount(value)
+        return None if amount is None else abs(amount) in evidence_numbers(evidence)
+    return normalize_for_match(value) in normalize_for_match(evidence)
+
+
+def check_evidence_matches_value(extraction: BillExtraction) -> list[Issue]:
+    """Every non-null value is what its own evidence shows.
+
+    Runs with or without a text layer, so it also covers photos. Strings: the
+    value is inside the evidence (normalised like EVIDENCE_NOT_FOUND). Amounts:
+    a number in the evidence equals the absolute value (payments print as
+    negative). Dates: a date in the evidence, in a common format, equals the
+    value. Empty evidence never matches.
+    """
+    issues = []
+    for name, field in extraction.iter_fields():
+        if not _present(field):
+            continue
+        assert field.value is not None
+        empty = not field.evidence.strip()
+        if empty or _value_in_evidence(name, field.value, field.evidence) is False:
+            issues.append(
+                _issue(
+                    IssueCode.EVIDENCE_MISMATCH,
+                    name,
+                    f"{name} is not what its evidence shows",
+                )
+            )
+    return issues
+
+
 def check_low_confidence(extraction: BillExtraction) -> list[Issue]:
     """A required field that has a value but was marked low by the model.
 
@@ -298,5 +437,73 @@ def run_checks(
         *check_line_items_total(extraction),
         *check_balance(extraction),
         *check_evidence(extraction, text_layer),
+        *check_evidence_matches_value(extraction),
         *check_low_confidence(extraction),
     ]
+
+
+# The cascade's check: not part of run_checks, it needs two extractions.
+
+
+def _comparable(name: str, field: Extracted) -> object:
+    """A field value in the form two models' readings are compared in.
+
+    Amounts and dates by parsed value, strings normalised like the evidence
+    checks; a value that does not parse is compared as a normalised string.
+    Null and blank are both None.
+    """
+    if not _present(field):
+        return None
+    assert field.value is not None
+    if name in DATE_FIELDS:
+        parsed: object = parse_date(field.value)
+    elif name in AMOUNT_FIELDS or name.endswith(".amount"):
+        parsed = parse_amount(field.value)
+    else:
+        parsed = None
+    return parsed if parsed is not None else normalize_for_match(field.value)
+
+
+def check_models_agree(first: BillExtraction, second: BillExtraction) -> list[Issue]:
+    """One MODELS_DISAGREE per field the two extractions read differently.
+
+    `document_type` and every top-level field are compared; line items as a
+    multiset of amounts (order and descriptions aside), with one issue on
+    `line_items`. Null against a value is a disagreement.
+    """
+    issues = []
+    if first.document_type != second.document_type:
+        issues.append(
+            _issue(
+                IssueCode.MODELS_DISAGREE,
+                "document_type",
+                "the backup model read a different document_type",
+            )
+        )
+    for name in FIELD_NAMES:
+        if _comparable(name, getattr(first, name)) != _comparable(
+            name, getattr(second, name)
+        ):
+            issues.append(
+                _issue(
+                    IssueCode.MODELS_DISAGREE,
+                    name,
+                    f"the backup model read a different {name}",
+                )
+            )
+
+    def item_amounts(extraction: BillExtraction) -> Counter[object]:
+        return Counter(
+            _comparable(f"line_items[{i}].amount", item.amount)
+            for i, item in enumerate(extraction.line_items)
+        )
+
+    if item_amounts(first) != item_amounts(second):
+        issues.append(
+            _issue(
+                IssueCode.MODELS_DISAGREE,
+                "line_items",
+                "the backup model read different line item amounts",
+            )
+        )
+    return issues

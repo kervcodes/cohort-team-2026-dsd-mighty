@@ -7,6 +7,7 @@ from bill_factory import clean_extraction, ex, null
 from pydantic import ValidationError
 
 from backend.extraction.schema import (
+    MAX_LENGTHS,
     BillExtraction,
     ExtractionResult,
     ExtractionStatus,
@@ -110,7 +111,9 @@ def test_issue_codes_are_exactly_the_spec_codes():
         "LINE_ITEMS_MISMATCH",
         "BALANCE_MISMATCH",
         "EVIDENCE_NOT_FOUND",
+        "EVIDENCE_MISMATCH",
         "LOW_CONFIDENCE",
+        "MODELS_DISAGREE",
     }
 
 
@@ -175,11 +178,16 @@ def test_clean_extraction_maps_to_a_valid_bill_create():
 
 
 def test_mapping_follows_the_spec_column():
-    mapped = to_bill_create_dict(clean_extraction())
-    assert mapped["amount"] == Decimal(
-        "5680.00"
-    )  # from amount_due, not current_charges
-    assert mapped["prev_payments"] == Decimal("1520.00")  # from payments_received
+    # Distinct values, so a swapped mapping fails.
+    extraction = clean_extraction(
+        amount_due=ex("5680.00"),
+        current_charges=ex("4160.00"),
+        previous_balance=ex("1520.00"),
+        payments_received=ex("1000.00"),
+    )
+    mapped = to_bill_create_dict(extraction)
+    assert mapped["amount"] == Decimal("5680.00")  # amount_due, not current_charges
+    assert mapped["prev_payments"] == Decimal("1000.00")  # not previous_balance
     assert mapped["property_address"] == "2110 Example Ave, Dallas, TX 75201"
     assert set(mapped) == {
         "vendor_name_raw",
@@ -254,6 +262,38 @@ def test_null_and_blank_fields_become_none():
     assert mapped["vendor_name_raw"] is None
     assert mapped["property_address"] is None
     assert mapped["prev_payments"] is None
+
+
+def test_max_lengths_are_read_from_bill_create():
+    assert MAX_LENGTHS == {
+        "vendor_name_raw": 200,
+        "account_number_raw": 100,
+        "invoice_number": 100,
+        "description": 2000,
+        "processing_notes": 2000,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "key"),
+    [
+        ("vendor_name", "vendor_name_raw"),
+        ("account_number", "account_number_raw"),
+        ("invoice_number", "invoice_number"),
+    ],
+)
+def test_text_longer_than_bill_create_allows_becomes_none(field: str, key: str):
+    limit = MAX_LENGTHS[key]
+    at_limit = to_bill_create_dict(clean_extraction(**{field: ex("A" * limit)}))
+    assert at_limit[key] == "A" * limit
+    validate_with_bill_create(at_limit)
+    too_long = to_bill_create_dict(clean_extraction(**{field: ex("A" * (limit + 1))}))
+    assert too_long[key] is None
+
+
+def test_too_long_vendor_is_left_out_of_the_description():
+    mapped = to_bill_create_dict(clean_extraction(vendor_name=ex("A" * 201)))
+    assert mapped["description"] == "service period 2026-09-13 to 2026-10-12"
 
 
 def test_values_are_stripped():

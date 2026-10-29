@@ -1,5 +1,7 @@
 """Keep model API keys out of the test run: CI never calls a model.
 
+The fixture is autouse at the top of `tests/`, so it covers every backend test.
+
 `backend/src/backend/supabase_client.py` calls `load_dotenv()` at import, which
 copies `backend/.env` (where a developer keeps real keys) into `os.environ`. The
 fixture below removes the keys before every test and wraps `dotenv.load_dotenv`

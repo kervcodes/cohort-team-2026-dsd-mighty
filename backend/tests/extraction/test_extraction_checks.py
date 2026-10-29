@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from bill_factory import (
@@ -18,9 +19,13 @@ from backend.extraction.checks import (
     check_dates_in_range,
     check_due_before_invoice,
     check_evidence,
+    check_evidence_matches_value,
     check_line_items_total,
     check_low_confidence,
     check_missing_required,
+    check_models_agree,
+    evidence_dates,
+    evidence_numbers,
     has_text_layer,
     normalize_for_match,
     run_checks,
@@ -76,7 +81,66 @@ def test_run_checks_reports_every_failing_check():
         IssueCode.DATE_OUT_OF_RANGE,
         IssueCode.BALANCE_MISMATCH,
         IssueCode.EVIDENCE_NOT_FOUND,  # the made-up due date is not in the text
+        IssueCode.EVIDENCE_MISMATCH,  # amount_due is not what its evidence shows
     }
+
+
+# Every check has a unit test that triggers it (ENFORCEMENT.md). A new
+# IssueCode fails this test until it gets an entry here.
+TRIGGERS: dict[IssueCode, tuple[BillExtraction, str]] = {
+    IssueCode.MISSING_REQUIRED: (clean_extraction(vendor_name=null()), "vendor_name"),
+    IssueCode.BAD_DATE: (clean_extraction(due_date=ex("11/10/2026")), "due_date"),
+    IssueCode.DUE_BEFORE_INVOICE: (
+        clean_extraction(due_date=ex("2026-10-19")),
+        "due_date",
+    ),
+    IssueCode.DATE_OUT_OF_RANGE: (
+        clean_extraction(service_period_start=ex("2020-01-01")),
+        "service_period_start",
+    ),
+    IssueCode.BAD_AMOUNT: (clean_extraction(amount_due=ex("0.00")), "amount_due"),
+    IssueCode.LINE_ITEMS_MISMATCH: (
+        clean_extraction(line_items=items("5000.00", "679.99")),
+        "current_charges",
+    ),
+    IssueCode.BALANCE_MISMATCH: (
+        clean_extraction(amount_due=ex("5000.00")),
+        "amount_due",
+    ),
+    IssueCode.EVIDENCE_NOT_FOUND: (
+        clean_extraction(vendor_name=ex("Acme Corp")),
+        "vendor_name",
+    ),
+    IssueCode.EVIDENCE_MISMATCH: (
+        clean_extraction(account_number=ex("88-2110-4417", "88-2110-4471")),
+        "account_number",
+    ),
+    IssueCode.LOW_CONFIDENCE: (
+        clean_extraction(due_date=ex("2026-11-10", confidence=Confidence.low)),
+        "due_date",
+    ),
+}
+# Raised outside run_checks, and triggered in test_models_disagree_is_triggered.
+RAISED_BY_THE_CASCADE = {IssueCode.MODELS_DISAGREE}
+
+
+def test_every_issue_code_has_a_trigger():
+    assert set(TRIGGERS) | RAISED_BY_THE_CASCADE == set(IssueCode)
+    assert not set(TRIGGERS) & RAISED_BY_THE_CASCADE
+
+
+@pytest.mark.parametrize("code", list(TRIGGERS))
+def test_each_check_is_triggered_by_run_checks(code: IssueCode):
+    extraction, field = TRIGGERS[code]
+    issues = run_checks(extraction, text_layer=TEXT_LAYER, today=TODAY)
+    assert (code, field) in codes(issues)
+
+
+def test_models_disagree_is_triggered():
+    issues = check_models_agree(
+        clean_extraction(), clean_extraction(due_date=ex("2026-11-11"))
+    )
+    assert codes(issues) == [(IssueCode.MODELS_DISAGREE, "due_date")]
 
 
 # --- MISSING_REQUIRED ---------------------------------------------------------
@@ -84,7 +148,14 @@ def test_run_checks_reports_every_failing_check():
 
 @pytest.mark.parametrize(
     "field",
-    ["vendor_name", "account_number", "invoice_number", "due_date", "amount_due"],
+    [
+        "vendor_name",
+        "account_number",
+        "invoice_number",
+        "invoice_date",  # BillCreate requires it
+        "due_date",
+        "amount_due",
+    ],
 )
 def test_missing_required_field_is_reported(field: str):
     issues = check_missing_required(clean_extraction(**{field: null()}))
@@ -99,7 +170,6 @@ def test_blank_required_value_counts_as_missing():
 @pytest.mark.parametrize(
     "field",
     [
-        "invoice_date",
         "previous_balance",
         "payments_received",
         "current_charges",
@@ -396,11 +466,19 @@ def test_line_item_check_skipped_without_line_items():
     assert check_line_items_total(clean_extraction(line_items=[])) == []
 
 
-def test_line_item_check_skipped_when_an_item_amount_is_unusable():
-    extraction = clean_extraction(line_items=items("5000.00", None))
-    assert check_line_items_total(extraction) == []
-    extraction = clean_extraction(line_items=items("5000.00", "abc"))
-    assert check_line_items_total(extraction) == []
+@pytest.mark.parametrize("amount", [None, "", "abc", "12.345"])
+def test_line_item_without_a_usable_amount_is_reported(amount: str | None):
+    extraction = clean_extraction(line_items=items("5000.00", amount))
+    assert codes(check_line_items_total(extraction)) == [
+        (IssueCode.LINE_ITEMS_MISMATCH, "line_items[1].amount")
+    ]
+
+
+def test_line_item_without_amount_is_reported_without_current_charges():
+    extraction = clean_extraction(current_charges=null(), line_items=items(None))
+    assert codes(check_line_items_total(extraction)) == [
+        (IssueCode.LINE_ITEMS_MISMATCH, "line_items[0].amount")
+    ]
 
 
 # --- BALANCE_MISMATCH ---------------------------------------------------------
@@ -588,6 +666,223 @@ def test_evidence_check_skipped_without_text_layer(text_layer):
 
 def test_has_text_layer():
     assert has_text_layer("Invoice")
+
+
+# --- EVIDENCE_MISMATCH --------------------------------------------------------
+
+
+def mismatches(**overrides):
+    return codes(check_evidence_matches_value(clean_extraction(**overrides)))
+
+
+def test_clean_extraction_matches_its_evidence():
+    assert mismatches() == []
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "Brightwater Utilities",
+        "BRIGHTWATER\nUTILITIES",
+        "Bill from Brightwater Utilities, Inc.",
+    ],
+)
+def test_string_value_inside_its_evidence_passes(evidence: str):
+    assert mismatches(vendor_name=ex("Brightwater Utilities", evidence)) == []
+
+
+@pytest.mark.parametrize("evidence", ["Brightwater", "Brightwater Utilites"])
+def test_string_value_not_inside_its_evidence_is_reported(evidence: str):
+    assert mismatches(vendor_name=ex("Brightwater Utilities", evidence)) == [
+        (IssueCode.EVIDENCE_MISMATCH, "vendor_name")
+    ]
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "1180.50",
+        "$1,180.50",
+        "1,180.5",
+        "-1,180.50",
+        "1,180.50-",
+        "($1,180.50)",
+        "1,180.50 CR",
+        "$ 1 180.50",
+        "Payment received 10/12/2026 - thank you -1,180.50",
+    ],
+)
+def test_amount_shown_by_its_evidence_passes(evidence: str):
+    assert mismatches(payments_received=ex("1180.50", evidence)) == []
+
+
+@pytest.mark.parametrize(
+    "evidence", ["1,180.05", "Total 5,680.00", "one thousand", "118050"]
+)
+def test_amount_not_shown_by_its_evidence_is_reported(evidence: str):
+    assert mismatches(payments_received=ex("1180.50", evidence)) == [
+        (IssueCode.EVIDENCE_MISMATCH, "payments_received")
+    ]
+
+
+def test_negative_value_matches_the_printed_credit():
+    assert mismatches(previous_balance=ex("-50.00", "50.00 CR")) == []
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "2026-11-13",
+        "11/13/2026",
+        "11/13/26",
+        "Due 11/13/2026",
+        "November 13, 2026",
+        "Nov 13, 2026",
+        "Nov. 13 2026",
+        "NOVEMBER 13, 2026",
+        "13 Nov 2026",
+        "13 November 2026",
+        "Total amount due by November 13, 2026",
+    ],
+)
+def test_date_shown_by_its_evidence_passes(evidence: str):
+    assert mismatches(due_date=ex("2026-11-13", evidence)) == []
+
+
+def test_short_dates_and_september_abbreviations_are_read():
+    assert mismatches(due_date=ex("2026-09-05", "9/5/2026")) == []
+    assert mismatches(due_date=ex("2026-09-05", "Sept 5, 2026")) == []
+    assert mismatches(due_date=ex("2026-09-05", "5 Sep 2026")) == []
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "11/14/2026",
+        "13/11/2026",  # read month first: not a date
+        "November 13",  # no year
+        "soon",
+        "Movember 13, 2026",
+    ],
+)
+def test_date_not_shown_by_its_evidence_is_reported(evidence: str):
+    assert mismatches(due_date=ex("2026-11-13", evidence)) == [
+        (IssueCode.EVIDENCE_MISMATCH, "due_date")
+    ]
+
+
+def test_a_date_range_shows_both_ends():
+    period = "Service period 09/13/2026 - 10/12/2026"
+    assert (
+        mismatches(
+            service_period_start=ex("2026-09-13", period),
+            service_period_end=ex("2026-10-12", period),
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize("evidence", ["", "  \n"])
+def test_empty_evidence_on_a_value_is_reported(evidence: str):
+    assert mismatches(invoice_number=ex("BW-4471-2611", evidence)) == [
+        (IssueCode.EVIDENCE_MISMATCH, "invoice_number")
+    ]
+
+
+def test_null_value_needs_no_matching_evidence():
+    assert mismatches(service_address=ex(None, "2110 Example Ave")) == []
+
+
+def test_unparseable_value_is_left_to_bad_date_and_bad_amount():
+    extraction = clean_extraction(
+        due_date=ex("soon", "11/10/2026"), amount_due=ex("abc", "5680.00")
+    )
+    assert check_evidence_matches_value(extraction) == []
+
+
+def test_line_item_description_and_amount_are_matched():
+    line_items = [
+        LineItem(
+            description=ex("Water usage 142 CCF @ $6.84", "Water usage 142 CCF $6.84"),
+            amount=ex("5000.00", "Water service 500.00"),
+        )
+    ]
+    assert mismatches(line_items=line_items) == [
+        (IssueCode.EVIDENCE_MISMATCH, "line_items[0].description"),
+        (IssueCode.EVIDENCE_MISMATCH, "line_items[0].amount"),
+    ]
+
+
+def test_evidence_mismatch_runs_without_a_text_layer():
+    extraction = clean_extraction(amount_due=ex("5680.00", "$5,860.00"))
+    assert codes(run_checks(extraction, text_layer=None, today=TODAY)) == [
+        (IssueCode.EVIDENCE_MISMATCH, "amount_due")
+    ]
+
+
+def test_evidence_parsers():
+    assert evidence_numbers("Payment 10/12/2026 -1,000.00") >= {
+        Decimal("1000.00"),
+        Decimal("2026"),
+    }
+    assert evidence_dates("from 09/17/2026 to Oct 16, 2026") == {
+        date(2026, 9, 17),
+        date(2026, 10, 16),
+    }
+    assert evidence_dates("2026-02-30 and 02/30/2026") == set()
+
+
+# --- MODELS_DISAGREE (the cascade) --------------------------------------------
+
+
+def test_models_agree_on_formatting_differences():
+    second = clean_extraction(
+        vendor_name=ex("BRIGHTWATER  UTILITIES"),
+        amount_due=ex("$5,680.00"),
+        previous_balance=ex("1520"),
+        line_items=list(reversed(clean_extraction().line_items)),
+    )
+    assert check_models_agree(clean_extraction(), second) == []
+
+
+def test_models_agree_ignores_evidence_and_confidence():
+    second = clean_extraction(
+        due_date=ex("2026-11-10", "Due November 10, 2026", Confidence.low)
+    )
+    assert check_models_agree(clean_extraction(), second) == []
+
+
+def test_null_against_a_value_is_a_disagreement():
+    issues = check_models_agree(
+        clean_extraction(), clean_extraction(previous_balance=null())
+    )
+    assert codes(issues) == [(IssueCode.MODELS_DISAGREE, "previous_balance")]
+    blank = clean_extraction(service_address=ex("  ", "x"))
+    assert check_models_agree(clean_extraction(service_address=null()), blank) == []
+
+
+def test_document_type_disagreement_is_reported():
+    issues = check_models_agree(clean_extraction(), not_an_invoice())
+    assert (IssueCode.MODELS_DISAGREE, "document_type") in codes(issues)
+
+
+def test_line_items_disagree_as_a_multiset_with_one_issue():
+    second = clean_extraction(line_items=items("5000.00", "680.00", "0.00"))
+    assert codes(check_models_agree(clean_extraction(), second)) == [
+        (IssueCode.MODELS_DISAGREE, "line_items")
+    ]
+    third = clean_extraction(line_items=items("5000.00", "68.00"))
+    assert codes(check_models_agree(clean_extraction(), third)) == [
+        (IssueCode.MODELS_DISAGREE, "line_items")
+    ]
+
+
+def test_unparseable_values_are_compared_as_text():
+    first = clean_extraction(due_date=ex("soon"))
+    assert check_models_agree(first, clean_extraction(due_date=ex(" SOON "))) == []
+    assert codes(check_models_agree(first, clean_extraction())) == [
+        (IssueCode.MODELS_DISAGREE, "due_date")
+    ]
 
 
 # --- cap_confidence -----------------------------------------------------------

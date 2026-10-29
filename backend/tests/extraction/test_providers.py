@@ -6,9 +6,11 @@ from types import SimpleNamespace
 from typing import Any
 
 import anthropic
+import httpx
 import httpx2
 import pytest
 from bill_factory import clean_extraction
+from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 from backend.extraction import providers
@@ -251,7 +253,15 @@ REQUEST = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
             ),
             "model error 529",
         ),
+        (
+            anthropic.APIResponseValidationError(
+                response=httpx2.Response(200, request=REQUEST), body=None
+            ),
+            "model error",
+        ),
+        (anthropic.APIError("unexpected", request=REQUEST, body=None), "model error"),
     ],
+    ids=["timeout", "connection", "status", "bad-response", "base"],
 )
 def test_claude_sdk_errors_become_provider_errors(fake_claude, error, reason: str):
     fake_claude.error = error
@@ -263,12 +273,15 @@ def test_claude_sdk_errors_become_provider_errors(fake_claude, error, reason: st
 
 
 class FakeGeminiModels:
-    def __init__(self, response: Any):
+    def __init__(self, response: Any, error: Exception | None = None):
         self.response = response
+        self.error = error
         self.kwargs: dict[str, Any] = {}
 
     def generate_content(self, **kwargs: Any) -> Any:
         self.kwargs = kwargs
+        if self.error:
+            raise self.error
         return self.response
 
 
@@ -321,6 +334,29 @@ def test_gemini_output_that_does_not_fit_fails_with_usage(fake_gemini):
     with pytest.raises(InvalidOutputError) as raised:
         call_gemini(b"%PDF", "application/pdf", model=GEMINI_FLASH)
     assert raised.value.usage == Usage(2000, 1000)
+
+
+GEMINI_REQUEST = httpx.Request("POST", "https://generativelanguage.googleapis.com")
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (httpx.ReadTimeout("slow", request=GEMINI_REQUEST), "model timeout"),
+        (httpx2.ReadTimeout("slow", request=REQUEST), "model timeout"),
+        (httpx.ConnectError("down", request=GEMINI_REQUEST), "model connection error"),
+        (
+            genai_errors.ServerError(503, {"error": {"message": "busy"}}),
+            "model error 503",
+        ),
+        (genai_errors.UnknownApiResponseError("unreadable"), "model error"),
+    ],
+    ids=["timeout", "timeout-httpx2", "connection", "status", "unknown-response"],
+)
+def test_gemini_sdk_errors_become_provider_errors(fake_gemini, error, reason: str):
+    fake_gemini.error = error
+    with pytest.raises(ProviderError, match=reason):
+        call_gemini(b"%PDF", "application/pdf", model=GEMINI_FLASH)
 
 
 def test_gemini_truncated_output_fails(fake_gemini):

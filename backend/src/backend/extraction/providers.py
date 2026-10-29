@@ -199,6 +199,8 @@ def call_claude(data: bytes, media_type: str, *, model: str) -> ProviderOutput:
         raise ProviderError(
             _reason(f"model error {error.status_code}", error)
         ) from error
+    except anthropic.APIError as error:  # every other SDK error, e.g. bad response
+        raise ProviderError(_reason("model error", error)) from error
 
     usage = Usage(response.usage.input_tokens, response.usage.output_tokens)
     if response.stop_reason != "end_turn":
@@ -258,6 +260,17 @@ def _gemini_client(api_key: str) -> genai.Client:
     )
 
 
+# The SDK's errors that are `ValueError`s rather than `APIError`s (for example a
+# response it cannot read). The function-call ones cannot happen without tools
+# but are listed so that no SDK error escapes as a crash.
+_GEMINI_VALUE_ERRORS = (
+    genai_errors.UnknownApiResponseError,
+    genai_errors.UnknownFunctionCallArgumentError,
+    genai_errors.UnsupportedFunctionError,
+    genai_errors.FunctionInvocationError,
+)
+
+
 def call_gemini(data: bytes, media_type: str, *, model: str) -> ProviderOutput:
     client = _gemini_client(_api_key("GEMINI_API_KEY"))
     # Gemini 3.x cannot turn thinking off: low is its lowest level.
@@ -283,6 +296,8 @@ def call_gemini(data: bytes, media_type: str, *, model: str) -> ProviderOutput:
         raise ProviderError(_reason("model connection error", error)) from error
     except genai_errors.APIError as error:
         raise ProviderError(_reason(f"model error {error.code}", error)) from error
+    except _GEMINI_VALUE_ERRORS as error:
+        raise ProviderError(_reason("model error", error)) from error
 
     metadata = response.usage_metadata
     usage = Usage(

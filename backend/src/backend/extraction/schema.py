@@ -19,7 +19,29 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-MAX_TEXT_LENGTH = 2000  # BillCreate.description / processing_notes limit
+from backend.schemas.bill import BillCreate
+
+
+def _bill_create_max_length(name: str) -> int:
+    """`max_length` of a `BillCreate` field, read from its Pydantic metadata."""
+    for item in BillCreate.model_fields[name].metadata:
+        max_length = getattr(item, "max_length", None)
+        if isinstance(max_length, int):
+            return max_length
+    raise LookupError(f"BillCreate.{name} has no max_length")
+
+
+# Text limits of the BillCreate fields the mapping fills.
+MAX_LENGTHS = {
+    name: _bill_create_max_length(name)
+    for name in (
+        "vendor_name_raw",
+        "account_number_raw",
+        "invoice_number",
+        "description",
+        "processing_notes",
+    )
+}
 
 
 class Confidence(StrEnum):
@@ -96,10 +118,13 @@ FIELD_NAMES = tuple(
     for name, info in BillExtraction.model_fields.items()
     if info.annotation is Extracted
 )
+# The fields every bill needs: `BillCreate` requires all but the vendor, which
+# the reviewer needs to match the bill.
 REQUIRED_FIELDS = (
     "vendor_name",
     "account_number",
     "invoice_number",
+    "invoice_date",
     "due_date",
     "amount_due",
 )
@@ -126,7 +151,9 @@ class IssueCode(StrEnum):
     LINE_ITEMS_MISMATCH = "LINE_ITEMS_MISMATCH"
     BALANCE_MISMATCH = "BALANCE_MISMATCH"
     EVIDENCE_NOT_FOUND = "EVIDENCE_NOT_FOUND"
+    EVIDENCE_MISMATCH = "EVIDENCE_MISMATCH"
     LOW_CONFIDENCE = "LOW_CONFIDENCE"
+    MODELS_DISAGREE = "MODELS_DISAGREE"  # raised by the cascade, not run_checks
 
 
 class Issue(BaseModel):
@@ -220,10 +247,14 @@ def _money(text: str | None, *, minimum_exclusive: bool) -> Decimal | None:
     return amount.quantize(_CENTS)
 
 
-def _clean(field: Extracted) -> str | None:
+def _clean(field: Extracted, max_length: int | None = None) -> str | None:
+    """The stripped value; None when blank or longer than `max_length`."""
     if field.value is None:
         return None
-    return field.value.strip() or None
+    value = field.value.strip()
+    if not value or (max_length is not None and len(value) > max_length):
+        return None
+    return value
 
 
 def _description(
@@ -238,14 +269,14 @@ def _description(
     else:
         period = None
     parts = [part for part in (vendor, period) if part]
-    return " - ".join(parts)[:MAX_TEXT_LENGTH] if parts else None
+    return " - ".join(parts)[: MAX_LENGTHS["description"]] if parts else None
 
 
 def _processing_notes(issues: Sequence[Issue]) -> str | None:
     if not issues:
         return None
     notes = "; ".join(f"{i.code} ({i.field}): {i.message}" for i in issues)
-    return notes[:MAX_TEXT_LENGTH]
+    return notes[: MAX_LENGTHS["processing_notes"]]
 
 
 def to_bill_create_dict(
@@ -256,17 +287,25 @@ def to_bill_create_dict(
     Values that fail to parse, or that `BillCreate` would reject for that field
     (`amount` must be > 0, `prev_payments` >= 0, at most 12 digits with 2
     decimals), become None so the reviewer fills them in; the matching issue
-    says why. Dates are `date`, amounts are `Decimal`. `description` is built
-    here from vendor and service period; `processing_notes` from the issues.
+    says why. Text longer than the `BillCreate` field allows (`MAX_LENGTHS`)
+    also becomes None, without an issue: no check covers it, the reviewer sees
+    an empty field and types the value. Dates are `date`, amounts are
+    `Decimal`. `description` is built here from vendor and service period;
+    `processing_notes` from the issues (cut to the limit, never None).
 
     `property_address` is in the dict although `BillCreate` on this branch does
-    not have the field yet (the submit-bill-form branch adds it).
+    not have the field yet (the submit-bill-form branch adds it), so it has no
+    length limit here.
     """
-    vendor = _clean(extraction.vendor_name)
+    vendor = _clean(extraction.vendor_name, MAX_LENGTHS["vendor_name_raw"])
     return {
         "vendor_name_raw": vendor,
-        "account_number_raw": _clean(extraction.account_number),
-        "invoice_number": _clean(extraction.invoice_number),
+        "account_number_raw": _clean(
+            extraction.account_number, MAX_LENGTHS["account_number_raw"]
+        ),
+        "invoice_number": _clean(
+            extraction.invoice_number, MAX_LENGTHS["invoice_number"]
+        ),
         "invoice_date": parse_date(extraction.invoice_date.value),
         "due_date": parse_date(extraction.due_date.value),
         "amount": _money(extraction.amount_due.value, minimum_exclusive=True),

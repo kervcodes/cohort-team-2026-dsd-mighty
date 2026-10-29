@@ -329,7 +329,12 @@ function photoDoc(bill) {
 
 /* ---------- Answer key ---------- */
 
-const amt = (c) => (c == null ? null : `${Math.floor(c / 100)}.${String(c % 100).padStart(2, "0")}`);
+/** Integer cents as a decimal string: 123456 -> "1234.56", -250 -> "-2.50". */
+const amt = (c) => {
+  if (c == null) return null;
+  const abs = Math.abs(c);
+  return `${c < 0 ? "-" : ""}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
+};
 
 function answerKey(doc, bill) {
   const empty = doc.document_type === "not_an_invoice";

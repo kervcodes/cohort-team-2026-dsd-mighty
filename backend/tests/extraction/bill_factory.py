@@ -103,8 +103,21 @@ def _pdf_string(line: str) -> bytes:
     return f"({escaped}) Tj T*".encode("latin-1")
 
 
-def make_pdf(text: str = TEXT_LAYER, pages: int = 1) -> bytes:
-    """A real PDF whose text layer is `text` on every page (Helvetica)."""
+def make_pdf(
+    text: str = TEXT_LAYER,
+    pages: int = 1,
+    *,
+    padding: int = 0,
+    compress: bool = False,
+    user_password: str | None = None,
+) -> bytes:
+    """A real PDF whose text layer is `text` on every page (Helvetica).
+
+    `padding` adds that many spaces to each page's content stream (no text);
+    `compress` Flate-encodes it, so a large padding makes a decompression bomb.
+    `user_password` encrypts the file with an owner password, and with that
+    user password ("" is an owner-password-only PDF anyone can open).
+    """
     writer = PdfWriter()
     font = DictionaryObject(
         {
@@ -120,8 +133,12 @@ def make_pdf(text: str = TEXT_LAYER, pages: int = 1) -> bytes:
             {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})}
         )
         content = DecodedStreamObject()
-        content.set_data(b"BT /F1 10 Tf 12 TL 50 750 Td " + lines + b" ET")
-        page.replace_contents(content)
+        content.set_data(
+            b"BT /F1 10 Tf 12 TL 50 750 Td " + lines + b" ET\n" + b" " * padding
+        )
+        page.replace_contents(content.flate_encode() if compress else content)
+    if user_password is not None:
+        writer.encrypt(user_password=user_password, owner_password="owner-secret")
     buffer = io.BytesIO()
     writer.write(buffer)
     return buffer.getvalue()
