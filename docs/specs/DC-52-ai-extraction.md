@@ -132,6 +132,35 @@ Every call logs model, prompt version, file hash, input and output tokens, cost 
 
 **Answer keys:** one `expected/<bill>.json` per bill. Two different models each draft the key from the PDF on their own; a script lists every field where they disagree; Pranil settles each disagreement by reading the PDF. Keys are never copied from Lintel's seed data.
 
+Generated bills get their keys from the generator's own input data, so they need no drafting.
+
+**Answer key format** (`expected/<bill file stem>.json`): the field values only, no evidence or confidence, plus the issues and status the pipeline should produce.
+
+```json
+{
+  "document_type": "invoice",
+  "vendor_name": "Example Water Co",
+  "account_number": "88-2110-4471",
+  "invoice_number": "EW-4471-2611",
+  "invoice_date": "2026-10-20",
+  "due_date": "2026-11-10",
+  "amount_due": "5680.00",
+  "previous_balance": "1520.00",
+  "payments_received": "1520.00",
+  "current_charges": "5680.00",
+  "line_items": [{ "description": "Water service", "amount": "5680.00" }],
+  "service_address": "2110 Example Ave, Dallas, TX 75201",
+  "service_period_start": "2026-09-13",
+  "service_period_end": "2026-10-12",
+  "expected_issues": [],
+  "expected_status": "ready_for_review"
+}
+```
+
+- Every field is present; `null` when the bill does not show it.
+- Strings are copied exactly as printed. `payments_received` is a positive amount even when the bill prints it as negative.
+- `expected_issues` lists issue codes from the Checks table, sorted.
+
 **Scoring:**
 
 - Strings match after trimming and collapsing whitespace.
