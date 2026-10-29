@@ -1,0 +1,41 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Zephyrine Elevator Services Inc.",
+  "account_number": "ZES-0097",
+  "invoice_number": "ZE-2026-0318",
+  "invoice_date": "2026-10-23",
+  "due_date": "2026-11-22",
+  "amount_due": "1246.63",
+  "previous_balance": null,
+  "payments_received": null,
+  "current_charges": "1246.63",
+  "line_items": [
+    {
+      "description": "Annual elevator safety inspection, 1 car",
+      "amount": "675.00"
+    },
+    {
+      "description": "State inspection certificate filing fee",
+      "amount": "95.00"
+    },
+    {
+      "description": "Technician labor",
+      "amount": "296.00"
+    },
+    {
+      "description": "Door operator roller",
+      "amount": "170.00"
+    },
+    {
+      "description": "Sales tax (6.25% on materials)",
+      "amount": "10.63"
+    }
+  ],
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
+  "service_period_start": null,
+  "service_period_end": null,
+  "expected_issues": [],
+  "expected_status": "ready_for_review",
+  "case": "Clean contractor invoice from a vendor that appears on no other generated bill",
+  "notes": "Exists to test the unknown-vendor path later: Zephyrine Elevator Services Inc. is used on this bill only. Extraction should be clean."
+}
