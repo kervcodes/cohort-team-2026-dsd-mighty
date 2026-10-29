@@ -17,6 +17,6 @@ const backend = (files) => {
 
 export default {
   "frontend/**/*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc,css}": (files) =>
-    `pnpm --dir frontend exec biome check --write --no-errors-on-unmatched ${files.map((f) => `"${f}"`).join(" ")}`,
+    `sh -c 'cd frontend && ./node_modules/.bin/biome check --write --no-errors-on-unmatched "$@"' biome ${files.map((f) => `"${f}"`).join(" ")}`,
   "backend/**/*.py": backend,
 };
