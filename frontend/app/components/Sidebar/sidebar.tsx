@@ -1,18 +1,18 @@
 "use client";
-import {
-  LuHouse,
-  LuFileText,
-  LuFilePlus,
-  LuBuilding2,
-  LuUsers,
-  LuLayoutDashboard,
-  LuUserRoundCog,
-  LuSettings,
-  LuLogOut,
-} from "react-icons/lu";
 import Link from "next/link";
-import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
+import {
+  LuBuilding2,
+  LuFilePlus,
+  LuFileText,
+  LuHouse,
+  LuLayoutDashboard,
+  LuLogOut,
+  LuSettings,
+  LuUserRoundCog,
+  LuUsers,
+} from "react-icons/lu";
 
 export default function Sidebar() {
   // for testing
@@ -66,44 +66,28 @@ export default function Sidebar() {
             </li>
 
             <li>
-              <Link
-                title="Invoices"
-                href="/dashboard"
-                className="flex items-center gap-2"
-              >
+              <Link title="Invoices" href="/dashboard" className="flex items-center gap-2">
                 <LuFileText size={20} aria-hidden="true" />
                 <span className="hidden sm:block">Invoices</span>
               </Link>
             </li>
 
             <li>
-              <Link
-                title="New Invoice"
-                href="/invoices/new"
-                className="flex items-center gap-2"
-              >
+              <Link title="New Invoice" href="/invoices/new" className="flex items-center gap-2">
                 <LuFilePlus size={20} aria-hidden="true" />
                 <span className="hidden sm:block">New Invoice</span>
               </Link>
             </li>
 
             <li>
-              <Link
-                title="Properties"
-                href="/properties"
-                className="flex items-center gap-2"
-              >
+              <Link title="Properties" href="/properties" className="flex items-center gap-2">
                 <LuBuilding2 size={20} aria-hidden="true" />
                 <span className="hidden sm:block">Properties</span>
               </Link>
             </li>
 
             <li>
-              <Link
-                title="Vendors"
-                href="/vendors"
-                className="flex items-center gap-2"
-              >
+              <Link title="Vendors" href="/vendors" className="flex items-center gap-2">
                 <LuUsers size={20} aria-hidden="true" />
                 <span className="hidden sm:block">Vendors</span>
               </Link>
@@ -111,22 +95,14 @@ export default function Sidebar() {
             {isAdmin && (
               <>
                 <li>
-                  <Link
-                    title="Admin Dashboard"
-                    href="/admin"
-                    className="flex items-center gap-2"
-                  >
+                  <Link title="Admin Dashboard" href="/admin" className="flex items-center gap-2">
                     <LuLayoutDashboard size={20} aria-hidden="true" />
                     <span className="hidden sm:block">Admin Dashboard</span>
                   </Link>
                 </li>
 
                 <li>
-                  <Link
-                    title="Users"
-                    href="/admin/users"
-                    className="flex items-center gap-2"
-                  >
+                  <Link title="Users" href="/admin/users" className="flex items-center gap-2">
                     <LuUserRoundCog size={20} aria-hidden="true" />
                     <span className="hidden sm:block">Users</span>
                   </Link>
@@ -151,15 +127,9 @@ export default function Sidebar() {
             </li>
           </ul>
           <ul className="space-y-4">
-            {isLoggedIn && (
-              <li className="capitalize hidden sm:block">username</li>
-            )}
+            {isLoggedIn && <li className="capitalize hidden sm:block">username</li>}
             <li>
-              <Link
-                title="Settings"
-                href="/settings"
-                className="flex items-center gap-2"
-              >
+              <Link title="Settings" href="/settings" className="flex items-center gap-2">
                 <LuSettings size={20} aria-hidden="true" />
                 <span className="hidden sm:block">Settings</span>
               </Link>
