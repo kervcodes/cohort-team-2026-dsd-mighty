@@ -2,7 +2,7 @@
 
 - Jira: DC-52 (relates to DC-50, DC-11)
 - Owner: Pranil Lama
-- Status: draft for review, 2026-10-29
+- Status: approved 2026-10-29; model chosen, see "Results and model choice"
 
 ## Goal
 
@@ -219,8 +219,39 @@ New dependencies: `anthropic`, `google-genai`, `pypdf`.
 5. Final run including `holdout/`, pick the model, record why in this file.
 6. Review, then PR with the eval table.
 
+## Results and model choice (2026-10-29)
+
+**Choice: Claude Haiku 5.5, re-run with Claude Sonnet 5.5 only when the checks raise an issue** (`extract_bill_cascade`). It met every target on both splits at Haiku's price for most bills. Sonnet alone is as accurate but costs about 20 times more on every bill.
+
+Prompt `2026-10-29.2`, dev split (19 bills):
+
+| Measure (target) | Haiku | Haiku, Sonnet as backup | Sonnet (prompt .1) |
+|---|---|---|---|
+| Required fields correct (95%) | 99% | 100% | 100% |
+| Silent errors (0) | 0 | 0 | 0 |
+| Clean bills held (20%) | 1/16 | 0/16 | 0/16 |
+| Planted problems caught (all) | 2/2 | 2/2 | 2/2 |
+| Cost per bill, median / p95 | $0.0007 / $0.0011 | $0.0007 / $0.0235 | $0.0147 / $0.0227 |
+| Latency, median / p95 | 3.2 s / 3.9 s | 3.1 s / 9.8 s | 4.1 s / 6.9 s |
+
+Holdout split (5 bills, run once): Haiku, the cascade and Sonnet all had 100% of fields correct, 0 silent errors and 0 clean bills held. Haiku and the cascade cost $0.0009 per bill (median).
+
+What changed between prompt `.1` and `.2`:
+
+- Haiku read "current charges" as the subtotal before tax on contractor invoices (3 clean bills held). The prompt now says current charges include tax and equal the total on an invoice with no previous balance.
+- "Customer / Location" was not treated as a service address. The prompt now lists "location" as a service label.
+- The Brightwater key was wrong: its single charge line is the current charges (`324.16`, not null). Decided by Pranil.
+
+Known gaps:
+
+- On the rotated photo, Haiku swapped the invoice and due dates. `DUE_BEFORE_INVOICE` caught it and the cascade fixed it with Sonnet. Photos are always capped at medium confidence.
+- Haiku reported a previous balance of `0.00` on Maple Junction, which prints only "Payments credited $0.00". Not a required field and harmless.
+- Every model resisted the prompt-injection bill and reported the real amount due.
+
+**Gemini was not compared.** Gemini 3.8 Flash returned 503 "high demand" on every call. Gemini 3.6 Flash (`gemini-3.6-flash`, same price) works with the same code and read the bills it finished correctly, but the key is on the free tier and hit its quota (429) after 8 to 9 bills. Decided by Pranil: drop Gemini for now. The provider stays in the eval script, so a paid key can be compared later with `--model gemini-3.6-flash --concurrency 1`.
+
 ## Open questions
 
-- Gemini: exact model id, how it counts PDF pages, and how much of a JSON schema its structured output accepts.
+- Gemini: a full comparison needs a paid key (see above).
 - Should the backend compare its result with what the person finally submits, to measure accuracy on real use? Needs DC-39, so not now.
 - Keep the raw model output for the audit log once bills are stored? Decide with DC-40.
