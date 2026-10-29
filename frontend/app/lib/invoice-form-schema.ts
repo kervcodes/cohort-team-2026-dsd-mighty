@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-export const accountStatuses = ["paid", "unpaid", "outstanding"];
+export const accountStatuses = ["", "paid", "unpaid", "outstanding"] as const;
 
-const money = /^\d+(\.\d{1,2})?$/;
+const money = /^\d{1,10}(\.\d{1,2})?$/;
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
 export const invoiceFormSchema = z
@@ -13,12 +13,16 @@ export const invoiceFormSchema = z
     propertyAddress: z.string().trim().min(1, "Property address is required"),
     issueDate: z.string().regex(isoDate, "Issue date is required"),
     dueDate: z.string().regex(isoDate, "Due date is required"),
-    description: z.string().min(1, "Add a short description"),
+    description: z.string().trim().min(1, "Add a short description"),
     previousPayments: z
       .string()
       .trim()
       .refine((v) => v === "" || money.test(v), "Enter an amount like 1180.50"),
-    currentDue: z.string().trim().regex(money, "Enter an amount like 1180.50"),
+    currentDue: z
+      .string()
+      .trim()
+      .regex(money, "Enter an amount like 1180.50")
+      .refine((v) => Number(v) > 0, "Amount must be greater than 0"),
     accountStatus: z.enum(accountStatuses),
     notes: z.string().trim(),
     websiteName: z
@@ -27,8 +31,8 @@ export const invoiceFormSchema = z
       .refine((v) => {
         if (v === "") return true;
         try {
-          new URL(v);
-          return true;
+          const { protocol } = new URL(v);
+          return protocol === "http:" || protocol === "https:";
         } catch {
           return false;
         }
