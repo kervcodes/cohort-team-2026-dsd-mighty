@@ -1,8 +1,8 @@
 # Fix staged files and re-stage them. Skip in an emergency: git commit --no-verify
 if [ ! -x frontend/node_modules/.bin/lint-staged ]; then
   # Backend-only setup (no frontend install): run Ruff on staged Python files ourselves.
-  if git diff --cached --quiet --diff-filter=ACM -- 'backend/*.py'; then
-    git diff --cached --quiet --diff-filter=ACM -- 'frontend/' ||
+  if git diff --cached --quiet --diff-filter=ACMR -- 'backend/*.py'; then
+    git diff --cached --quiet --diff-filter=ACMR -- 'frontend/' ||
       echo "pre-commit: frontend files not checked; run 'pnpm install' in frontend/ to enable Biome"
     exit 0
   fi
@@ -11,7 +11,7 @@ if [ ! -x frontend/node_modules/.bin/lint-staged ]; then
     exit 0
   fi
   # Files with unstaged edits are only checked, never rewritten, so WIP hunks are not committed.
-  git diff --cached -z --name-only --diff-filter=ACM -- 'backend/*.py' | xargs -0 sh -c '
+  git diff --cached -z --name-only --diff-filter=ACMR -- 'backend/*.py' | xargs -0 sh -c '
     rc=0
     for f; do
       if git diff --quiet -- "$f"; then
