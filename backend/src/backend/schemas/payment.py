@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.schemas.common import PaymentMethod
 
+
 class PaymentStatus(StrEnum):
     PENDING = "pending"
     COMPLETED = "completed"

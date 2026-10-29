@@ -3,6 +3,7 @@ from typing import Literal
 
 ActiveStatus = Literal["active", "inactive"]
 
+
 class PaymentMethod(StrEnum):
     CHECK = "check"
     ACH = "ach"
@@ -12,3 +13,9 @@ class PaymentMethod(StrEnum):
 
 
 ApprovalStatus = Literal["pending", "approved", "rejected"]
+
+
+class AccountStatus(StrEnum):
+    unpaid = "unpaid"
+    outstanding = "outstanding"
+    paid = "paid"

@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.approvals import router as approvals_router
 from backend.api.bills import router as bills_router
@@ -10,6 +11,19 @@ app = FastAPI(
     title="Property Bill Automation API",
     version="0.1.0",
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "https://cohort-team-2026-dsd-mighty-phi.vercel.app",
+        "https://cohort-team-2026-dsd-mighty.vercel.app",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 app.include_router(bills_router)
 app.include_router(approvals_router)
@@ -31,8 +45,8 @@ def test_database():
 
         return {"connected": True, "records": response.data}
 
-    except Exception as exc:
+    except Exception as err:
         raise HTTPException(
             status_code=503,
             detail="Database connection failed",
-        ) from exc
+        ) from err
