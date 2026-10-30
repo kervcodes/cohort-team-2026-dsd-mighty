@@ -11,7 +11,7 @@
     "type-check": "next typegen && tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "prepare": "cd .. && husky .husky || true"
+    "prepare": "cd .. && husky .husky || echo 'husky: hook not installed (see README, Pre-commit hook)'"
   },
   "dependencies": {
     "@hookform/resolvers": "^6.0.0",
@@ -41,6 +41,9 @@
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": "22.x"
   },
   "packageManager": "pnpm@10.30.2"
 }
