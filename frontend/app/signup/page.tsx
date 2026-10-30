@@ -8,7 +8,6 @@ import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -32,6 +31,7 @@ export default function SignupPage() {
 
     setLoading(true);
 
+    const supabase = createClient();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -67,8 +67,9 @@ export default function SignupPage() {
             Check your email
           </h1>
           <p className="text-sm text-foreground-muted">
-            We sent a confirmation link to <strong className="text-foreground">{email}</strong>.
-            Click it to finish creating your account.
+            We sent a confirmation link to{" "}
+            <strong className="break-all text-foreground">{email}</strong>. Click it to finish
+            creating your account.
           </p>
           <Link
             href="/login"
