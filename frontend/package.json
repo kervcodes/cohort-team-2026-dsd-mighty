@@ -11,7 +11,7 @@
     "type-check": "next typegen && tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "prepare": "cd .. && husky .husky || true"
+    "prepare": "cd .. && husky .husky || echo 'husky: hook not installed (see README, Pre-commit hook)'"
   },
   "dependencies": {
     "@hookform/resolvers": "^6.0.0",
@@ -22,6 +22,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-hook-form": "^7.91.0",
+    "react-icons": "^5.7.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -42,6 +43,9 @@
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": "22.x"
   },
   "packageManager": "pnpm@10.30.2"
 }
