@@ -19,8 +19,12 @@ export default function SignupPage() {
   const [checkEmail, setCheckEmail] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const normalizedEmail = email.trim().toLowerCase();
+
   async function handleSubmit(e: React.SubmitEvent) {
     e.preventDefault();
+    if (loading) return;
+
     setError(null);
 
     if (password.length < 8) {
@@ -34,29 +38,33 @@ export default function SignupPage() {
 
     setLoading(true);
 
-    const supabase = createClient();
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/dashboard`,
-      },
-    });
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/dashboard`,
+        },
+      });
 
-    setLoading(false);
+      if (error) {
+        setError(error.message);
+        return;
+      }
 
-    if (error) {
-      setError(error.message);
-      return;
+      if (data.session) {
+        router.push("/dashboard");
+        router.refresh();
+        return;
+      }
+      setCheckEmail(true);
+    } catch {
+      console.error("Signup failed:", error);
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
     }
-
-    if (data.session) {
-      router.push("/dashboard");
-      router.refresh();
-      return;
-    }
-
-    setCheckEmail(true);
   }
 
   if (checkEmail) {
@@ -148,7 +156,11 @@ export default function SignupPage() {
                 className="absolute inset-y-0 right-0 flex items-center rounded-r-lg px-3 text-foreground-muted transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
-                {showPassword ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                {showPassword ? (
+                  <Eye className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <EyeOff className="h-4 w-4" aria-hidden="true" />
+                )}
               </button>
             </div>
           </div>
@@ -163,6 +175,7 @@ export default function SignupPage() {
                 type={showConfirmPassword ? "text" : "password"}
                 required
                 autoComplete="new-password"
+                aria-invalid={confirm.length > 0 && password !== confirm}
                 placeholder="Re-enter your password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
@@ -174,7 +187,11 @@ export default function SignupPage() {
                 className="absolute inset-y-0 right-0 flex items-center rounded-r-lg px-3 text-foreground-muted transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={showConfirmPassword ? "Hide password" : "Show password"}
               >
-                {showConfirmPassword ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                {showConfirmPassword ? (
+                  <Eye className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <EyeOff className="h-4 w-4" aria-hidden="true" />
+                )}
               </button>
             </div>
           </div>
