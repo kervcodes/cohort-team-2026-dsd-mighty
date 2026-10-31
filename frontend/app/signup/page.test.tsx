@@ -24,7 +24,7 @@ async function fillForm(email: string, password: string, confirm: string) {
 
 describe("Signup Page", () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
   });
 
   it("rejects passwords shorter than 8 characters", async () => {
@@ -37,7 +37,7 @@ describe("Signup Page", () => {
 
   it("rejects mismatched passwords", async () => {
     render(<SignupPage />);
-    await fillForm("a@b.com", "password1235", "password124");
+    await fillForm("a@b.com", "password123", "password124");
 
     expect(await screen.findByText("Passwords do not match.")).toBeInTheDocument();
     expect(mockSignUp).not.toHaveBeenCalled();
