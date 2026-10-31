@@ -15,21 +15,24 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const normalizedEmail = email.trim().toLowerCase();
+
   async function handleSubmit(e: React.SubmitEvent) {
     e.preventDefault();
+
+    if (loading) return;
     setError(null);
     setLoading(true);
 
     try {
       const supabase = createClient();
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+      const { error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
         password,
       });
 
       if (error) {
         setError(error.message);
-        setLoading(false);
         return;
       }
 
@@ -115,6 +118,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
+            aria-busy={loading}
             className="w-full rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Logging in..." : "Log in"}
