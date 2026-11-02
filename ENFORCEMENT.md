@@ -10,6 +10,7 @@ The checker runs by `node` from the repo root because the root has no `package.j
 |------|------|----------|-----------|
 | Backend tests pass before merge | ci | `.github/workflows/ci.yml` | - |
 | Backend is ruff-clean and ruff-formatted | ci | `backend/pyproject.toml`, `.github/workflows/ci.yml` | - |
+| Database migrations apply to a clean database and pgTAP tests pass before merge | ci | `.github/workflows/ci.yml`, `backend/supabase/tests/` | - |
 | Frontend tests pass before merge | ci | `.github/workflows/ci.yml` | - |
 | TypeScript strict; frontend types check before merge | ci | `frontend/tsconfig.json`, `.github/workflows/ci.yml` | - |
 | Frontend builds before merge | ci | `.github/workflows/ci.yml` | - |

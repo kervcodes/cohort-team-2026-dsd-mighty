@@ -41,7 +41,25 @@ jobs:
       - name: Check Ruff formatting
         run: uv run ruff format --check .
 
-    
+  database:
+    name: Database (Supabase migrations + pgTAP)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: 2.122.0
+      - name: Start database and apply migrations
+        run: supabase db start
+      - name: Run pgTAP tests
+        run: supabase test db
+
+
   frontend:
     name: Frontend (Next.js + React)
     runs-on: ubuntu-latest
