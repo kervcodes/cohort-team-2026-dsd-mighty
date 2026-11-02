@@ -1,0 +1,40 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Kestrel Plumbing & Drain LLC",
+  "account_number": "KPD-4471",
+  "invoice_number": "KPD-26-1187",
+  "invoice_date": "2026-10-22",
+  "due_date": "2026-11-06",
+  "amount_due": "831.09",
+  "previous_balance": null,
+  "payments_received": null,
+  "current_charges": "831.09",
+  "line_items": [
+    {
+      "description": "Service call and diagnosis",
+      "amount": "125.00"
+    },
+    {
+      "description": "Plumber labor",
+      "amount": "405.00"
+    },
+    {
+      "description": "Camera inspection of main line",
+      "amount": "240.00"
+    },
+    {
+      "description": "Ball valve, 3/4 in., brass",
+      "amount": "57.50"
+    },
+    {
+      "description": "Sales tax (6.25% on materials)",
+      "amount": "3.59"
+    }
+  ],
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
+  "service_period_start": null,
+  "service_period_end": null,
+  "expected_issues": [],
+  "expected_status": "ready_for_review",
+  "case": "Clean 1-page contractor invoice with line items, subtotal, tax and total"
+}

@@ -1,0 +1,20 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Quarry Hill Water Works",
+  "account_number": "QH-7714-0206",
+  "invoice_number": "QHW-202610-5530",
+  "invoice_date": "2026-10-22",
+  "due_date": "2026-11-13",
+  "amount_due": "1942.34",
+  "previous_balance": "1204.50",
+  "payments_received": "1000.00",
+  "current_charges": "1737.84",
+  "line_items": [],
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
+  "service_period_start": "2026-09-17",
+  "service_period_end": "2026-10-16",
+  "expected_issues": [],
+  "expected_status": "ready_for_review",
+  "case": "Phone photo of page 1 of gen-water-clean, rotated about 8 degrees and slightly blurred",
+  "notes": "A photo has no text layer, so EVIDENCE_NOT_FOUND is skipped and confidence is capped at medium. Rotated and slightly blurred. Page 2 is not in the photo, so line_items is [] and current_charges is what page 1 shows. Same bill as gen-water-clean.pdf."
+}

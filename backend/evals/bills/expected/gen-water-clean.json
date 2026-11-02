@@ -1,0 +1,40 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Quarry Hill Water Works",
+  "account_number": "QH-7714-0206",
+  "invoice_number": "QHW-202610-5530",
+  "invoice_date": "2026-10-22",
+  "due_date": "2026-11-13",
+  "amount_due": "1942.34",
+  "previous_balance": "1204.50",
+  "payments_received": "1000.00",
+  "current_charges": "1737.84",
+  "line_items": [
+    {
+      "description": "Water service charge, 1-1/2 in. meter (30 days)",
+      "amount": "112.40"
+    },
+    {
+      "description": "Water usage",
+      "amount": "971.28"
+    },
+    {
+      "description": "Sewer usage",
+      "amount": "585.04"
+    },
+    {
+      "description": "Stormwater fee",
+      "amount": "18.50"
+    },
+    {
+      "description": "Infrastructure surcharge (3.0%)",
+      "amount": "50.62"
+    }
+  ],
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
+  "service_period_start": "2026-09-17",
+  "service_period_end": "2026-10-16",
+  "expected_issues": [],
+  "expected_status": "ready_for_review",
+  "case": "Clean 2-page water statement with a partial payment, so balance forward is not zero"
+}

@@ -1,0 +1,44 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Redfern Electric Cooperative",
+  "account_number": "RE-30-481-902",
+  "invoice_number": "RE-2610-77431",
+  "invoice_date": "2026-10-21",
+  "due_date": "2026-11-12",
+  "amount_due": "1487.49",
+  "previous_balance": "1742.18",
+  "payments_received": "1742.18",
+  "current_charges": "1487.49",
+  "line_items": [
+    {
+      "description": "Customer charge (31 days)",
+      "amount": "24.75"
+    },
+    {
+      "description": "Distribution",
+      "amount": "266.98"
+    },
+    {
+      "description": "Transmission",
+      "amount": "121.18"
+    },
+    {
+      "description": "Generation, commercial secondary",
+      "amount": "962.93"
+    },
+    {
+      "description": "Public purpose programs",
+      "amount": "40.82"
+    },
+    {
+      "description": "Municipal utility tax (5.0%)",
+      "amount": "70.83"
+    }
+  ],
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
+  "service_period_start": "2026-09-19",
+  "service_period_end": "2026-10-19",
+  "expected_issues": [],
+  "expected_status": "ready_for_review",
+  "case": "Clean 2-page electric statement; all arithmetic balances"
+}

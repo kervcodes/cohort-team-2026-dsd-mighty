@@ -1,0 +1,36 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Greenhollow Disposal Services",
+  "account_number": "GH-250931",
+  "invoice_number": "GD-1026-3318",
+  "invoice_date": "2026-10-20",
+  "due_date": "2026-11-10",
+  "amount_due": "684.64",
+  "previous_balance": "612.00",
+  "payments_received": "612.00",
+  "current_charges": "684.64",
+  "line_items": [
+    {
+      "description": "Landfill, 4 cu yd bin, 2x weekly",
+      "amount": "500.00"
+    },
+    {
+      "description": "Recycling, 4 cu yd bin, 1x weekly",
+      "amount": "96.00"
+    },
+    {
+      "description": "Bin lock and push-out service",
+      "amount": "35.00"
+    },
+    {
+      "description": "Fuel and environmental recovery fee (8.5%)",
+      "amount": "53.64"
+    }
+  ],
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
+  "service_period_start": "2026-10-01",
+  "service_period_end": "2026-10-31",
+  "expected_issues": [],
+  "expected_status": "ready_for_review",
+  "case": "Clean 2-page trash and recycling statement, no metered usage"
+}

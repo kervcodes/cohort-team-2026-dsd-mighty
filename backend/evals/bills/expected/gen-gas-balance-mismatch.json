@@ -1,0 +1,43 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Timberline Gas Company",
+  "account_number": "TG-88-1903-7",
+  "invoice_number": "TG-2610-20915",
+  "invoice_date": "2026-10-24",
+  "due_date": "2026-11-16",
+  "amount_due": "738.16",
+  "previous_balance": "744.30",
+  "payments_received": "744.30",
+  "current_charges": "588.16",
+  "line_items": [
+    {
+      "description": "Customer charge (30 days)",
+      "amount": "18.95"
+    },
+    {
+      "description": "Distribution charge",
+      "amount": "218.77"
+    },
+    {
+      "description": "Gas supply charge",
+      "amount": "298.29"
+    },
+    {
+      "description": "Infrastructure rider",
+      "amount": "35.02"
+    },
+    {
+      "description": "Municipal franchise fee (3.0%)",
+      "amount": "17.13"
+    }
+  ],
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
+  "service_period_start": "2026-09-24",
+  "service_period_end": "2026-10-23",
+  "expected_issues": [
+    "BALANCE_MISMATCH"
+  ],
+  "expected_status": "needs_attention",
+  "case": "Planted problem: page-1 summary does not balance (previous - payment + current != total due)",
+  "notes": "Previous balance minus payment plus current charges is $150.00 less than the printed total due. The page-2 lines add up to the current charges."
+}
