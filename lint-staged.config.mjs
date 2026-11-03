@@ -22,6 +22,7 @@ export default {
     const list = files.map((f) => `"${f}"`).join(" ");
     return [
       `node frontend/scripts/check-no-emoji.mjs ${list}`,
+      `sh -c 'cd frontend && node scripts/lint-literals.mjs --no-list "$@"' lit ${files.map((f) => `"${f}"`).join(" ")}`,
       `sh -c 'cd frontend && bash scripts/tsc-staged.sh'`,
     ];
   },

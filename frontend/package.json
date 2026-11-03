@@ -12,7 +12,12 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "prepare": "cd .. && husky .husky || echo 'husky: hook not installed (see README, Pre-commit hook)'",
-    "check:ds": "DS_ALIAS_ROOT=app DS_UI_DIR=app/components/ui bun scripts/check-design-system.ts --all && DS_ALIAS_ROOT=app DS_UI_DIR=app/components/ui bun scripts/check-ds-coverage.ts && DS_UI_DIR=app/components/ui bun scripts/check-ds-page.ts"
+    "check:ds": "DS_ALIAS_ROOT=app DS_UI_DIR=app/components/ui bun scripts/check-design-system.ts --all && DS_ALIAS_ROOT=app DS_UI_DIR=app/components/ui bun scripts/check-ds-coverage.ts && DS_UI_DIR=app/components/ui bun scripts/check-ds-page.ts",
+    "lint:content": "node scripts/lint-content.mjs",
+    "lint:literals": "node scripts/lint-literals.mjs",
+    "content:report": "node scripts/content-report.mjs",
+    "content:status": "node scripts/content-acceptance.mjs status --content-dir app/content",
+    "content:gate": "node scripts/content-acceptance.mjs gate --content-dir app/content"
   },
   "dependencies": {
     "@hookform/resolvers": "^6.0.0",

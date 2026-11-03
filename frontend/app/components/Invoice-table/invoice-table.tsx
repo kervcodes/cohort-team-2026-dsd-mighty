@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { StatusBadge } from "@/components/Status-Badge/status-badge";
 import Button from "@/components/ui/button";
+import { dashboard } from "@/content";
 import type { Invoice } from "@/types/invoice";
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -18,7 +19,17 @@ function formatDate(iso: string) {
   });
 }
 
-const columns = ["Invoice ID", "Property", "Company", "Due Date", "Vendor", "Amount", "Status"];
+const { table } = dashboard;
+
+const columns = [
+  { key: "columnId", label: table.columnId },
+  { key: "columnProperty", label: table.columnProperty },
+  { key: "columnCompany", label: table.columnCompany },
+  { key: "columnDueDate", label: table.columnDueDate },
+  { key: "columnVendor", label: table.columnVendor },
+  { key: "columnAmount", label: table.columnAmount },
+  { key: "columnStatus", label: table.columnStatus },
+];
 
 export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
   const [_page, _setPage] = useState<number>(1);
@@ -28,7 +39,9 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
   return (
     <section className="rounded-xl border border-border bg-surface shadow-sm">
       <header className="border-b border-border px-6 py-5">
-        <h2 className="text-xl font-semibold text-foreground">Invoice History</h2>
+        <h2 data-content="dashboard.table.title" className="text-xl font-semibold text-foreground">
+          {table.title}
+        </h2>
       </header>
 
       <div className="overflow-x-auto">
@@ -37,11 +50,12 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
             <tr className="border-b border-border text-foreground-muted">
               {columns.map((col) => (
                 <th
-                  key={col}
+                  key={col.key}
                   scope="col"
-                  className={`px-6 py-3 font-medium ${col === "Amount" ? "text-right" : ""}`}
+                  data-content={`dashboard.table.${col.key}`}
+                  className={`px-6 py-3 font-medium ${col.key === "columnAmount" ? "text-right" : ""}`}
                 >
-                  {col}
+                  {col.label}
                 </th>
               ))}
             </tr>
@@ -51,16 +65,18 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
             {rows.length === 0 ? (
               <tr>
                 <td
+                  data-content="dashboard.table.empty"
                   colSpan={columns.length}
                   className="px-6 py-12 text-center text-foreground-muted"
                 >
-                  No invoices yet. Click "New Invoice" to add one.
+                  {table.empty}
                 </td>
               </tr>
             ) : (
               rows.map((invoice) => (
                 <tr
                   key={invoice.id}
+                  data-content-skip="invoice row derived from API data"
                   className="text-foreground transition-colors hover:bg-surface-muted"
                 >
                   <td className="px-6 py-4 font-mono text-xs">{invoice.id}</td>
@@ -82,11 +98,26 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
       </div>
 
       <footer className="flex items-center justify-between border-t border-border px-6 py-4">
-        <p className="text-sm text-foreground-muted tabular-nums">Page 1 of 10</p>
+        <p
+          data-content="dashboard.table.pagination"
+          className="text-sm text-foreground-muted tabular-nums"
+        >
+          {table.pagination}
+        </p>
 
         <div className="flex gap-2">
-          <Button type="button" variant="secondary" size="sm" label="Previous" />
-          <Button type="button" variant="secondary" size="sm" label="Next" />
+          <Button
+            variant="secondary"
+            size="sm"
+            label={table.previous}
+            data-content="dashboard.table.previous"
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            label={table.next}
+            data-content="dashboard.table.next"
+          />
         </div>
       </footer>
     </section>

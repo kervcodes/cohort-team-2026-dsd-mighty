@@ -27,5 +27,8 @@ The checker runs by `node` from the repo root because the root has no `package.j
 | Design-system sweep passes before push and merge | ci | `.husky/pre-push`, `.github/workflows/ci.yml` | - |
 | Claude Code cannot write a raw tag outside `components/ui` | review | `frontend/scripts/check-design-system.ts` | 2026-12-31 the PreToolUse layer needs a Claude settings change that is held for the captain |
 | Design-system rules other than `raw-button` are not yet enabled | review | `frontend/app/components/ui/manifest.config.ts` | 2026-12-31 enable one preset at a time as its component is built |
-| No literal user-visible text in components | convention | - | 2026-12-31 Biome `noJsxLiterals` runs at warn, not error: literals not yet extracted (14 in 3 files) |
+| No literal user-visible text in components; copy lives in `frontend/app/content/*.json` | lint | `frontend/biome.json`, `frontend/scripts/lint-literals.mjs`, `lint-staged.config.mjs` | - |
+| Every page route has a content file and its text is tagged | lint | `frontend/scripts/lint-content.mjs`, `frontend/content-acceptance.config.json` | - |
+| Content fields are human-accepted by hash; agents cannot accept | ci | `frontend/scripts/content-acceptance.mjs`, `frontend/app/content/.accepted.json`, `.github/workflows/ci.yml` | - |
+| Sidebar text is extracted to content | review | `frontend/biome.json` | 2026-12-31 the sidebar is a dev stub in active development; Biome `noJsxLiterals` is off for it until its design settles |
 | Required status checks and squash-only merges on `main` | audit | - | 2026-12-31 repository admin settings, not changeable from a PR |

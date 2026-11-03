@@ -14,10 +14,11 @@ type FormFieldProps = {
   htmlFor: string;
   error?: string;
   hint?: string;
+  contentKey?: string;
   children: ReactNode | ((control: FieldControlProps) => ReactNode);
 };
 
-export function FormField({ label, htmlFor, error, hint, children }: FormFieldProps) {
+export function FormField({ label, htmlFor, error, hint, contentKey, children }: FormFieldProps) {
   const errorId = `${htmlFor}-error`;
   const hintId = `${htmlFor}-hint`;
 
@@ -33,7 +34,11 @@ export function FormField({ label, htmlFor, error, hint, children }: FormFieldPr
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={htmlFor} className="text-sm font-medium text-foreground">
+        <label
+          htmlFor={htmlFor}
+          data-content={contentKey}
+          className="text-sm font-medium text-foreground"
+        >
           {label}
         </label>
         {hint && (

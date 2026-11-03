@@ -1,0 +1,14 @@
+{
+  "heading": "Welcome back",
+  "subheading": "Log in to your account",
+  "email": "Email",
+  "emailPlaceholder": "you@example.com",
+  "password": "Password",
+  "passwordPlaceholder": "Your password",
+  "hidePassword": "Hide password",
+  "showPassword": "Show password",
+  "submit": "Log in",
+  "submitting": "Logging in...",
+  "noAccount": "No account?",
+  "signupLink": "Sign up"
+}

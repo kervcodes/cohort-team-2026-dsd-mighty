@@ -1,0 +1,7 @@
+{
+  "appDir": "app",
+  "sourceDir": "app",
+  "contentDir": "app/content",
+  "skipRoutes": ["/design-system"],
+  "routes": { "/": "dashboard", "/invoices/new": "invoices-new" }
+}

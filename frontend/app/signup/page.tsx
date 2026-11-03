@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Button from "@/components/ui/button";
+import { signup as content } from "@/content";
 import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
@@ -76,18 +77,18 @@ export default function SignupPage() {
             <Mail className="h-6 w-6" aria-hidden="true" />
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Check your email
+            {content.checkEmail.heading}
           </h1>
           <p className="text-sm text-foreground-muted">
-            We sent a confirmation link to{" "}
-            <strong className="wrap-break-word text-foreground">{email}</strong>. Click it to finish
-            creating your account.
+            {content.checkEmail.before}{" "}
+            <strong className="wrap-break-word text-foreground">{email}</strong>
+            {content.checkEmail.after}
           </p>
           <Link
             href="/login"
             className="inline-block text-sm font-medium text-primary hover:text-primary-hover hover:underline"
           >
-            Back to log in
+            {content.checkEmail.back}
           </Link>
         </div>
       </main>
@@ -102,9 +103,9 @@ export default function SignupPage() {
             <UserPlus className="h-6 w-6" aria-hidden="true" />
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Create an account
+            {content.heading}
           </h1>
-          <p className="mt-1 text-sm text-foreground-muted">Get started in less than a minute</p>
+          <p className="mt-1 text-sm text-foreground-muted">{content.subheading}</p>
         </div>
 
         <form
@@ -122,14 +123,14 @@ export default function SignupPage() {
 
           <div className="space-y-1.5">
             <label htmlFor="email" className="text-sm font-medium text-foreground">
-              Email
+              {content.email}
             </label>
             <input
               id="email"
               type="email"
               required
               autoComplete="email"
-              placeholder="you@example.com"
+              placeholder={content.emailPlaceholder}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
@@ -138,7 +139,7 @@ export default function SignupPage() {
 
           <div className="space-y-1.5">
             <label htmlFor="password" className="text-sm font-medium text-foreground">
-              Password
+              {content.password}
             </label>
             <div className="relative">
               <input
@@ -146,7 +147,7 @@ export default function SignupPage() {
                 type={showPassword ? "text" : "password"}
                 required
                 autoComplete="new-password"
-                placeholder="At least 8 characters"
+                placeholder={content.passwordPlaceholder}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-lg border border-border bg-surface-muted py-2 pl-3 pr-10 text-sm text-foreground placeholder:text-foreground-muted transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
@@ -157,7 +158,7 @@ export default function SignupPage() {
                 size="icon"
                 onClick={() => setShowPassword((prev) => !prev)}
                 className="absolute inset-y-0 right-0 flex items-center rounded-r-lg px-3 text-foreground-muted transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-label={showPassword ? content.hidePassword : content.showPassword}
               >
                 {showPassword ? (
                   <Eye className="h-4 w-4" aria-hidden="true" />
@@ -170,7 +171,7 @@ export default function SignupPage() {
 
           <div className="space-y-1.5">
             <label htmlFor="confirm" className="text-sm font-medium text-foreground">
-              Confirm password
+              {content.confirmPassword}
             </label>
             <div className="relative">
               <input
@@ -179,7 +180,7 @@ export default function SignupPage() {
                 required
                 autoComplete="new-password"
                 aria-invalid={confirm.length > 0 && password !== confirm}
-                placeholder="Re-enter your password"
+                placeholder={content.confirmPlaceholder}
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 className="w-full rounded-lg border border-border bg-surface-muted py-2 pl-3 pr-10 text-sm text-foreground placeholder:text-foreground-muted transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
@@ -190,7 +191,7 @@ export default function SignupPage() {
                 size="icon"
                 onClick={() => setShowConfirmPassword((prev) => !prev)}
                 className="absolute inset-y-0 right-0 flex items-center rounded-r-lg px-3 text-foreground-muted transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                aria-label={showConfirmPassword ? content.hidePassword : content.showPassword}
               >
                 {showConfirmPassword ? (
                   <Eye className="h-4 w-4" aria-hidden="true" />
@@ -205,17 +206,17 @@ export default function SignupPage() {
             type="submit"
             disabled={loading}
             className="w-full py-2.5"
-            label={loading ? "Creating account..." : "Sign up"}
+            label={loading ? content.submitting : content.submit}
           />
         </form>
 
         <p className="mt-6 text-center text-sm text-foreground-muted">
-          Already have an account?{" "}
+          {content.haveAccount}{" "}
           <Link
             href="/login"
             className="font-medium text-primary hover:text-primary-hover hover:underline"
           >
-            Log in
+            {content.loginLink}
           </Link>
         </p>
       </div>

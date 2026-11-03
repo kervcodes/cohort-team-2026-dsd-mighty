@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
 import Button from "@/components/ui/button";
+import { invoicesNew } from "@/content";
 import type { BillCreatePayload } from "@/lib/api/bills";
 import { createBill } from "@/lib/api/bills";
 import {
@@ -70,12 +71,22 @@ export function InvoiceForm() {
         </p>
       )}
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground">New Invoice</h1>
+        <h1
+          data-content="invoices-new.heading"
+          className="text-3xl font-semibold tracking-tight text-foreground"
+        >
+          {invoicesNew.heading}
+        </h1>
 
         <div className="flex items-center gap-3">
-          <Button label="Save" type="button" />
           <Button
-            label="Cancel"
+            label={invoicesNew.actions.save}
+            data-content="invoices-new.actions.save"
+            type="button"
+          />
+          <Button
+            label={invoicesNew.actions.cancel}
+            data-content="invoices-new.actions.cancel"
             variant="secondary"
             onClick={() => router.push("/dashboard")}
             type="button"
@@ -85,15 +96,28 @@ export function InvoiceForm() {
 
       <section className="rounded-xl border border-dashed border-border bg-surface p-6 text-center">
         <FileUp className="mx-auto h-6 w-6 text-foreground-muted" />
-        <p className="mt-2 text-sm font-medium text-foreground">Upload / import invoice (PDF)</p>
-        <p className="text-xs text-foreground-muted">Coming soon</p>
+        <p
+          data-content="invoices-new.upload.title"
+          className="mt-2 text-sm font-medium text-foreground"
+        >
+          {invoicesNew.upload.title}
+        </p>
+        <p data-content="invoices-new.upload.status" className="text-xs text-foreground-muted">
+          {invoicesNew.upload.status}
+        </p>
       </section>
 
       <fieldset className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm">
-        <legend className="px-2 text-sm font-semibold text-foreground">General bill info</legend>
+        <legend
+          data-content="invoices-new.general.legend"
+          className="px-2 text-sm font-semibold text-foreground"
+        >
+          {invoicesNew.general.legend}
+        </legend>
 
         <FormField
-          label="Account / Customer #"
+          label={invoicesNew.general.accountNumber}
+          contentKey="invoices-new.general.accountNumber"
           htmlFor="accountNumber"
           error={errors.accountNumber?.message}
         >
@@ -101,7 +125,8 @@ export function InvoiceForm() {
         </FormField>
 
         <FormField
-          label="Statement / Bill ID"
+          label={invoicesNew.general.statementId}
+          contentKey="invoices-new.general.statementId"
           htmlFor="statementId"
           error={errors.statementId?.message}
         >
@@ -109,7 +134,8 @@ export function InvoiceForm() {
         </FormField>
 
         <FormField
-          label="Customer / Business Name"
+          label={invoicesNew.general.companyName}
+          contentKey="invoices-new.general.companyName"
           htmlFor="companyName"
           error={errors.companyName?.message}
         >
@@ -117,7 +143,8 @@ export function InvoiceForm() {
         </FormField>
 
         <FormField
-          label="Property Address"
+          label={invoicesNew.general.propertyAddress}
+          contentKey="invoices-new.general.propertyAddress"
           htmlFor="propertyAddress"
           error={errors.propertyAddress?.message}
         >
@@ -125,7 +152,8 @@ export function InvoiceForm() {
             <input
               {...field}
               {...register("propertyAddress")}
-              placeholder="Enter property address"
+              placeholder={invoicesNew.general.propertyAddressPlaceholder}
+              data-content="invoices-new.general.propertyAddressPlaceholder"
               className={inputClass}
             />
           )}
@@ -133,7 +161,8 @@ export function InvoiceForm() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField
-            label="Issue / Record / Invoice Date"
+            label={invoicesNew.general.issueDate}
+            contentKey="invoices-new.general.issueDate"
             htmlFor="issueDate"
             error={errors.issueDate?.message}
           >
@@ -142,7 +171,12 @@ export function InvoiceForm() {
             )}
           </FormField>
 
-          <FormField label="Due / Pay Date" htmlFor="dueDate" error={errors.dueDate?.message}>
+          <FormField
+            label={invoicesNew.general.dueDate}
+            contentKey="invoices-new.general.dueDate"
+            htmlFor="dueDate"
+            error={errors.dueDate?.message}
+          >
             {(field) => (
               <input {...field} type="date" {...register("dueDate")} className={inputClass} />
             )}
@@ -151,10 +185,16 @@ export function InvoiceForm() {
       </fieldset>
 
       <fieldset className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm">
-        <legend className="px-2 text-sm font-semibold text-foreground">Payment info</legend>
+        <legend
+          data-content="invoices-new.payment.legend"
+          className="px-2 text-sm font-semibold text-foreground"
+        >
+          {invoicesNew.payment.legend}
+        </legend>
 
         <FormField
-          label="Bill Description / Explanation"
+          label={invoicesNew.payment.description}
+          contentKey="invoices-new.payment.description"
           htmlFor="description"
           error={errors.description?.message}
         >
@@ -162,7 +202,8 @@ export function InvoiceForm() {
             <input
               {...field}
               {...register("description")}
-              placeholder="e.g. Utility, rent"
+              placeholder={invoicesNew.payment.descriptionPlaceholder}
+              data-content="invoices-new.payment.descriptionPlaceholder"
               className={inputClass}
             />
           )}
@@ -170,14 +211,15 @@ export function InvoiceForm() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField
-            label="Prev Payments"
+            label={invoicesNew.payment.previousPayments}
+            contentKey="invoices-new.payment.previousPayments"
             htmlFor="previousPayments"
             error={errors.previousPayments?.message}
           >
             {(field) => (
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-muted">
-                  $
+                  {invoicesNew.payment.currencySymbol}
                 </span>
                 <input
                   {...field}
@@ -190,11 +232,16 @@ export function InvoiceForm() {
             )}
           </FormField>
 
-          <FormField label="Current Due" htmlFor="currentDue" error={errors.currentDue?.message}>
+          <FormField
+            label={invoicesNew.payment.currentDue}
+            contentKey="invoices-new.payment.currentDue"
+            htmlFor="currentDue"
+            error={errors.currentDue?.message}
+          >
             {(field) => (
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-muted">
-                  $
+                  {invoicesNew.payment.currencySymbol}
                 </span>
                 <input
                   {...field}
@@ -209,7 +256,8 @@ export function InvoiceForm() {
         </div>
 
         <FormField
-          label="Account Status"
+          label={invoicesNew.payment.accountStatus}
+          contentKey="invoices-new.payment.accountStatus"
           htmlFor="accountStatus"
           error={errors.accountStatus?.message}
         >
@@ -221,7 +269,7 @@ export function InvoiceForm() {
             >
               {accountStatuses.map((status) => (
                 <option key={status} value={status}>
-                  {status || "Select status"}
+                  {status || invoicesNew.payment.selectStatus}
                 </option>
               ))}
             </select>
@@ -229,7 +277,8 @@ export function InvoiceForm() {
         </FormField>
 
         <FormField
-          label="Payment / Processing Notes (optional)"
+          label={invoicesNew.payment.notes}
+          contentKey="invoices-new.payment.notes"
           htmlFor="notes"
           error={errors.notes?.message}
         >
@@ -239,7 +288,8 @@ export function InvoiceForm() {
         </FormField>
 
         <FormField
-          label="Website Name (optional)"
+          label={invoicesNew.payment.websiteName}
+          contentKey="invoices-new.payment.websiteName"
           htmlFor="websiteName"
           error={errors.websiteName?.message}
         >
@@ -247,7 +297,8 @@ export function InvoiceForm() {
             <input
               {...field}
               {...register("websiteName")}
-              placeholder="https://domainname.com"
+              placeholder={invoicesNew.payment.websiteNamePlaceholder}
+              data-content="invoices-new.payment.websiteNamePlaceholder"
               className={inputClass}
             />
           )}
@@ -255,7 +306,8 @@ export function InvoiceForm() {
       </fieldset>
 
       <Button
-        label={isSubmitting ? "Creating…" : "Create"}
+        label={isSubmitting ? invoicesNew.submit.creating : invoicesNew.submit.create}
+        data-content="invoices-new.submit.create"
         type="submit"
         disabled={isSubmitting}
         className="w-full border-2"
