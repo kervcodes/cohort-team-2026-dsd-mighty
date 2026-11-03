@@ -22,6 +22,7 @@ Frontend, from `frontend/`:
 - `pnpm test` - Jest
 - `pnpm build` - `next build`
 - `pnpm dev` - dev server
+- `pnpm run test:e2e` - Playwright e2e and axe (mock data only; `pnpm run test:screens` writes page screenshots to `test-results/screens/`)
 - `pnpm run check:ds` - design-system sweep (needs `bun`)
 
 Repo root:

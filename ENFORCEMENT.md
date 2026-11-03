@@ -31,4 +31,7 @@ The checker runs by `node` from the repo root because the root has no `package.j
 | Every page route has a content file and its text is tagged | lint | `frontend/scripts/lint-content.mjs`, `frontend/content-acceptance.config.json` | - |
 | Content fields are human-accepted by hash; agents cannot accept | ci | `frontend/scripts/content-acceptance.mjs`, `frontend/app/content/.accepted.json`, `.github/workflows/ci.yml` | - |
 | Sidebar text is extracted to content | review | `frontend/biome.json` | 2026-12-31 the sidebar is a dev stub in active development; Biome `noJsxLiterals` is off for it until its design settles |
+| E2E smoke tests pass before merge, using mock data only (non-local requests fail the test) | test | `frontend/e2e/fixtures.ts`, `frontend/playwright.config.ts`, `.github/workflows/e2e.yml` | - |
+| Pages have no serious axe accessibility violations | test | `frontend/e2e/a11y.spec.ts`, `.github/workflows/accessibility.yml` | - |
+| Color contrast meets WCAG | review | `frontend/e2e/a11y.spec.ts` | 2026-12-31 every page fails axe color-contrast on current design tokens; rule disabled until tokens are fixed |
 | Required status checks and squash-only merges on `main` | audit | - | 2026-12-31 repository admin settings, not changeable from a PR |
