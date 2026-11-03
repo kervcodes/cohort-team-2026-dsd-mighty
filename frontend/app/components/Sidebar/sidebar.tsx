@@ -13,6 +13,7 @@ import {
   LuUserRoundCog,
   LuUsers,
 } from "react-icons/lu";
+import Button from "@/components/ui/button";
 
 export default function Sidebar() {
   // for testing
@@ -116,14 +117,18 @@ export default function Sidebar() {
             <li>Control Panel</li>
             {!isLoggedIn && (
               <li>
-                <button onClick={signin}>Log in</button>
+                <Button variant="ghost" size="icon" onClick={signin} label="Log in" />
               </li>
             )}
             <li>{isAdmin ? "is admin" : "is analyst"}</li>
             <li>
-              <button className="cursor-pointer" onClick={toggleAdmin}>
-                toggle admin
-              </button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="cursor-pointer"
+                onClick={toggleAdmin}
+                label="toggle admin"
+              />
             </li>
           </ul>
           <ul className="space-y-4">
@@ -137,10 +142,15 @@ export default function Sidebar() {
 
             {isLoggedIn && (
               <li>
-                <button onClick={signout} className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={signout}
+                  className="flex items-center gap-2"
+                >
                   <LuLogOut size={20} aria-hidden="true" />
                   <span className="hidden sm:block">Sign Out</span>
-                </button>
+                </Button>
               </li>
             )}
           </ul>

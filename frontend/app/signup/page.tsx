@@ -5,6 +5,7 @@ import { Eye, EyeOff, Mail, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import Button from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
@@ -150,8 +151,10 @@ export default function SignupPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-lg border border-border bg-surface-muted py-2 pl-3 pr-10 text-sm text-foreground placeholder:text-foreground-muted transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
               />
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => setShowPassword((prev) => !prev)}
                 className="absolute inset-y-0 right-0 flex items-center rounded-r-lg px-3 text-foreground-muted transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={showPassword ? "Hide password" : "Show password"}
@@ -161,7 +164,7 @@ export default function SignupPage() {
                 ) : (
                   <EyeOff className="h-4 w-4" aria-hidden="true" />
                 )}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -181,8 +184,10 @@ export default function SignupPage() {
                 onChange={(e) => setConfirm(e.target.value)}
                 className="w-full rounded-lg border border-border bg-surface-muted py-2 pl-3 pr-10 text-sm text-foreground placeholder:text-foreground-muted transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
               />
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => setShowConfirmPassword((prev) => !prev)}
                 className="absolute inset-y-0 right-0 flex items-center rounded-r-lg px-3 text-foreground-muted transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={showConfirmPassword ? "Hide password" : "Show password"}
@@ -192,17 +197,16 @@ export default function SignupPage() {
                 ) : (
                   <EyeOff className="h-4 w-4" aria-hidden="true" />
                 )}
-              </button>
+              </Button>
             </div>
           </div>
 
-          <button
+          <Button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loading ? "Creating account..." : "Sign up"}
-          </button>
+            className="w-full py-2.5"
+            label={loading ? "Creating account..." : "Sign up"}
+          />
         </form>
 
         <p className="mt-6 text-center text-sm text-foreground-muted">

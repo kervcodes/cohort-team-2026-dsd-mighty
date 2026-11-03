@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { StatusBadge } from "@/components/Status-Badge/status-badge";
+import Button from "@/components/ui/button";
 import type { Invoice } from "@/types/invoice";
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -84,18 +85,8 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
         <p className="text-sm text-foreground-muted tabular-nums">Page 1 of 10</p>
 
         <div className="flex gap-2">
-          <button
-            type="button"
-            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface"
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface"
-          >
-            Next
-          </button>
+          <Button type="button" variant="secondary" size="sm" label="Previous" />
+          <Button type="button" variant="secondary" size="sm" label="Next" />
         </div>
       </footer>
     </section>

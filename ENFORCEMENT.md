@@ -15,8 +15,17 @@ The checker runs by `node` from the repo root because the root has no `package.j
 | TypeScript strict; frontend types check before merge | ci | `frontend/tsconfig.json`, `.github/workflows/ci.yml` | - |
 | Frontend builds before merge | ci | `.github/workflows/ci.yml` | - |
 | Every rule above has an enforcer that exists; no exception has expired | ci | `scripts/check-enforcement.mjs`, `.github/workflows/ci.yml` | - |
-| Commit messages follow `type(scope): description` | review | - | 2026-12-31 the pre-commit hook does not check messages; no commit-msg hook yet |
+| Commit messages follow `type(scope): description` | hook | `.husky/commit-msg` | - |
 | Biome is the only linter and formatter (no ESLint, no Prettier); lint passes before merge | ci | `frontend/biome.json`, `.github/workflows/ci.yml` | - |
 | Staged frontend and backend files are Biome- and Ruff-fixed before commit | hook | `.husky/pre-commit`, `lint-staged.config.mjs` | - |
+| No direct pushes to `main` | hook | `.husky/pre-push` | - |
+| Staged TypeScript files type-check on commit | hook | `frontend/scripts/tsc-staged.sh`, `lint-staged.config.mjs` | - |
+| No emoji in source; use lucide-react icons | hook | `frontend/scripts/check-no-emoji.mjs`, `lint-staged.config.mjs` | - |
+| Raw HTML elements with a design-system replacement are banned outside `frontend/app/components/ui` | hook | `frontend/scripts/check-design-system.ts`, `lint-staged.config.mjs` | - |
+| Every `components/ui` primitive has a manifest entry and appears on `/design-system` | lint | `frontend/scripts/check-ds-coverage.ts`, `frontend/scripts/check-ds-page.ts` | - |
+| A raw `<button>` outside `components/ui` is rejected; `<Button>` passes | test | `frontend/app/lib/design-system-enforcement.test.ts` | - |
+| Design-system sweep passes before push and merge | ci | `.husky/pre-push`, `.github/workflows/ci.yml` | - |
+| Claude Code cannot write a raw tag outside `components/ui` | review | `frontend/scripts/check-design-system.ts` | 2026-12-31 the PreToolUse layer needs a Claude settings change that is held for the captain |
+| Design-system rules other than `raw-button` are not yet enabled | review | `frontend/app/components/ui/manifest.config.ts` | 2026-12-31 enable one preset at a time as its component is built |
 | No literal user-visible text in components | convention | - | 2026-12-31 Biome `noJsxLiterals` runs at warn, not error: literals not yet extracted (14 in 3 files) |
 | Required status checks and squash-only merges on `main` | audit | - | 2026-12-31 repository admin settings, not changeable from a PR |

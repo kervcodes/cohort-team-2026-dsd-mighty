@@ -91,7 +91,9 @@
       "!**/build",
       "!**/coverage",
       "!**/.vercel",
-      "!**/supabase/.temp"
+      "!**/supabase/.temp",
+      "!**/public",
+      "!**/next-env.d.ts"
     ]
   },
   "overrides": [

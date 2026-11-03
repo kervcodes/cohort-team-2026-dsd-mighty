@@ -159,6 +159,32 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
+  design-system:
+    name: Design System
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check design system
+        run: pnpm run check:ds
+
   enforcement:
     name: Enforcement Table
     runs-on: ubuntu-latest
