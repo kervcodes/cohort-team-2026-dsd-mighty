@@ -5,8 +5,8 @@ import { FileUp } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import Button from "@/components/Button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
+import Button from "@/components/ui/button";
 import type { BillCreatePayload } from "@/lib/api/bills";
 import { createBill } from "@/lib/api/bills";
 import {

@@ -1,0 +1,34 @@
+#!/usr/bin/env sh
+
+# --- Protected branch push guard ---
+# Blocks direct pushes to main and master. Use pull requests instead.
+
+# Skip when running in CI
+if [ "$CI" = "true" ] || [ "$GITHUB_ACTIONS" = "true" ]; then
+  exit 0
+fi
+
+current_branch=$(git branch --show-current)
+
+if [ "$current_branch" = "main" ] || [ "$current_branch" = "master" ]; then
+  echo "error: Direct pushes to '$current_branch' are not allowed."
+  echo ""
+  echo "  Create a feature branch and open a pull request instead:"
+  echo "    git checkout -b feat/my-feature"
+  echo "    git push -u origin feat/my-feature"
+  echo ""
+  echo "  Bypass (rare): git push --no-verify"
+  exit 1
+fi
+
+# --- Design system guard ---
+# Full-repo sweep: lint-staged only sees staged lines, this catches the rest.
+# Skipped when the design-system module is not installed. Blocks if bun is missing.
+if [ -f "frontend/scripts/check-design-system.ts" ]; then
+  if command -v bun >/dev/null 2>&1; then
+    (cd frontend && pnpm run --silent check:ds) || exit 1
+  else
+    echo "error: bun is required for the design-system check but is not installed. (brew install oven-sh/bun/bun)"
+    exit 1
+  fi
+fi

@@ -22,6 +22,7 @@ Frontend, from `frontend/`:
 - `pnpm test` - Jest
 - `pnpm build` - `next build`
 - `pnpm dev` - dev server
+- `pnpm run check:ds` - design-system sweep (needs `bun`)
 
 Repo root:
 
@@ -30,6 +31,8 @@ Repo root:
 ## Layout
 
 `backend/src/backend` FastAPI app (`api/` routers, `schemas/`), `backend/tests`, `frontend/app` routes, components, `lib/` and `types/`, `scripts/` repo tooling, `.github/workflows` CI.
+
+Raw `<button>` is banned outside `frontend/app/components/ui`; use `<Button>` from `@/components/ui/button`. Browse components at `/design-system`.
 
 ## Enforcement
 
