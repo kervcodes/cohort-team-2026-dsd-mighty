@@ -1,0 +1,24 @@
+{
+  "heading": "Bill & Invoice",
+  "newInvoice": "New Invoice",
+  "stats": {
+    "outstanding": "Outstanding",
+    "dueThisWeek": "Due this week",
+    "paidThisMonth": "Paid this month",
+    "unit": "invoices"
+  },
+  "table": {
+    "title": "Invoice History",
+    "columnId": "Invoice ID",
+    "columnProperty": "Property",
+    "columnCompany": "Company",
+    "columnDueDate": "Due Date",
+    "columnVendor": "Vendor",
+    "columnAmount": "Amount",
+    "columnStatus": "Status",
+    "empty": "No invoices yet. Click \"New Invoice\" to add one.",
+    "pagination": "Page 1 of 10",
+    "previous": "Previous",
+    "next": "Next"
+  }
+}

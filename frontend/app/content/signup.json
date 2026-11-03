@@ -1,0 +1,22 @@
+{
+  "checkEmail": {
+    "heading": "Check your email",
+    "before": "We sent a confirmation link to",
+    "after": ". Click it to finish creating your account.",
+    "back": "Back to log in"
+  },
+  "heading": "Create an account",
+  "subheading": "Get started in less than a minute",
+  "email": "Email",
+  "emailPlaceholder": "you@example.com",
+  "password": "Password",
+  "passwordPlaceholder": "At least 8 characters",
+  "confirmPassword": "Confirm password",
+  "confirmPlaceholder": "Re-enter your password",
+  "hidePassword": "Hide password",
+  "showPassword": "Show password",
+  "submit": "Sign up",
+  "submitting": "Creating account...",
+  "haveAccount": "Already have an account?",
+  "loginLink": "Log in"
+}

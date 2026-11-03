@@ -1,0 +1,38 @@
+{
+  "heading": "New Invoice",
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "upload": {
+    "title": "Upload / import invoice (PDF)",
+    "status": "Coming soon"
+  },
+  "general": {
+    "legend": "General bill info",
+    "accountNumber": "Account / Customer #",
+    "statementId": "Statement / Bill ID",
+    "companyName": "Customer / Business Name",
+    "propertyAddress": "Property Address",
+    "propertyAddressPlaceholder": "Enter property address",
+    "issueDate": "Issue / Record / Invoice Date",
+    "dueDate": "Due / Pay Date"
+  },
+  "payment": {
+    "legend": "Payment info",
+    "description": "Bill Description / Explanation",
+    "descriptionPlaceholder": "e.g. Utility, rent",
+    "currencySymbol": "$",
+    "previousPayments": "Prev Payments",
+    "currentDue": "Current Due",
+    "accountStatus": "Account Status",
+    "notes": "Payment / Processing Notes (optional)",
+    "websiteName": "Website Name (optional)",
+    "websiteNamePlaceholder": "https://domainname.com",
+    "selectStatus": "Select status"
+  },
+  "submit": {
+    "create": "Create",
+    "creating": "Creating…"
+  }
+}

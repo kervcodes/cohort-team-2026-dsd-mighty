@@ -46,7 +46,7 @@ export default function Sidebar() {
 
   return (
     <>
-      <nav>
+      <nav data-content-skip="sidebar is a dev stub under active development; extract once its design settles">
         <div
           style={{
             backgroundColor: "var(--foreground)",

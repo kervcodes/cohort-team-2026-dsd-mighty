@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import Link from "next/link";
 import { InvoiceTable } from "@/components/Invoice-table/invoice-table";
 import { StatCard } from "@/components/Stat-card/stat-card";
+import { dashboard } from "@/content";
 import type { Invoice } from "@/types/invoice";
 
 //examples
@@ -47,34 +48,41 @@ export default function DashboardPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 pt-16">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-          Bill &amp; Invoice
+        <h1
+          data-content="dashboard.heading"
+          className="text-3xl font-semibold tracking-tight text-foreground"
+        >
+          {dashboard.heading}
         </h1>
 
         <Link
           href="/invoices/new"
+          data-content="dashboard.newInvoice"
           className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Plus className="h-4 w-4" />
-          New Invoice
+          {dashboard.newInvoice}
         </Link>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
-          label="Outstanding"
+          label={dashboard.stats.outstanding}
+          contentKey="dashboard.stats.outstanding"
           value={placeholderStats.outstanding.value}
-          hint={`${placeholderStats.outstanding.count} invoices`}
+          hint={`${placeholderStats.outstanding.count} ${dashboard.stats.unit}`}
         />
         <StatCard
-          label="Due this week"
+          label={dashboard.stats.dueThisWeek}
+          contentKey="dashboard.stats.dueThisWeek"
           value={placeholderStats.dueThisWeek.value}
-          hint={`${placeholderStats.dueThisWeek.count} invoices`}
+          hint={`${placeholderStats.dueThisWeek.count} ${dashboard.stats.unit}`}
         />
         <StatCard
-          label="Paid this month"
+          label={dashboard.stats.paidThisMonth}
+          contentKey="dashboard.stats.paidThisMonth"
           value={placeholderStats.paidThisMonth.value}
-          hint={`${placeholderStats.dueThisWeek.value} invoices`}
+          hint={`${placeholderStats.dueThisWeek.value} ${dashboard.stats.unit}`}
         />
       </div>
 

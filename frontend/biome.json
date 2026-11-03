@@ -45,7 +45,7 @@
         "useConst": "error",
         "useImportType": "warn",
         "noNonNullAssertion": "warn",
-        "noJsxLiterals": "warn"
+        "noJsxLiterals": "error"
       },
       "complexity": {
         "noUselessFragments": "warn",
@@ -116,6 +116,16 @@
         "rules": {
           "suspicious": {
             "noMisleadingCharacterClass": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["app/components/Sidebar/sidebar.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noJsxLiterals": "off"
           }
         }
       }

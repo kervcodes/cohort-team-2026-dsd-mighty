@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import Button from "@/components/ui/button";
+import { login as content } from "@/content";
 import { createClient } from "@/lib/supabase/client";
 
 const CALLBACK_ERROR_MESSAGE =
@@ -65,8 +66,10 @@ export function LoginForm() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
             <Lock className="h-6 w-6" aria-hidden="true" />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Welcome back</h1>
-          <p className="mt-1 text-sm text-foreground-muted">Log in to your account</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            {content.heading}
+          </h1>
+          <p className="mt-1 text-sm text-foreground-muted">{content.subheading}</p>
         </div>
 
         <form
@@ -84,14 +87,14 @@ export function LoginForm() {
 
           <div className="space-y-1.5">
             <label htmlFor="email" className="text-sm font-medium text-foreground">
-              Email
+              {content.email}
             </label>
             <input
               id="email"
               type="email"
               required
               autoComplete="email"
-              placeholder="you@example.com"
+              placeholder={content.emailPlaceholder}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
@@ -100,7 +103,7 @@ export function LoginForm() {
 
           <div className="space-y-1.5">
             <label htmlFor="password" className="text-sm font-medium text-foreground">
-              Password
+              {content.password}
             </label>
             <div className="relative">
               <input
@@ -108,7 +111,7 @@ export function LoginForm() {
                 type={showPassword ? "text" : "password"}
                 required
                 autoComplete="current-password"
-                placeholder="Your password"
+                placeholder={content.passwordPlaceholder}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-lg border border-border bg-surface-muted px-3 py-2 pr-10 text-sm text-foreground placeholder:text-foreground-muted transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
@@ -119,7 +122,7 @@ export function LoginForm() {
                 size="icon"
                 onClick={() => setShowPassword((prev) => !prev)}
                 className="absolute inset-y-0 right-0 flex items-center px-3 text-foreground-muted transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-r-lg"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-label={showPassword ? content.hidePassword : content.showPassword}
               >
                 {showPassword ? (
                   <EyeOff className="h-4 w-4" aria-hidden="true" />
@@ -134,17 +137,17 @@ export function LoginForm() {
             disabled={loading}
             aria-busy={loading}
             className="w-full py-2.5"
-            label={loading ? "Logging in..." : "Log in"}
+            label={loading ? content.submitting : content.submit}
           />
         </form>
 
         <p className="mt-6 text-center text-sm text-foreground-muted">
-          No account?{" "}
+          {content.noAccount}{" "}
           <Link
             href="/signup"
             className="font-medium text-primary hover:text-primary-hover hover:underline"
           >
-            Sign up
+            {content.signupLink}
           </Link>
         </p>
       </div>

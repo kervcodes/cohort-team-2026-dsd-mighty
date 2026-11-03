@@ -2,16 +2,26 @@ type StatCardProps = {
   label: string;
   value: string;
   hint?: string;
+  contentKey?: string;
 };
 
-export function StatCard({ label, value, hint }: StatCardProps) {
+export function StatCard({ label, value, hint, contentKey }: StatCardProps) {
   return (
     <div className="rounded-xl border border-border bg-surface p-5 shadow-sm">
-      <p className="text-sm text-foreground-muted">{label}</p>
+      <p data-content={contentKey} className="text-sm text-foreground-muted">
+        {label}
+      </p>
       <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
         {value}
       </p>
-      {hint && <p className="mt-1 text-xs text-foreground-muted">{hint}</p>}
+      {hint && (
+        <p
+          data-content-skip="derived from invoice counts"
+          className="mt-1 text-xs text-foreground-muted"
+        >
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
