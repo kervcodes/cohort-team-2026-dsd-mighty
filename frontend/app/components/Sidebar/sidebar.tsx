@@ -13,13 +13,14 @@ import {
   LuUserRoundCog,
   LuUsers,
 } from "react-icons/lu";
+import { createClient } from "@/lib/supabase/client";
 
 export default function Sidebar() {
-  // for testing
-  // in production get user session and if admin
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const router = useRouter();
+  const supabase = createClient();
 
   // invoices
   //invoices/new
@@ -29,11 +30,27 @@ export default function Sidebar() {
   ///properties
   //login/
 
-  const signout = () => {
-    setIsLoggedIn(false);
-    setIsAdmin(false);
-    router.push("/login");
+  const signout = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error("Sign out error:", error.message);
+        return;
+      }
+      setIsLoggedIn(false);
+      setIsAdmin(false);
+      router.push("/login");
+      router.refresh();
+    } catch (error) {
+      console.error("Unexpected error:", error);
+    } finally {
+      setIsSigningOut(false);
+    }
   };
+
   const signin = () => {
     setIsLoggedIn(true);
     router.push("/");
@@ -137,9 +154,15 @@ export default function Sidebar() {
 
             {isLoggedIn && (
               <li>
-                <button onClick={signout} className="flex items-center gap-2">
+                <button
+                  onClick={signout}
+                  disabled={isSigningOut}
+                  className="flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
                   <LuLogOut size={20} aria-hidden="true" />
-                  <span className="hidden sm:block">Sign Out</span>
+                  <span className="hidden sm:block">
+                    {isSigningOut ? "Signing out..." : "Sign out"}
+                  </span>
                 </button>
               </li>
             )}
