@@ -8,7 +8,7 @@ from backend.schemas.common import ActiveStatus
 
 
 class UserRole(StrEnum):
-    submitter = "submitter"
+    analyst = "analyst"
     approver = "approver"
     admin = "admin"
 
