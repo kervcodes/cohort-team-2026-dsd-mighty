@@ -1,0 +1,25 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Maple Junction Storage",
+  "account_number": "2000456708",
+  "invoice_number": "BILL-1001",
+  "invoice_date": "2026-10-02",
+  "due_date": "2026-10-16",
+  "amount_due": "168.79",
+  "previous_balance": null,
+  "payments_received": "0.00",
+  "current_charges": "168.79",
+  "line_items": [
+    {
+      "description": "Monthly commercial storage unit rental",
+      "amount": "168.79"
+    }
+  ],
+  "service_address": null,
+  "service_period_start": null,
+  "service_period_end": null,
+  "expected_issues": [],
+  "expected_status": "ready_for_review",
+  "notes": "Only a bill-to address is printed, so service_address is null. Key drafted independently by two models (no disagreements) and decided by Pranil.",
+  "case": "DSD sample bill: one page, one charge, unusual labels"
+}

@@ -1,0 +1,40 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Bluestem Heating & Air LLC",
+  "account_number": "BHA-20931",
+  "invoice_number": "BHA-10-5528",
+  "invoice_date": "2026-10-19",
+  "due_date": "2026-11-03",
+  "amount_due": "656.13",
+  "previous_balance": null,
+  "payments_received": null,
+  "current_charges": "656.13",
+  "line_items": [
+    {
+      "description": "Seasonal furnace tune-up and safety inspection",
+      "amount": "189.00"
+    },
+    {
+      "description": "Technician labor, additional repairs",
+      "amount": "295.00"
+    },
+    {
+      "description": "Igniter, hot-surface (OEM)",
+      "amount": "94.50"
+    },
+    {
+      "description": "Furnace filter, 16x25x1 MERV 8",
+      "amount": "67.50"
+    },
+    {
+      "description": "Sales tax (6.25% on materials)",
+      "amount": "10.13"
+    }
+  ],
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
+  "service_period_start": null,
+  "service_period_end": null,
+  "expected_issues": [],
+  "expected_status": "ready_for_review",
+  "case": "Clean 1-page contractor invoice with line items, subtotal, tax and total"
+}
