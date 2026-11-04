@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.approvals import router as approvals_router
 from backend.api.bill_documents import router as bill_documents_router
+from backend.api.bill_extraction import router as bill_extraction_router
 from backend.api.bills import router as bills_router
 from backend.api.vendor_accounts import router as vendor_accounts_router
 from backend.api.vendors import router as vendors_router
@@ -31,6 +32,7 @@ app.include_router(approvals_router)
 app.include_router(vendors_router)
 app.include_router(vendor_accounts_router)
 app.include_router(bill_documents_router)
+app.include_router(bill_extraction_router)
 
 
 @app.get("/")

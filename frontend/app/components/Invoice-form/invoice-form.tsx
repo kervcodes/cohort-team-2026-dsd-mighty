@@ -9,8 +9,14 @@ import Button from "@/components/Button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
 import {
   type BillCreatePayload,
+  type BillDraftPayload,
   createBill,
+  type ExtractedBillFields,
+  type ExtractionIssue,
+  type ExtractResponse,
+  extractBill,
   saveBillDraft,
+  updateBillDraft,
   uploadInvoicePdf,
 } from "@/lib/api/bills";
 import {
@@ -21,6 +27,26 @@ import {
 } from "@/lib/invoice-form-schema";
 
 type ActionStatus = "idle" | "loading" | "success" | "error";
+
+// Form field <- extracted field (BillCreate name).
+const extractedToForm = {
+  accountNumber: "account_number_raw",
+  statementId: "invoice_number",
+  companyName: "vendor_name_raw",
+  propertyAddress: "property_address",
+  issueDate: "invoice_date",
+  dueDate: "due_date",
+  currentDue: "amount",
+  previousPayments: "prev_payments",
+  description: "description",
+  notes: "processing_notes",
+} as const satisfies Partial<Record<keyof InvoiceFormValues, keyof ExtractedBillFields>>;
+
+type ExtractionState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "done"; result: ExtractResponse; filled: number }
+  | { kind: "error"; message: string };
 
 // Browsers sometimes report an empty MIME type for dropped files, so the
 // extension is checked as well.
@@ -41,11 +67,15 @@ export function InvoiceForm() {
   const [createStatus, setCreateStatus] = useState<ActionStatus>("idle");
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [extraction, setExtraction] = useState<ExtractionState>({ kind: "idle" });
+  // Ignores a slow response for a file the analyst has already replaced.
+  const extractionRun = useRef(0);
 
   const {
     register,
     handleSubmit,
     getValues,
+    setValue,
     formState: { errors },
   } = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
@@ -99,6 +129,50 @@ export function InvoiceForm() {
 
     setSelectedFile(file);
     setUploadError("");
+
+    if (file) void readBill(file);
+    else setExtraction({ kind: "idle" });
+  }
+
+  // Fills only empty fields: a value the analyst typed is never overwritten
+  // by a model's reading. Returns how many fields were filled.
+  function applyExtractedFields(fields: ExtractedBillFields): number {
+    let filled = 0;
+    for (const [formField, extractedField] of Object.entries(extractedToForm) as [
+      keyof typeof extractedToForm,
+      keyof ExtractedBillFields,
+    ][]) {
+      const value = fields[extractedField]?.trim();
+      if (value && !getValues(formField).trim()) {
+        setValue(formField, value, { shouldDirty: true });
+        filled += 1;
+      }
+    }
+    return filled;
+  }
+
+  async function readBill(file: File) {
+    const run = ++extractionRun.current;
+    setExtraction({ kind: "loading" });
+
+    try {
+      const result = await extractBill(file);
+      if (run !== extractionRun.current) return;
+
+      const filled = result.fields ? applyExtractedFields(result.fields) : 0;
+      if (filled > 0) {
+        // The form now differs from any saved draft.
+        setDraftStatus((current) => (current === "success" ? "idle" : current));
+        setDraftMessage("");
+      }
+      setExtraction({ kind: "done", result, filled });
+    } catch (error) {
+      if (run !== extractionRun.current) return;
+      setExtraction({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Unable to read the bill.",
+      });
+    }
   }
 
   function handleDragOver(event: DragEvent<HTMLLabelElement>) {
@@ -158,21 +232,27 @@ export function InvoiceForm() {
     try {
       const values = getValues();
 
-      const payload = {
-        account_number_raw: values.accountNumber.trim() || undefined,
-        invoice_number: values.statementId.trim() || undefined,
-        vendor_name_raw: values.companyName.trim() || undefined,
-        invoice_date: values.issueDate || undefined,
-        due_date: values.dueDate || undefined,
-        amount: values.currentDue.trim() || undefined,
-        description: values.description.trim() || undefined,
-        processing_notes: values.notes.trim() || undefined,
-        property_address: values.propertyAddress.trim() || undefined,
-        account_status: values.accountStatus || undefined,
-        website_name: values.websiteName.trim() || undefined,
+      // Blank fields are sent as null so that clearing a field on an
+      // existing draft clears it in the database too.
+      const payload: BillDraftPayload = {
+        account_number_raw: values.accountNumber.trim() || null,
+        invoice_number: values.statementId.trim() || null,
+        vendor_name_raw: values.companyName.trim() || null,
+        invoice_date: values.issueDate || null,
+        due_date: values.dueDate || null,
+        amount: values.currentDue.trim() || null,
+        prev_payments: values.previousPayments.trim() || null,
+        description: values.description.trim() || null,
+        processing_notes: values.notes.trim() || null,
+        property_address: values.propertyAddress.trim() || null,
+        account_status: values.accountStatus || null,
+        website_name: values.websiteName.trim() || null,
       };
 
-      const saved = await saveBillDraft(payload);
+      // The first save creates the draft; later saves update the same bill.
+      const saved = draftId
+        ? await updateBillDraft(draftId, payload)
+        : await saveBillDraft(payload);
 
       setDraftId(saved.bill_id);
       setDraftStatus("success");
@@ -184,7 +264,21 @@ export function InvoiceForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate className="mx-auto max-w-3xl space-y-6">
+    <form
+      onSubmit={handleSubmit(onSubmit)}
+      onChange={(event) => {
+        // Editing a field after a save means there are unsaved changes.
+        // Choosing a PDF is not a draft edit, so the file input is ignored.
+        const target = event.target;
+        if (target instanceof HTMLInputElement && target.type === "file") return;
+        if (draftStatus === "success") {
+          setDraftStatus("idle");
+          setDraftMessage("");
+        }
+      }}
+      noValidate
+      className="mx-auto max-w-3xl space-y-6"
+    >
       {submitError && (
         <p
           role="alert"
@@ -217,7 +311,7 @@ export function InvoiceForm() {
             }
             type="button"
             onClick={handleSaveDraft}
-            disabled={draftStatus === "loading" || draftStatus === "success"}
+            disabled={draftStatus === "loading"}
           />
           <Button
             label="Cancel"
@@ -257,6 +351,8 @@ export function InvoiceForm() {
             onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
           />
         </label>
+
+        <ExtractionFeedback state={extraction} />
 
         <button
           type="button"
@@ -468,5 +564,60 @@ export function InvoiceForm() {
         className="w-full border-2"
       />
     </form>
+  );
+}
+
+function extractionSummary(result: ExtractResponse, filled: number): string {
+  switch (result.status) {
+    case "not_an_invoice":
+      return "This file doesn't look like a bill. Enter the details manually.";
+    case "failed":
+      return `Couldn't read this bill${result.failed_reason ? `: ${result.failed_reason}` : ""}. Enter the details manually.`;
+    default:
+      return filled > 0
+        ? `Filled ${filled} field${filled === 1 ? "" : "s"} from the bill. Review every value before saving.`
+        : "Read the bill, but every field it found is already filled in. Review the form before saving.";
+  }
+}
+
+function ExtractionFeedback({ state }: { state: ExtractionState }) {
+  if (state.kind === "idle") return null;
+
+  if (state.kind === "loading") {
+    return (
+      <p role="status" className="mt-3 text-sm text-foreground-muted">
+        {"Reading the bill..."}
+      </p>
+    );
+  }
+
+  if (state.kind === "error") {
+    return (
+      <p role="alert" className="mt-3 text-sm text-red-600">
+        {state.message}
+      </p>
+    );
+  }
+
+  const { result, filled } = state;
+  const unreadable = result.status === "failed" || result.status === "not_an_invoice";
+  const issues: ExtractionIssue[] = unreadable ? [] : result.issues;
+
+  return (
+    <div className="mt-3 text-left text-sm">
+      <p
+        role={unreadable ? "alert" : "status"}
+        className={unreadable ? "text-red-600" : "text-green-700"}
+      >
+        {extractionSummary(result, filled)}
+      </p>
+      {issues.length > 0 && (
+        <ul aria-label="Check these fields" className="mt-2 list-disc pl-5 text-amber-700">
+          {issues.map((issue) => (
+            <li key={`${issue.code}-${issue.field}`}>{issue.message}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

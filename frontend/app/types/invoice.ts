@@ -1,13 +1,14 @@
-export type InvoiceStatus = "pending" | "approved" | "paid" | "overdue";
+import type { BillStatus } from "@/lib/api/bills";
 
-export type AccountStatus = "unpaid" | "outstanding" | "paid";
+export type InvoiceStatus = BillStatus;
 
 export type Invoice = {
   id: string;
   property: string;
   company: string;
-  dueDate: string;
+  dueDate: string | null;
   vendor: string;
-  amount: number;
+  amount: number | null;
   status: InvoiceStatus;
+  invoiceNumber?: string | null;
 };

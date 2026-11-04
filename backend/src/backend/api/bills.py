@@ -12,7 +12,11 @@ from backend.schemas.bill import (
     BillStatus,
 )
 from backend.schemas.user import UserSummary
-from backend.services.bill_repository import create_draft
+from backend.services.bill_repository import (
+    create_draft,
+    list_user_bills,
+    update_draft,
+)
 from backend.supabase_client import get_admin_supabase
 
 router = APIRouter(
@@ -45,6 +49,16 @@ def list_bills() -> list[BillRead]:
     return _bills
 
 
+@router.get("/dashboard")
+def get_dashboard_bills(
+    user_id: str = Depends(require_active_analyst),
+) -> list[dict]:
+    return list_user_bills(
+        client=get_admin_supabase(),
+        user_id=user_id,
+    )
+
+
 @router.get("/{bill_id}", response_model=BillRead)
 def get_bill(bill_id: UUID) -> BillRead:
     for bill in _bills:
@@ -72,3 +86,28 @@ def save_new_draft(
     )
 
     return BillDraftRead.model_validate(saved)
+
+
+@router.patch(
+    "/{bill_id}/draft",
+    response_model=BillDraftRead,
+)
+def update_existing_draft(
+    bill_id: UUID,
+    draft: BillDraftCreate,
+    user_id: str = Depends(require_active_analyst),
+) -> BillDraftRead:
+    updated = update_draft(
+        client=get_admin_supabase(),
+        bill_id=bill_id,
+        user_id=user_id,
+        draft=draft,
+    )
+
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Editable draft not found.",
+        )
+
+    return BillDraftRead.model_validate(updated)

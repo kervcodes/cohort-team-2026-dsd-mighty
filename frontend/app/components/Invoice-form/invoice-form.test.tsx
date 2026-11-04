@@ -1,6 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { saveBillDraft, uploadInvoicePdf } from "@/lib/api/bills";
+import {
+  type ExtractResponse,
+  extractBill,
+  saveBillDraft,
+  updateBillDraft,
+  uploadInvoicePdf,
+} from "@/lib/api/bills";
 import { accountStatuses } from "@/lib/invoice-form-schema";
 import { InvoiceForm } from "./invoice-form";
 
@@ -14,7 +20,9 @@ jest.mock("next/navigation", () => ({
 // calls; the form is tested in isolation.
 jest.mock("@/lib/api/bills", () => ({
   createBill: jest.fn(),
+  extractBill: jest.fn(),
   saveBillDraft: jest.fn(),
+  updateBillDraft: jest.fn(),
   uploadInvoicePdf: jest.fn(),
 }));
 
@@ -23,7 +31,34 @@ function pdf(name = "invoice.pdf", type = "application/pdf") {
 }
 
 const mockSaveBillDraft = saveBillDraft as jest.MockedFunction<typeof saveBillDraft>;
+const mockUpdateBillDraft = updateBillDraft as jest.MockedFunction<typeof updateBillDraft>;
+const mockExtractBill = extractBill as jest.MockedFunction<typeof extractBill>;
 const mockUploadInvoicePdf = uploadInvoicePdf as jest.MockedFunction<typeof uploadInvoicePdf>;
+
+function extracted(
+  fields: Partial<NonNullable<ExtractResponse["fields"]>> | null,
+  overrides: Partial<ExtractResponse> = {},
+): ExtractResponse {
+  return {
+    status: "ready_for_review",
+    fields: fields && {
+      vendor_name_raw: null,
+      account_number_raw: null,
+      invoice_number: null,
+      invoice_date: null,
+      due_date: null,
+      amount: null,
+      prev_payments: null,
+      property_address: null,
+      description: null,
+      processing_notes: null,
+      ...fields,
+    },
+    issues: [],
+    failed_reason: null,
+    ...overrides,
+  };
+}
 
 function dropZone() {
   return screen.getByText("Upload / import invoice (PDF)").closest("label") as HTMLElement;
@@ -32,6 +67,7 @@ function dropZone() {
 describe("InvoiceForm", () => {
   beforeEach(() => {
     push.mockClear();
+    mockExtractBill.mockReset().mockResolvedValue(extracted(null));
     jest.spyOn(console, "log").mockImplementation(() => {});
   });
 
@@ -197,6 +233,170 @@ describe("InvoiceForm", () => {
 
       expect(await screen.findByRole("button", { name: "Retry Upload" })).toBeEnabled();
       expect(screen.getByText("Unable to store the invoice PDF.")).toBeInTheDocument();
+    });
+  });
+
+  describe("Save Draft", () => {
+    const savedDraft = { bill_id: "bill-1", status: "draft" as const, document_path: null };
+
+    beforeEach(() => {
+      mockSaveBillDraft.mockReset().mockResolvedValue(savedDraft);
+      mockUpdateBillDraft.mockReset().mockResolvedValue(savedDraft);
+    });
+
+    it("creates the draft first, then updates the same bill on later saves", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Current Due"), "250.00");
+      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
+
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockSaveBillDraft.mock.calls[0][0]).toMatchObject({ amount: "250.00" });
+
+      const amount = screen.getByLabelText("Current Due");
+      await user.clear(amount);
+      await user.type(amount, "275.00");
+      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
+
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUpdateBillDraft).toHaveBeenCalledWith(
+        "bill-1",
+        expect.objectContaining({ amount: "275.00" }),
+      );
+    });
+
+    it("sends blank fields as null so an update can clear them", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
+
+      const payload = mockSaveBillDraft.mock.calls[0][0];
+      expect(payload.amount).toBeNull();
+      expect(payload.due_date).toBeNull();
+      expect(payload.prev_payments).toBeNull();
+    });
+
+    it("marks the draft unsaved when a field changes, but not when a PDF is picked", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
+
+      await user.upload(document.querySelector("#invoicePdf") as HTMLInputElement, pdf());
+      expect(screen.getByRole("button", { name: "Draft Saved ✓" })).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+    });
+  });
+
+  describe("reading the bill", () => {
+    const bill = {
+      vendor_name_raw: "Northline Utilities",
+      account_number_raw: "ACC-1001",
+      invoice_number: "INV-2001",
+      invoice_date: "2026-11-01",
+      due_date: "2026-11-20",
+      amount: "275.00",
+      property_address: "123 Main Street",
+    };
+
+    it("fills the form from a dropped PDF", async () => {
+      mockExtractBill.mockResolvedValue(extracted(bill));
+      render(<InvoiceForm />);
+
+      const file = pdf();
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
+
+      expect(await screen.findByText(/Filled 7 fields from the bill/)).toBeInTheDocument();
+      expect(mockExtractBill).toHaveBeenCalledWith(file);
+      expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("INV-2001");
+      expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("Northline Utilities");
+      expect(screen.getByLabelText("Due / Pay Date")).toHaveValue("2026-11-20");
+      expect(screen.getByLabelText("Current Due")).toHaveValue("275.00");
+    });
+
+    it("never overwrites a value the analyst typed", async () => {
+      const user = userEvent.setup();
+      mockExtractBill.mockResolvedValue(extracted(bill));
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Current Due"), "300.00");
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
+
+      expect(await screen.findByText(/Filled 6 fields/)).toBeInTheDocument();
+      expect(screen.getByLabelText("Current Due")).toHaveValue("300.00");
+    });
+
+    it("lists the issues the checks found", async () => {
+      mockExtractBill.mockResolvedValue(
+        extracted(bill, {
+          status: "needs_attention",
+          issues: [
+            {
+              code: "BALANCE_MISMATCH",
+              field: "amount_due",
+              message: "The balance does not add up.",
+            },
+          ],
+        }),
+      );
+      render(<InvoiceForm />);
+
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
+
+      const list = await screen.findByRole("list", { name: "Check these fields" });
+      expect(list).toHaveTextContent("The balance does not add up.");
+    });
+
+    it("says so when the file is not a bill", async () => {
+      mockExtractBill.mockResolvedValue(extracted(null, { status: "not_an_invoice" }));
+      render(<InvoiceForm />);
+
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("doesn't look like a bill");
+    });
+
+    it("shows a server error and leaves the form for manual entry", async () => {
+      mockExtractBill.mockRejectedValue(
+        new Error("Automatic extraction is not configured on the server."),
+      );
+      render(<InvoiceForm />);
+
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("not configured");
+      expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("");
+    });
+
+    it("ignores a late result for a file that was replaced", async () => {
+      let finishFirst: (value: ExtractResponse) => void = () => {};
+      mockExtractBill
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishFirst = resolve;
+            }),
+        )
+        .mockResolvedValueOnce(extracted({ invoice_number: "SECOND" }));
+      render(<InvoiceForm />);
+
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("first.pdf")] } });
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("second.pdf")] } });
+      await screen.findByText(/Filled 1 field from/);
+
+      finishFirst(extracted({ invoice_number: "FIRST", amount: "1.00" }));
+      await waitFor(() =>
+        expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("SECOND"),
+      );
+      expect(screen.getByLabelText("Current Due")).toHaveValue("");
     });
   });
 });
