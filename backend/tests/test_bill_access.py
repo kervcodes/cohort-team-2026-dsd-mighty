@@ -10,11 +10,12 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from current_users import make_user
 from fake_supabase import FakeSupabase
 from fastapi.testclient import TestClient
 
 from backend.app import app
-from backend.auth import require_active_analyst
+from backend.auth import get_current_user
 
 USER_A = str(uuid4())
 USER_B = str(uuid4())
@@ -29,11 +30,10 @@ def db():
         patch("backend.api.bill_documents.get_admin_supabase", return_value=fake),
     ):
         yield fake
-    app.dependency_overrides.clear()
 
 
 def as_user(user_id: str) -> TestClient:
-    app.dependency_overrides[require_active_analyst] = lambda: user_id
+    app.dependency_overrides[get_current_user] = lambda: make_user(user_id)
     return TestClient(app)
 
 

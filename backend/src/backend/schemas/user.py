@@ -27,6 +27,15 @@ class UserRead(UserSummary):
     created_at: datetime
 
 
+class MeRead(UserSummary):
+    """`GET /me`: the caller's own profile, active or not."""
+
+    # str, not EmailStr: app_users copies the address Supabase Auth accepted.
+    email: str
+    role: UserRole
+    status: ActiveStatus
+
+
 class UserSelfUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

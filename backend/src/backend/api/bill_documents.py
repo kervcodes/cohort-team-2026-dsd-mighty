@@ -12,7 +12,7 @@ from fastapi import (
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from backend.auth import require_active_analyst
+from backend.auth import BILL_WRITERS, CurrentUser, require_active
 from backend.services.bill_repository import (
     attach_document,
     get_editable_draft,
@@ -47,9 +47,10 @@ class DocumentUploadResponse(BaseModel):
 async def upload_bill_document(
     bill_id: UUID,
     file: UploadFile = File(...),
-    user_id: str = Depends(require_active_analyst),
+    user: CurrentUser = Depends(require_active(*BILL_WRITERS)),
 ) -> DocumentUploadResponse:
     client = get_admin_supabase()
+    user_id = str(user.id)
 
     # 1. Verify bill ownership and draft status.
     try:

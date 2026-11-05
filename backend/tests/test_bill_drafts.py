@@ -2,10 +2,11 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from current_users import make_user
 from fastapi.testclient import TestClient
 
 from backend.app import app
-from backend.auth import require_active_analyst
+from backend.auth import get_current_user
 from backend.schemas.bill import BillDraftCreate
 from backend.services.bill_repository import update_draft
 
@@ -14,11 +15,8 @@ USER_ID = str(uuid4())
 
 @pytest.fixture
 def client():
-    app.dependency_overrides[require_active_analyst] = lambda: USER_ID
-    try:
-        yield TestClient(app)
-    finally:
-        app.dependency_overrides.clear()
+    app.dependency_overrides[get_current_user] = lambda: make_user(USER_ID)
+    return TestClient(app)
 
 
 def test_update_draft_requires_authentication():
