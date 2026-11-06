@@ -3,12 +3,13 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from current_users import make_user
 from fastapi import HTTPException, UploadFile
 from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 
 from backend.app import app
-from backend.auth import require_active_analyst
+from backend.auth import get_current_user
 from backend.services.bill_storage import validate_pdf
 
 
@@ -71,7 +72,7 @@ def test_upload_document_success():
     user_id = str(uuid4())
     storage_path = f"bills/{bill_id}/invoice.pdf"
 
-    app.dependency_overrides[require_active_analyst] = lambda: user_id
+    app.dependency_overrides[get_current_user] = lambda: make_user(user_id)
 
     try:
         with (

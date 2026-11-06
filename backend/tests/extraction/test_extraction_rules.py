@@ -83,6 +83,6 @@ def test_run_has_no_model_api_keys():
 def test_late_dotenv_load_cannot_bring_keys_back(tmp_path: Path):
     env_file = tmp_path / ".env"
     env_file.write_text("ANTHROPIC_API_KEY=sk-test\nGEMINI_API_KEY=g-test\n")
-    dotenv.load_dotenv(env_file)  # what supabase_client does at import
+    dotenv.load_dotenv(env_file)  # what backend.settings does at import
     for var in MODEL_KEY_VARS:
         assert var not in os.environ

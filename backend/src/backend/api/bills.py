@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from backend.auth import require_active_analyst
+from backend.auth import BILL_READERS, BILL_WRITERS, CurrentUser, require_active
 from backend.schemas.bill import (
     BillCreate,
     BillDashboardRow,
@@ -52,11 +52,12 @@ def list_bills() -> list[BillRead]:
 
 @router.get("/dashboard", response_model=list[BillDashboardRow])
 def get_dashboard_bills(
-    user_id: str = Depends(require_active_analyst),
+    user: CurrentUser = Depends(require_active(*BILL_READERS)),
 ) -> list[dict]:
+    # Own bills only, for every role, until all-bills for approvers and admins.
     return list_user_bills(
         client=get_admin_supabase(),
-        user_id=user_id,
+        user_id=str(user.id),
     )
 
 
@@ -78,12 +79,12 @@ def get_bill(bill_id: UUID) -> BillRead:
 )
 def save_new_draft(
     draft: BillDraftCreate,
-    user_id: str = Depends(require_active_analyst),
+    user: CurrentUser = Depends(require_active(*BILL_WRITERS)),
 ) -> BillDraftRead:
     saved = create_draft(
         client=get_admin_supabase(),
         draft=draft,
-        user_id=user_id,
+        user_id=str(user.id),
     )
 
     return BillDraftRead.model_validate(saved)
@@ -96,12 +97,12 @@ def save_new_draft(
 def update_existing_draft(
     bill_id: UUID,
     draft: BillDraftCreate,
-    user_id: str = Depends(require_active_analyst),
+    user: CurrentUser = Depends(require_active(*BILL_WRITERS)),
 ) -> BillDraftRead:
     updated = update_draft(
         client=get_admin_supabase(),
         bill_id=bill_id,
-        user_id=user_id,
+        user_id=str(user.id),
         draft=draft,
     )
 
