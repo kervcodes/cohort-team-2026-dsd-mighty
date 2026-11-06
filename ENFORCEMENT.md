@@ -16,7 +16,7 @@ The checker runs by `node` from the repo root because the root has no `package.j
 | Frontend builds before merge | ci | `.github/workflows/ci.yml` | - |
 | Every rule above has an enforcer that exists; no exception has expired | ci | `scripts/check-enforcement.mjs`, `.github/workflows/ci.yml` | - |
 | An analyst can never read or change another analyst's bills (routes use the service-role client, so the `submitted_by` filters are the only guard) | test | `backend/tests/test_bill_access.py`, `backend/tests/fake_supabase.py` | - |
-| Every #27 bills route enforces the role table (active users only), and every route that reads the bearer token has a row | test | `backend/tests/test_route_permissions.py`, `backend/tests/current_users.py` | - |
+| Every #27 bills route enforces the role table (active users only); every route either requires sign-in and has a role-table row (or is in `ANY_SIGNED_IN`), or is in the test's `OPEN_ROUTES` allowlist with a reason | test | `backend/tests/test_route_permissions.py`, `backend/tests/current_users.py` | - |
 | Signed-in callers get exact 401 / 403 / 503 outcomes; a missing `app_users` row is a 403, never re-created | test | `backend/tests/test_auth.py`, `backend/tests/test_me.py` | - |
 | The backend refuses to start with missing or malformed Supabase settings | test | `backend/tests/test_settings.py` | - |
 | Invoice PDFs live in a private bucket that browser roles (anon, authenticated) cannot read or write | test | `backend/supabase/migrations/20261104170000_create_invoices_bucket.sql`, `backend/supabase/tests/invoices_bucket.test.sql` | - |
