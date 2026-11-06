@@ -27,6 +27,12 @@ const mockSaveBillDraft = saveBillDraft as jest.MockedFunction<typeof saveBillDr
 const mockUpdateBillDraft = updateBillDraft as jest.MockedFunction<typeof updateBillDraft>;
 const mockUploadInvoicePdf = uploadInvoicePdf as jest.MockedFunction<typeof uploadInvoicePdf>;
 
+const uploadedPdf = {
+  bill_id: "bill-1",
+  document_path: "bills/bill-1/invoice.pdf",
+  status: "draft",
+};
+
 function dropZone() {
   return screen.getByText("Upload / import invoice (PDF)").closest("label") as HTMLElement;
 }
@@ -141,64 +147,102 @@ describe("InvoiceForm", () => {
     });
   });
 
-  describe("PDF upload", () => {
+  describe("Upload PDF comes before Save Draft", () => {
+    const savedDraft = { bill_id: "bill-1", status: "draft" as const, document_path: null };
+
     beforeEach(() => {
-      mockSaveBillDraft.mockReset();
-      mockUploadInvoicePdf.mockReset();
+      mockSaveBillDraft.mockReset().mockResolvedValue(savedDraft);
+      mockUpdateBillDraft.mockReset().mockResolvedValue(savedDraft);
+      mockUploadInvoicePdf.mockReset().mockResolvedValue(uploadedPdf);
     });
 
-    it("requires a saved draft before a PDF can be uploaded", () => {
+    it("disables Save Draft until a PDF is uploaded", () => {
       render(<InvoiceForm />);
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
 
       fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
 
-      expect(screen.getByRole("button", { name: "Save Draft First" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
     });
 
-    it("uploads the selected PDF against the saved draft", async () => {
+    it("shows a validation message when Upload PDF is clicked with no PDF chosen", async () => {
       const user = userEvent.setup();
-      mockSaveBillDraft.mockResolvedValue({
-        bill_id: "bill-1",
-        status: "draft",
-        document_path: null,
-      });
-      mockUploadInvoicePdf.mockResolvedValue({
-        bill_id: "bill-1",
-        document_path: "bills/bill-1/invoice.pdf",
-        status: "draft",
-      });
       render(<InvoiceForm />);
 
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      const upload = await screen.findByRole("button", { name: "Upload PDF" });
-      expect(upload).toBeDisabled();
+      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
+
+      expect(
+        screen.getByText(
+          "Choose the invoice PDF first: drag it into the box above or click it to browse.",
+        ),
+      ).toBeInTheDocument();
+      expect(mockSaveBillDraft).not.toHaveBeenCalled();
+      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
+    });
+
+    it("clears the validation message once a PDF is chosen", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
+
+      expect(screen.queryByText(/Choose the invoice PDF first/)).not.toBeInTheDocument();
+    });
+
+    it("creates the draft and attaches the PDF when Upload PDF is clicked", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Current Due"), "250.00");
+      const file = pdf();
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
+      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
+
+      expect(await screen.findByRole("button", { name: "PDF Saved ✓" })).toBeDisabled();
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockSaveBillDraft.mock.calls[0][0]).toMatchObject({ amount: "250.00" });
+      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
+      expect(
+        screen.getByText("PDF saved successfully: bills/bill-1/invoice.pdf"),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Draft Saved ✓" })).toBeEnabled();
+    });
+
+    it("rejects a different PDF once one is attached", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
+      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
+      await screen.findByRole("button", { name: "PDF Saved ✓" });
+
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("other.pdf")] } });
+
+      expect(screen.getByText("This draft already has a PDF.")).toBeInTheDocument();
+      expect(screen.getByText("invoice.pdf")).toBeInTheDocument();
+    });
+
+    it("offers a retry on the same draft when the upload fails", async () => {
+      const user = userEvent.setup();
+      mockUploadInvoicePdf.mockRejectedValueOnce(new Error("Unable to store the invoice PDF."));
+      render(<InvoiceForm />);
 
       const file = pdf();
       fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
-      expect(upload).toBeEnabled();
+      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
 
-      await user.click(upload);
+      expect(await screen.findByText("Unable to store the invoice PDF.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
 
-      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
-      expect(await screen.findByRole("button", { name: "PDF Saved ✓" })).toBeDisabled();
-    });
+      await user.click(screen.getByRole("button", { name: "Retry Upload" }));
+      await screen.findByRole("button", { name: "PDF Saved ✓" });
 
-    it("offers a retry when the upload fails", async () => {
-      const user = userEvent.setup();
-      mockSaveBillDraft.mockResolvedValue({
-        bill_id: "bill-1",
-        status: "draft",
-        document_path: null,
-      });
-      mockUploadInvoicePdf.mockRejectedValue(new Error("Unable to store the invoice PDF."));
-      render(<InvoiceForm />);
-
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
-      await user.click(await screen.findByRole("button", { name: "Upload PDF" }));
-
-      expect(await screen.findByRole("button", { name: "Retry Upload" })).toBeEnabled();
-      expect(screen.getByText("Unable to store the invoice PDF.")).toBeInTheDocument();
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUpdateBillDraft).toHaveBeenCalledWith("bill-1", expect.any(Object));
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(2);
+      expect(mockUploadInvoicePdf).toHaveBeenLastCalledWith(file, "bill-1");
     });
   });
 
@@ -208,21 +252,21 @@ describe("InvoiceForm", () => {
     beforeEach(() => {
       mockSaveBillDraft.mockReset().mockResolvedValue(savedDraft);
       mockUpdateBillDraft.mockReset().mockResolvedValue(savedDraft);
+      mockUploadInvoicePdf.mockReset().mockResolvedValue(uploadedPdf);
     });
 
-    it("creates the draft first, then updates the same bill on later saves", async () => {
+    async function uploadFirst(user: ReturnType<typeof userEvent.setup>) {
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
+      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
+      await screen.findByRole("button", { name: "PDF Saved ✓" });
+    }
+
+    it("updates the same draft without uploading the PDF again", async () => {
       const user = userEvent.setup();
       render(<InvoiceForm />);
-
-      await user.type(screen.getByLabelText("Current Due"), "250.00");
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
-      expect(mockSaveBillDraft.mock.calls[0][0]).toMatchObject({ amount: "250.00" });
+      await uploadFirst(user);
 
       const amount = screen.getByLabelText("Current Due");
-      await user.clear(amount);
       await user.type(amount, "275.00");
       await user.click(screen.getByRole("button", { name: "Save Draft" }));
       await screen.findByRole("button", { name: "Draft Saved ✓" });
@@ -232,14 +276,13 @@ describe("InvoiceForm", () => {
         "bill-1",
         expect.objectContaining({ amount: "275.00" }),
       );
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
     });
 
     it("sends blank fields as null so an update can clear them", async () => {
       const user = userEvent.setup();
       render(<InvoiceForm />);
-
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
+      await uploadFirst(user);
 
       const payload = mockSaveBillDraft.mock.calls[0][0];
       expect(payload.amount).toBeNull();
@@ -247,18 +290,27 @@ describe("InvoiceForm", () => {
       expect(payload.prev_payments).toBeNull();
     });
 
-    it("marks the draft unsaved when a field changes, but not when a PDF is picked", async () => {
+    it("marks the draft unsaved when a field changes", async () => {
       const user = userEvent.setup();
       render(<InvoiceForm />);
-
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      await user.upload(document.querySelector("#invoicePdf") as HTMLInputElement, pdf());
+      await uploadFirst(user);
       expect(screen.getByRole("button", { name: "Draft Saved ✓" })).toBeInTheDocument();
 
       await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
       expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+    });
+
+    it("shows the error and offers a retry when saving fails", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+      await uploadFirst(user);
+      mockUpdateBillDraft.mockRejectedValueOnce(new Error("Unable to save draft (503)"));
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+
+      expect(await screen.findByText("Unable to save draft (503)")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Retry Save" })).toBeEnabled();
     });
   });
 });

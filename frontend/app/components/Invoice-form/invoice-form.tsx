@@ -37,6 +37,9 @@ export function InvoiceForm() {
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploadError, setUploadError] = useState("");
   const [draftMessage, setDraftMessage] = useState("");
+  // True once the PDF is stored against the draft. The backend allows one
+  // document per bill, so the PDF cannot be changed after that.
+  const [pdfAttached, setPdfAttached] = useState(false);
   const [pdfStatus, setPdfStatus] = useState<ActionStatus>("idle");
   const [draftStatus, setDraftStatus] = useState<ActionStatus>("idle");
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -89,6 +92,10 @@ export function InvoiceForm() {
   // Shared by the file picker and drag-and-drop: a new file always resets
   // validation so a previous success never carries over to it.
   function selectFile(file: File | null) {
+    if (pdfAttached) {
+      setUploadError("This draft already has a PDF.");
+      return;
+    }
     setPdfStatus("idle");
     setUploadMessage("");
 
@@ -120,9 +127,12 @@ export function InvoiceForm() {
     setIsDragging(false);
 
     const files = event.dataTransfer.files;
+    if (pdfAttached) {
+      setUploadError("This draft already has a PDF.");
+      return;
+    }
     if (files.length > 1) {
       setSelectedFile(null);
-      setPdfStatus("idle");
       setUploadMessage("");
       setUploadError("Drop one PDF at a time.");
       return;
@@ -134,57 +144,80 @@ export function InvoiceForm() {
     selectFile(files[0] ?? null);
   }
 
+  // Blank fields are sent as null so that clearing a field on an existing
+  // draft clears it in the database too.
+  function draftPayload(): BillDraftPayload {
+    const values = getValues();
+    return {
+      account_number_raw: values.accountNumber.trim() || null,
+      invoice_number: values.statementId.trim() || null,
+      vendor_name_raw: values.companyName.trim() || null,
+      invoice_date: values.issueDate || null,
+      due_date: values.dueDate || null,
+      amount: values.currentDue.trim() || null,
+      prev_payments: values.previousPayments.trim() || null,
+      description: values.description.trim() || null,
+      processing_notes: values.notes.trim() || null,
+      property_address: values.propertyAddress.trim() || null,
+      account_status: values.accountStatus || null,
+      website_name: values.websiteName.trim() || null,
+    };
+  }
+
+  // The first save creates the draft; later saves update the same bill.
+  async function persistDraft(): Promise<string> {
+    const payload = draftPayload();
+    const saved = draftId ? await updateBillDraft(draftId, payload) : await saveBillDraft(payload);
+    setDraftId(saved.bill_id);
+    return saved.bill_id;
+  }
+
+  // Upload PDF comes first: it creates the draft from the current fields and
+  // attaches the PDF, so a draft never starts without one. If the upload
+  // fails, Retry updates the same draft and uploads again.
   async function handleUploadPdf() {
-    if (!selectedFile || !draftId) return;
+    if (pdfAttached) return;
+    if (!selectedFile) {
+      setUploadMessage("");
+      setUploadError(
+        "Choose the invoice PDF first: drag it into the box above or click it to browse.",
+      );
+      return;
+    }
 
     setPdfStatus("loading");
     setUploadError("");
     setUploadMessage("");
+    setSubmitError("");
+    setDraftMessage("");
 
     try {
-      const result = await uploadInvoicePdf(selectedFile, draftId);
+      const billId = await persistDraft();
+      const result = await uploadInvoicePdf(selectedFile, billId);
 
+      setPdfAttached(true);
       setPdfStatus("success");
       setUploadMessage(`PDF saved successfully: ${result.document_path}`);
+      setDraftStatus("success");
+      setDraftMessage(`Draft saved successfully: ${billId}`);
     } catch (error) {
       setPdfStatus("error");
       setUploadError(error instanceof Error ? error.message : "Unable to upload PDF.");
     }
   }
 
+  // Save Draft is only enabled once the PDF is attached; it saves field edits.
   async function handleSaveDraft() {
+    if (!pdfAttached) return;
+
     setDraftStatus("loading");
     setSubmitError("");
     setDraftMessage("");
 
     try {
-      const values = getValues();
-
-      // Blank fields are sent as null so that clearing a field on an
-      // existing draft clears it in the database too.
-      const payload: BillDraftPayload = {
-        account_number_raw: values.accountNumber.trim() || null,
-        invoice_number: values.statementId.trim() || null,
-        vendor_name_raw: values.companyName.trim() || null,
-        invoice_date: values.issueDate || null,
-        due_date: values.dueDate || null,
-        amount: values.currentDue.trim() || null,
-        prev_payments: values.previousPayments.trim() || null,
-        description: values.description.trim() || null,
-        processing_notes: values.notes.trim() || null,
-        property_address: values.propertyAddress.trim() || null,
-        account_status: values.accountStatus || null,
-        website_name: values.websiteName.trim() || null,
-      };
-
-      // The first save creates the draft; later saves update the same bill.
-      const saved = draftId
-        ? await updateBillDraft(draftId, payload)
-        : await saveBillDraft(payload);
-
-      setDraftId(saved.bill_id);
+      const billId = await persistDraft();
       setDraftStatus("success");
-      setDraftMessage(`Draft saved successfully: ${saved.bill_id}`);
+      setDraftMessage(`Draft saved successfully: ${billId}`);
     } catch (error) {
       setDraftStatus("error");
       setSubmitError(error instanceof Error ? error.message : "Unable to save draft.");
@@ -239,7 +272,8 @@ export function InvoiceForm() {
             }
             type="button"
             onClick={handleSaveDraft}
-            disabled={draftStatus === "loading"}
+            disabled={!pdfAttached || draftStatus === "loading"}
+            title={pdfAttached ? undefined : "Upload the invoice PDF first"}
           />
           <Button
             label="Cancel"
@@ -275,6 +309,7 @@ export function InvoiceForm() {
             id="invoicePdf"
             type="file"
             accept=".pdf,application/pdf"
+            disabled={pdfAttached}
             className="sr-only"
             onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
           />
@@ -283,18 +318,16 @@ export function InvoiceForm() {
         <button
           type="button"
           onClick={handleUploadPdf}
-          disabled={!selectedFile || !draftId || pdfStatus === "loading" || pdfStatus === "success"}
+          disabled={pdfAttached || pdfStatus === "loading"}
           className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
         >
           {pdfStatus === "loading"
             ? "Uploading..."
-            : pdfStatus === "success"
+            : pdfAttached
               ? "PDF Saved ✓"
               : pdfStatus === "error"
                 ? "Retry Upload"
-                : !draftId
-                  ? "Save Draft First"
-                  : "Upload PDF"}
+                : "Upload PDF"}
         </button>
 
         {uploadMessage && (
