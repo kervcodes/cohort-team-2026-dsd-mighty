@@ -17,15 +17,20 @@ import {
 } from "react-icons/lu";
 import { useAuth } from "@/auth/AuthProvider";
 import { useTheme } from "@/context/ThemeContext";
+import { createClient } from "@/lib/supabase/client";
+
+const COPY = {
+  signOut: "Sign Out",
+  signOutFailed: "Couldn't sign out. Try again.",
+};
 
 export default function Sidebar() {
-  // for testing
-  // in production get user session and if admin
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutFailed, setSignOutFailed] = useState(false);
   const router = useRouter();
-  const { user, profile, loading } = useAuth();
+  const { user, profile } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const isAdmin = profile?.role === "admin";
 
   // invoices
   //invoices/new
@@ -35,18 +40,25 @@ export default function Sidebar() {
   ///properties
   //login/
 
-  const signout = () => {
-    setIsLoggedIn(false);
-    setIsAdmin(false);
-    router.push("/login");
-  };
-  const signin = () => {
-    setIsLoggedIn(true);
-    router.push("/");
-  };
+  const signout = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    setSignOutFailed(false);
 
-  const toggleAdmin = () => {
-    setIsAdmin((prev) => !prev);
+    try {
+      // On a failed server call auth-js still clears the local session in most cases.
+      const { error } = await createClient().auth.signOut();
+      if (error) console.error("Sign out error:", error);
+
+      router.replace("/login");
+      router.refresh();
+    } catch (err) {
+      // Thrown before the session was cleared: stay here so the user can retry.
+      console.error("Unexpected sign out error:", err);
+      setSignOutFailed(true);
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   return (
@@ -110,24 +122,6 @@ export default function Sidebar() {
               </>
             )}
           </ul>
-          {/* Control panel sued for testing btwn signed in users and admin while auth is still being setup*/}
-          {/* Control Panel area will be deleted once auth is set up  */}
-          <ul className="text-sm text-foreground-muted">
-            <li className="font-medium text-foreground">Control Panel</li>
-            {!isLoggedIn && (
-              <li>
-                <button onClick={signin} className="hover:text-foreground cursor-pointer">
-                  Log in
-                </button>
-              </li>
-            )}
-            <li>{isAdmin ? "is admin" : "is analyst"}</li>
-            <li>
-              <button className="hover:text-foreground cursor-pointer" onClick={toggleAdmin}>
-                toggle admin
-              </button>
-            </li>
-          </ul>
           <ul className="space-y-1">
             <li className="capitalize hidden sm:block px-1 pb-2 text-foreground-muted">
               {user?.email}
@@ -157,15 +151,25 @@ export default function Sidebar() {
               </Link>
             </li>
 
-            {isLoggedIn && (
+            {user && (
               <li>
                 <button
+                  type="button"
                   onClick={signout}
-                  className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-foreground-muted hover:bg-surface-muted hover:text-foreground transition-colors cursor-pointer"
+                  title={COPY.signOut}
+                  aria-label={COPY.signOut}
+                  disabled={signingOut}
+                  aria-busy={signingOut}
+                  className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-foreground-muted hover:bg-surface-muted hover:text-foreground transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <LuLogOut size={20} aria-hidden="true" />
-                  <span className="hidden sm:block">Sign Out</span>
+                  <span className="hidden sm:block">{COPY.signOut}</span>
                 </button>
+                {signOutFailed && (
+                  <p role="alert" className="sr-only sm:not-sr-only px-1 pt-1 text-xs text-overdue">
+                    {COPY.signOutFailed}
+                  </p>
+                )}
               </li>
             )}
           </ul>
