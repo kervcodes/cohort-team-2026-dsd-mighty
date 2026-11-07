@@ -5,10 +5,8 @@ import { StatusBadge } from "@/components/Status-Badge/status-badge";
 import type { Property } from "@/types/property";
 import type { UserRole } from "@/types/user";
 
-function formatDate(iso: string | null) {
-  if (!iso) return "—";
-
-  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
+function formatDate(datetime: string) {
+  return new Date(datetime).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -66,7 +64,7 @@ export function PropertyTable({
                   className="px-6 py-12 text-center text-foreground-muted"
                 >
                   {userRole === "admin"
-                    ? `No properties yet. Click "New Property" to add one.`
+                    ? `No properties yet. Click "Add Property" to add one.`
                     : "Admin needs to add a Property"}
                 </td>
               </tr>

@@ -11,7 +11,7 @@ function createProperty(overrides: Partial<Property> = {}): Property {
     city: "New York",
     state: "NY",
     zip_code: "10001",
-    created_at: "2025-01-15",
+    created_at: "2026-11-05T14:03:22+00:00",
     status: "active",
     ...overrides,
   } as Property;
@@ -63,12 +63,12 @@ describe("PropertyTable", () => {
 
   it("displays the formatted creation date", () => {
     const property = createProperty({
-      created_at: "2025-01-15",
+      created_at: "2026-11-05T14:03:22+00:00",
     });
 
     render(<PropertyTable properties={[property]} userRole="admin" />);
 
-    expect(screen.getByText("Jan 15, 2025")).toBeInTheDocument();
+    expect(screen.getByText("Nov 5, 2026")).toBeInTheDocument();
   });
 
   it("displays the property's status", () => {

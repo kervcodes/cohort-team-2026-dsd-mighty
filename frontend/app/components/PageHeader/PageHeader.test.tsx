@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import PageHeader from "./PageHeader";
 
 describe("PageHeader", () => {
-  it("renders the page title", () => {
+  it("renders the page title as an h1 heading", () => {
     render(<PageHeader title="Properties" hasCta={false} />);
 
     const heading = screen.getByRole("heading", {
@@ -14,40 +14,45 @@ describe("PageHeader", () => {
   });
 
   it("renders the CTA when hasCta is true", () => {
-    render(<PageHeader title="Properties" hasCta={true} />);
+    render(
+      <PageHeader
+        title="Properties"
+        hasCta={true}
+        ctaText="Add Property"
+        ctaLink="/properties/new"
+      />,
+    );
 
-    const link = screen.getByRole("link", { name: /add new/i });
-
-    expect(link).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add Property" })).toBeInTheDocument();
   });
 
   it("does not render the CTA when hasCta is false", () => {
     render(<PageHeader title="Properties" hasCta={false} />);
 
-    const link = screen.queryByRole("link", { name: /add new/i });
-
-    expect(link).not.toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
-  it("renders a custom CTA text when provided", () => {
+  it("renders the provided CTA text", () => {
     const ctaText = "Add Property";
 
-    render(<PageHeader title="Properties" hasCta={true} ctaText={ctaText} />);
+    render(
+      <PageHeader title="Properties" hasCta={true} ctaText={ctaText} ctaLink="/properties/new" />,
+    );
 
     expect(screen.getByRole("link", { name: ctaText })).toBeInTheDocument();
   });
 
-  it("uses the default CTA text when ctaText is not provided", () => {
-    render(<PageHeader title="Properties" hasCta={true} />);
+  it("links to the provided CTA destination", () => {
+    const ctaLink = "/properties/new";
 
-    expect(screen.getByRole("link", { name: /add new/i })).toBeInTheDocument();
-  });
+    render(
+      <PageHeader title="Properties" hasCta={true} ctaText="Add Property" ctaLink={ctaLink} />,
+    );
 
-  it("links to the new property page", () => {
-    render(<PageHeader title="Properties" hasCta={true} />);
+    const link = screen.getByRole("link", {
+      name: "Add Property",
+    });
 
-    const link = screen.getByRole("link", { name: /add new/i });
-
-    expect(link).toHaveAttribute("href", "/properties/new");
+    expect(link).toHaveAttribute("href", ctaLink);
   });
 });
