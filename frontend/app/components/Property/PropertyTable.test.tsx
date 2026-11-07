@@ -24,7 +24,7 @@ describe("PropertyTable", () => {
     expect(
       screen.getByRole("heading", {
         level: 2,
-        name: "Property History",
+        name: "All Properties",
       }),
     ).toBeInTheDocument();
   });
@@ -87,7 +87,7 @@ describe("PropertyTable", () => {
   it("displays the admin empty state when no properties exist", () => {
     render(<PropertyTable properties={[]} userRole="admin" />);
     expect(
-      screen.getByText('No properties yet. Click "New Property" to add one.'),
+      screen.getByText('No properties yet. Click "Add Property" to add one.'),
     ).toBeInTheDocument();
   });
 

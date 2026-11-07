@@ -41,7 +41,7 @@ export function PropertyTable({
   return (
     <section className="rounded-xl border border-border bg-surface shadow-sm">
       <header className="border-b border-border px-6 py-5">
-        <h2 className="text-xl font-semibold text-foreground">Property History</h2>
+        <h2 className="text-xl font-semibold text-foreground">All Properties</h2>
       </header>
 
       <div className="overflow-x-auto">
