@@ -40,7 +40,7 @@ def get_editable_draft(
 ) -> dict | None:
     response = (
         client.table("bills")
-        .select("bill_id,status,document_path")
+        .select("*")
         .eq("bill_id", str(bill_id))
         .eq("submitted_by", user_id)
         .eq("status", "draft")
@@ -48,7 +48,10 @@ def get_editable_draft(
         .execute()
     )
 
-    return response.data if response else None
+    if response is None:
+        return None
+
+    return response.data
 
 
 def attach_document(

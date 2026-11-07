@@ -7,13 +7,13 @@ const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
 export const invoiceFormSchema = z
   .object({
-    accountNumber: z.string().trim().min(1, "Account / customer # is required"),
-    statementId: z.string().trim().min(1, "Statement # is required"),
-    companyName: z.string().trim().min(1, "Customer / business name is required"),
-    propertyAddress: z.string().trim().min(1, "Property address is required"),
-    issueDate: z.string().regex(isoDate, "Issue date is required"),
-    dueDate: z.string().regex(isoDate, "Due date is required"),
-    description: z.string().trim().min(1, "Add a short description"),
+    accountNumber: z.string().trim(),
+    statementId: z.string().trim(),
+    companyName: z.string().trim(),
+    propertyAddress: z.string().trim(),
+    issueDate: z.string(),
+    dueDate: z.string(),
+    description: z.string().trim(),
     previousPayments: z
       .string()
       .trim()

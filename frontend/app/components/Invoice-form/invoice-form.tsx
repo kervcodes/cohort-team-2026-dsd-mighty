@@ -2,15 +2,14 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FileUp } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { type DragEvent, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { type DragEvent, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import Button from "@/components/Button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
 import {
-  type BillCreatePayload,
-  type BillDraftPayload,
   createBill,
+  getBillDraft,
   saveBillDraft,
   updateBillDraft,
   uploadInvoicePdf,
@@ -21,6 +20,7 @@ import {
   type InvoiceFormValues,
   invoiceFormSchema,
 } from "@/lib/invoice-form-schema";
+import type { BillCreatePayload, BillDraftDetail, BillDraftPayload } from "@/types/bill";
 
 type ActionStatus = "idle" | "loading" | "success" | "error";
 
@@ -28,6 +28,23 @@ type ActionStatus = "idle" | "loading" | "success" | "error";
 // extension is checked as well.
 function isPdf(file: File) {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+}
+
+function mapDraftToFormValues(draft: BillDraftDetail): InvoiceFormValues {
+  return {
+    accountNumber: draft.account_number_raw ?? "",
+    statementId: draft.invoice_number ?? "",
+    companyName: draft.vendor_name_raw ?? "",
+    issueDate: draft.invoice_date ?? "",
+    dueDate: draft.due_date ?? "",
+    currentDue: String(draft.amount ?? ""),
+    previousPayments: String(draft.prev_payments ?? ""),
+    description: draft.description ?? "",
+    notes: draft.processing_notes ?? "",
+    propertyAddress: draft.property_address ?? "",
+    accountStatus: draft.account_status ?? "",
+    websiteName: draft.website_name ?? "",
+  };
 }
 
 export function InvoiceForm() {
@@ -39,7 +56,8 @@ export function InvoiceForm() {
   const [draftMessage, setDraftMessage] = useState("");
   const [pdfStatus, setPdfStatus] = useState<ActionStatus>("idle");
   const [draftStatus, setDraftStatus] = useState<ActionStatus>("idle");
-  const [draftId, setDraftId] = useState<string | null>(null);
+  const params = useParams<{ invoiceId?: string }>();
+  const draftId = params.invoiceId ?? null;
   const [createStatus, setCreateStatus] = useState<ActionStatus>("idle");
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +67,7 @@ export function InvoiceForm() {
     handleSubmit,
     getValues,
     formState: { errors },
+    reset,
   } = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
     defaultValues: emptyInvoiceForm,
@@ -85,6 +104,36 @@ export function InvoiceForm() {
       );
     }
   }
+
+  useEffect(() => {
+    if (!draftId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadDraft() {
+      try {
+        const draft = await getBillDraft(draftId!);
+
+        if (cancelled) return;
+
+        reset(mapDraftToFormValues(draft));
+      } catch (err) {
+        if (cancelled) return;
+
+        setSubmitError(
+          err instanceof Error ? err.message : "Unable to load the draft. Please try again.",
+        );
+      }
+    }
+
+    void loadDraft();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [draftId, reset]);
 
   // Shared by the file picker and drag-and-drop: a new file always resets
   // validation so a previous success never carries over to it.
@@ -182,7 +231,9 @@ export function InvoiceForm() {
         ? await updateBillDraft(draftId, payload)
         : await saveBillDraft(payload);
 
-      setDraftId(saved.bill_id);
+      if (!draftId) {
+        router.replace(`/invoices/${saved.bill_id}/edit`);
+      }
       setDraftStatus("success");
       setDraftMessage(`Draft saved successfully: ${saved.bill_id}`);
     } catch (error) {

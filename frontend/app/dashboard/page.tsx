@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 
 import { InvoiceTable } from "@/components/Invoice-table/invoice-table";
 import { StatCard } from "@/components/Stat-card/stat-card";
-import { type DashboardBill, getDashboardBills } from "@/lib/api/bills";
+import { getDashboardBills } from "@/lib/api/bills";
+import type { DashboardBill } from "@/types/bill";
 import type { Invoice } from "@/types/invoice";
 
 function toInvoice(bill: DashboardBill): Invoice {
@@ -77,14 +78,17 @@ export default function DashboardPage() {
     };
   }, []);
 
-  const invoices = bills.map(toInvoice);
-
   const currency = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
   });
 
   const drafts = bills.filter((bill) => bill.status === "draft");
+
+  const submittedBills = bills.filter((bill) => bill.status !== "draft");
+
+  const draftInvoices = drafts.map(toInvoice);
+  const invoices = bills.map(toInvoice);
 
   const outstanding = bills.filter((bill) =>
     ["pending_approval", "approved"].includes(bill.status),
@@ -98,7 +102,7 @@ export default function DashboardPage() {
       bill.due_date !== null &&
       bill.due_date >= week.start &&
       bill.due_date <= week.end &&
-      !["paid", "rejected", "failed"].includes(bill.status),
+      !["draft", "paid", "rejected", "failed"].includes(bill.status),
   );
 
   const dueThisWeekTotal = dueThisWeek.reduce((sum, bill) => sum + (bill.amount ?? 0), 0);
@@ -149,7 +153,19 @@ export default function DashboardPage() {
             <StatCard label="Saved drafts" value={String(drafts.length)} hint="Not yet submitted" />
           </div>
 
-          <InvoiceTable invoices={invoices} />
+          <div className="space-y-6">
+            <InvoiceTable
+              invoices={draftInvoices}
+              title="Saved Drafts"
+              emptyMessage="No saved drafts yet."
+            />
+
+            <InvoiceTable
+              invoices={invoices}
+              title="Invoice History"
+              emptyMessage="No invoices yet. Click 'New Invoice' to add one."
+            />
+          </div>
         </>
       )}
     </div>
