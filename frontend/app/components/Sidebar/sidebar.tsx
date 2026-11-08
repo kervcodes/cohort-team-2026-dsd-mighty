@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   LuBuilding2,
   LuFilePlus,
@@ -27,6 +27,7 @@ const COPY = {
 export default function Sidebar() {
   const [signingOut, setSigningOut] = useState(false);
   const [signOutFailed, setSignOutFailed] = useState(false);
+  const signingOutRef = useRef(false);
   const router = useRouter();
   const { user, profile } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -41,7 +42,9 @@ export default function Sidebar() {
   //login/
 
   const signout = async () => {
-    if (signingOut) return;
+    // A ref, not state, so a second click before React re-renders still sees the lock.
+    if (signingOutRef.current) return;
+    signingOutRef.current = true;
     setSigningOut(true);
     setSignOutFailed(false);
 
@@ -57,6 +60,7 @@ export default function Sidebar() {
       console.error("Unexpected sign out error:", err);
       setSignOutFailed(true);
     } finally {
+      signingOutRef.current = false;
       setSigningOut(false);
     }
   };

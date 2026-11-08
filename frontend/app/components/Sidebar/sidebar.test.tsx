@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Profile, UserRole } from "@/types/user";
 import Sidebar from "./sidebar";
@@ -135,6 +135,28 @@ describe("Sidebar", () => {
       finishSignOut({ error: null });
       await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
       expect(mockSignOut).toHaveBeenCalledTimes(1);
+    });
+
+    it("only signs out once when clicked twice before the button re-renders as disabled", async () => {
+      let finishSignOut: (value: { error: null }) => void = () => {};
+      mockSignOut.mockReturnValue(
+        new Promise((resolve) => {
+          finishSignOut = resolve;
+        }),
+      );
+      signIn(profileWithRole("analyst"));
+      render(<Sidebar />);
+
+      // Both clicks land inside one act, so React cannot re-render between them.
+      const button = signOutButton();
+      act(() => {
+        button.click();
+        button.click();
+      });
+      expect(mockSignOut).toHaveBeenCalledTimes(1);
+
+      finishSignOut({ error: null });
+      await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
     });
 
     it("still goes to the login page when the server call fails", async () => {
