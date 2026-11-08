@@ -53,11 +53,58 @@ jobs:
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@v3
         with:
-          version: 2.122.0
+          version: 3.0.0
       - name: Start database and apply migrations
         run: supabase db start
       - name: Run pgTAP tests
         run: supabase test db
+
+  backend-real-login:
+    name: Backend real-login (local Supabase)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: 3.0.0
+      - name: Start Auth, REST and the database
+        # Only what the tests reach: Postgres, Auth (gotrue), PostgREST and the Kong gateway.
+        run: supabase start -x realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Run real-login tests
+        run: |
+          eval "$(supabase status -o env)"
+          SUPABASE_URL="$API_URL" \
+          SUPABASE_PUBLISHABLE_KEY="$PUBLISHABLE_KEY" \
+          SUPABASE_SECRET_KEY="$SECRET_KEY" \
+          RUN_LOCAL_SUPABASE_TESTS=1 \
+            uv run pytest tests/test_auth_local_supabase.py -v -rs --junitxml=real-login.xml
+      - name: Fail if the real-login tests were skipped
+        # A skip passes pytest but tests nothing, e.g. if the opt-in variable never reached it.
+        run: |
+          python - <<'EOF'
+          import xml.etree.ElementTree as ET
+          suite = ET.parse("real-login.xml").getroot().find("testsuite")
+          tests, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          print(f"{tests} real-login tests, {skipped} skipped")
+          if tests == 0 or skipped:
+              raise SystemExit("real-login tests were skipped, so nothing was tested")
+          EOF
 
 
   frontend:
