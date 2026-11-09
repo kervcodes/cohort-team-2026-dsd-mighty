@@ -12,7 +12,8 @@ from fastapi import (
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from backend.auth import BILL_WRITERS, CurrentUser, require_active
+from backend.auth import CurrentUser, require_active
+from backend.services.bill_access import BILL_WRITERS
 from backend.services.bill_repository import (
     attach_document,
     get_editable_draft,

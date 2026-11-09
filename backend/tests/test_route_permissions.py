@@ -27,6 +27,9 @@ PDF = ("invoice.pdf", b"%PDF-1.4\nsample", "application/pdf")
 
 # (method, path, roles allowed when active, status code when allowed)
 ROLE_TABLE = [
+    ("POST", "/bills", {ANALYST, ADMIN}, 201),
+    ("GET", "/bills", {ANALYST, APPROVER, ADMIN}, 200),
+    ("GET", "/bills/{bill_id}", {ANALYST, APPROVER, ADMIN}, 200),
     ("GET", "/bills/dashboard", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/bills/drafts", {ANALYST, ADMIN}, 201),
     ("PATCH", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
@@ -37,9 +40,18 @@ ROLE_TABLE = [
 ANY_SIGNED_IN = {("GET", "/me")}
 
 REQUEST_BODY = {
-    "/bills/drafts": {"json": {"amount": "10.00"}},
-    "/bills/{bill_id}/draft": {"json": {"amount": "10.00"}},
-    "/bills/{bill_id}/document": {"files": {"file": PDF}},
+    ("POST", "/bills"): {
+        "json": {
+            "account_number_raw": "ACC-1",
+            "invoice_number": "INV-1",
+            "invoice_date": "2026-11-01",
+            "due_date": "2026-12-01",
+            "amount": "10.00",
+        }
+    },
+    ("POST", "/bills/drafts"): {"json": {"amount": "10.00"}},
+    ("PATCH", "/bills/{bill_id}/draft"): {"json": {"amount": "10.00"}},
+    ("POST", "/bills/{bill_id}/document"): {"files": {"file": PDF}},
 }
 
 CASES = [
@@ -76,7 +88,7 @@ def test_route_allows_only_its_active_roles(db, method, path, role, status, expe
     response = TestClient(app).request(
         method,
         path.format(bill_id=bill["bill_id"]),
-        **REQUEST_BODY.get(path, {}),
+        **REQUEST_BODY.get((method, path), {}),
     )
 
     assert response.status_code == expected, response.text
@@ -91,11 +103,6 @@ def test_route_allows_only_its_active_roles(db, method, path, role, status, expe
 OPEN_ROUTES = {
     # Health check; stays open.
     ("GET", "/"),
-    # In-memory bill routes; DC-67 (39b) moves them to Supabase behind the
-    # role table.
-    ("POST", "/bills"),
-    ("GET", "/bills"),
-    ("GET", "/bills/{bill_id}"),
     # Reads with the publishable client, so RLS applies; DC-68 (39c) removes it.
     ("GET", "/test-db"),
     # In-memory stubs; DC-43 (approve and reject actions) adds the role check.
