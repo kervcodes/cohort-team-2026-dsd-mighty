@@ -26,13 +26,13 @@ jest.mock("@/context/ThemeContext", () => ({
   useTheme: () => ({ theme: "light", toggleTheme: jest.fn() }),
 }));
 
-const signedInUser = { id: "user-1", email: "a@b.com" };
+const signedInUser = { id: "user-1", email: "jane.doe@example.test" };
 
 function profileWithRole(role: UserRole): Profile {
   return {
-    user_id: "user-1",
-    full_name: "Test User",
-    email: "a@b.com",
+    id: "user-1",
+    full_name: "Jane Doe",
+    email: "jane.doe@example.test",
     role,
     status: "active",
   };
@@ -61,6 +61,43 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "toggle admin" })).not.toBeInTheDocument();
     expect(screen.queryByText(/is (admin|analyst)/)).not.toBeInTheDocument();
+  });
+
+  describe("signed-in user", () => {
+    it.each<[UserRole, string]>([
+      ["admin", "Admin"],
+      ["analyst", "Analyst"],
+      ["approver", "Approver"],
+    ])("shows the real name and the %s role", (role, label) => {
+      signIn(profileWithRole(role));
+      render(<Sidebar />);
+
+      expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+      expect(screen.getByText(label)).toBeInTheDocument();
+    });
+
+    it("shows the email exactly as entered, never capitalized", () => {
+      signIn(profileWithRole("analyst"));
+      render(<Sidebar />);
+
+      const email = screen.getByText("jane.doe@example.test");
+      expect(email).not.toHaveClass("capitalize");
+      expect(email.closest(".capitalize")).toBeNull();
+    });
+
+    it("falls back to the sign-in email when there is no profile", () => {
+      signIn(null);
+      render(<Sidebar />);
+
+      expect(screen.getByText("jane.doe@example.test")).toBeInTheDocument();
+      expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();
+    });
+
+    it("shows no user details when nobody is signed in", () => {
+      render(<Sidebar />);
+
+      expect(screen.queryByText("jane.doe@example.test")).not.toBeInTheDocument();
+    });
   });
 
   describe("Sign Out", () => {

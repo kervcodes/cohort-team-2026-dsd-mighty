@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Sidebar from "./components/Sidebar/sidebar";
 import "./globals.css";
+import { AuthGate } from "./auth/AuthGate";
 import { AuthProvider } from "./auth/AuthProvider";
 import { ThemeProvider } from "./context/ThemeContext";
 
@@ -27,8 +28,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full grid grid-cols-[2rem_1fr] sm:grid-cols-[9rem_1fr]">
         <AuthProvider>
           <ThemeProvider>
-            <Sidebar />
-            {children}
+            <AuthGate>
+              <Sidebar />
+              {children}
+            </AuthGate>
           </ThemeProvider>
         </AuthProvider>
       </body>
