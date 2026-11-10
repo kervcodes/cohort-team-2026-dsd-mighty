@@ -6,17 +6,26 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const PROJECT = process.cwd();
+const NODE_TS_FLAGS = [
+  "--experimental-strip-types",
+  "--disable-warning=ExperimentalWarning",
+  "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+];
 const FIXTURE_DIR = join(PROJECT, "app", "__ds_fixture__");
 const FIXTURE = join(FIXTURE_DIR, "fixture.tsx");
 
 function check(source: string) {
   mkdirSync(FIXTURE_DIR, { recursive: true });
   writeFileSync(FIXTURE, source);
-  const result = spawnSync("bun", ["scripts/check-design-system.ts", FIXTURE], {
-    cwd: PROJECT,
-    encoding: "utf8",
-    env: { ...process.env, DS_UI_DIR: "app/components/ui" },
-  });
+  const result = spawnSync(
+    process.execPath,
+    [...NODE_TS_FLAGS, "scripts/check-design-system.ts", FIXTURE],
+    {
+      cwd: PROJECT,
+      encoding: "utf8",
+      env: { ...process.env, DS_UI_DIR: "app/components/ui" },
+    },
+  );
   return { status: result.status, output: `${result.stdout}${result.stderr}` };
 }
 
@@ -27,6 +36,13 @@ describe("design-system enforcement", () => {
     const { status, output } = check('export const X = () => <button type="button">x</button>;\n');
     expect(status).toBe(1);
     expect(output).toContain("raw-button");
+  });
+
+  it("accepts a raw button with a ds-ignore opt-out", () => {
+    const { status } = check(
+      'export const X = () => (\n  // ds-ignore\n  <button type="button">x</button>\n);\n',
+    );
+    expect(status).toBe(0);
   });
 
   it("accepts the design-system Button", () => {

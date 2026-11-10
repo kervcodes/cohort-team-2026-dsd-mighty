@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
 /**
  * check-ds-page.ts — every component in the manifest must appear on the
  * /design-system catalogue page, so the page cannot drift from the manifest.

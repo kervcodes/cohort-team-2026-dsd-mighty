@@ -13,9 +13,9 @@ import {
   LuUserRoundCog,
   LuUsers,
 } from "react-icons/lu";
-import Button from "@/components/ui/button";
 import { useAuth } from "@/auth/AuthProvider";
 import { useSignOut } from "@/auth/useSignOut";
+import Button from "@/components/ui/button";
 import { useTheme } from "@/context/ThemeContext";
 import type { UserRole } from "@/types/user";
 

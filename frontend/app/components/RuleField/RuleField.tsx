@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import Button from "@/components/ui/button";
 import { sanitizeCurrencyInput } from "@/lib/currency";
 
 const COPY = {
@@ -80,13 +81,15 @@ export default function RuleField({
           />
         </div>
 
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon"
           onClick={() => setEditing((e) => !e)}
-          className="text-sm text-primary hover:text-primary-hover hover:underline"
+          className="text-primary hover:text-primary-hover hover:underline"
         >
           {editing ? COPY.done : COPY.edit}
-        </button>
+        </Button>
       </div>
 
       {hint && (

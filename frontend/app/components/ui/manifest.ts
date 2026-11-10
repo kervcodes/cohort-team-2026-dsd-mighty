@@ -14,7 +14,7 @@
  * in `./manifest.config.ts`: which presets are enabled, per-preset overrides,
  * and project-specific custom rules.
  */
-import { CUSTOM_RULES, ENABLED_RULES, PRESET_OVERRIDES } from "./manifest.config";
+import { CUSTOM_RULES, ENABLED_RULES, PRESET_OVERRIDES } from "./manifest.config.ts";
 
 export interface DsRulePattern {
   /** Matched against a line of JSX source, e.g. /<button\b/ */

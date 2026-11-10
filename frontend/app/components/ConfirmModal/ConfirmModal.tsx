@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useEffect, useId, useRef } from "react";
+import Button from "@/components/ui/button";
 
 const COPY = {
   cancel: "Cancel",
@@ -50,12 +51,14 @@ export default function ConfirmModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon"
         aria-label={COPY.closeDialog}
         tabIndex={-1}
         onClick={onCancel}
-        className="absolute inset-0 cursor-default bg-black/40"
+        className="absolute inset-0 cursor-default rounded-none bg-black/40"
       />
       <div
         ref={dialogRef}
@@ -70,20 +73,12 @@ export default function ConfirmModal({
         </h2>
         <div className="mb-6 text-sm text-foreground-muted">{children}</div>
         <div className="flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded border border-border bg-surface px-5 py-2 text-sm text-foreground hover:bg-surface-muted"
-          >
+          <Button type="button" variant="secondary" onClick={onCancel}>
             {COPY.cancel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="rounded bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
+          </Button>
+          <Button type="button" onClick={onConfirm}>
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

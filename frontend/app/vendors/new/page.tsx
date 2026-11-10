@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useAuth } from "@/auth/AuthProvider";
-import Button from "@/components/ui/button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
 import PageHeader from "@/components/PageHeader/PageHeader";
+import Button from "@/components/ui/button";
 import { createVendor, paymentMethodLabels, paymentMethods } from "@/lib/api/vendors";
 import {
   toVendorPayload,

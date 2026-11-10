@@ -3,6 +3,7 @@
 import { useState } from "react";
 import ConfirmModal from "@/components/ConfirmModal/ConfirmModal";
 import RuleField from "@/components/RuleField/RuleField";
+import Button from "@/components/ui/button";
 import { type RuleErrors, validateRules } from "@/lib/validation";
 
 const COPY = {
@@ -78,13 +79,9 @@ export default function AdminPage() {
 
       <div className="flex items-center justify-end gap-4">
         {message && <span className="text-sm text-success">{message}</span>}
-        <button
-          type="button"
-          onClick={handleSaveClick}
-          className="rounded bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
+        <Button type="button" onClick={handleSaveClick}>
           {COPY.save}
-        </button>
+        </Button>
       </div>
       <ConfirmModal
         open={confirmOpen}

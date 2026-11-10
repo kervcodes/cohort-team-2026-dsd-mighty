@@ -26,10 +26,10 @@ export default {
     ];
   },
   "frontend/**/*.{jsx,tsx}": (files) =>
-    `sh -c 'cd frontend && DS_ALIAS_ROOT=app DS_UI_DIR=app/components/ui bun scripts/check-design-system.ts --staged-only "$@"' ds ${files.map((f) => `"${f.replace(/^.*?\/frontend\//, "")}"`).join(" ")}`,
+    `sh -c 'cd frontend && DS_ALIAS_ROOT=app DS_UI_DIR=app/components/ui node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-design-system.ts --staged-only "$@"' ds ${files.map((f) => `"${f.replace(/^.*?\/frontend\//, "")}"`).join(" ")}`,
   "frontend/app/components/ui/**": () =>
-    `sh -c 'cd frontend && DS_ALIAS_ROOT=app DS_UI_DIR=app/components/ui bun scripts/check-ds-coverage.ts && DS_UI_DIR=app/components/ui bun scripts/check-ds-page.ts'`,
+    `sh -c 'cd frontend && DS_ALIAS_ROOT=app DS_UI_DIR=app/components/ui node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-ds-coverage.ts && DS_UI_DIR=app/components/ui node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-ds-page.ts'`,
   "frontend/app/design-system/**": () =>
-    `sh -c 'cd frontend && DS_UI_DIR=app/components/ui bun scripts/check-ds-page.ts'`,
+    `sh -c 'cd frontend && DS_UI_DIR=app/components/ui node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-ds-page.ts'`,
   "backend/**/*.py": backend,
 };
