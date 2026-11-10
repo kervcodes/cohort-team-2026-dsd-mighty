@@ -68,3 +68,37 @@ class BillRead(BillBase):
     exception_reason: str | None = None
     document_path: str | None = None
     created_at: datetime
+
+
+class BillDraftCreate(BillUpdate):
+    """Fields that may be provided when creating a draft."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+
+class BillDraftRead(BaseModel):
+    """Response returned after a draft is created."""
+
+    bill_id: UUID
+    status: BillStatus
+    document_path: str | None = None
+
+
+class BillDashboardRow(BaseModel):
+    """One row of GET /bills/dashboard. Only these columns leave the server,
+    whatever `list_user_bills` selects."""
+
+    bill_id: UUID
+    invoice_number: str | None = None
+    property_address: str | None = None
+    vendor_name_raw: str | None = None
+    invoice_date: date | None = None
+    due_date: date | None = None
+    # A JSON number, as the dashboard sums it for its totals (display only).
+    amount: float | None = None
+    status: BillStatus
+    document_path: str | None = None
+    created_at: datetime

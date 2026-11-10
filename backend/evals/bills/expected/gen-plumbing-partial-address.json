@@ -1,0 +1,29 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Kestrel Plumbing & Drain LLC",
+  "account_number": "KPD-4471",
+  "invoice_number": "KPD-26-1203",
+  "invoice_date": "2026-10-26",
+  "due_date": "2026-11-10",
+  "amount_due": "395.00",
+  "previous_balance": null,
+  "payments_received": null,
+  "current_charges": "395.00",
+  "line_items": [
+    {
+      "description": "Service call and diagnosis",
+      "amount": "125.00"
+    },
+    {
+      "description": "Kitchen branch drain clearing",
+      "amount": "270.00"
+    }
+  ],
+  "service_address": "125 Industrial Way, Unit 4B",
+  "service_period_start": null,
+  "service_period_end": null,
+  "expected_issues": [],
+  "expected_status": "ready_for_review",
+  "case": "Clean contractor invoice whose service address is partial (street and unit, no city, state or zip)",
+  "notes": "Exists to test property matching later: the job-site line has no city, state or zip. Extraction should copy it exactly as printed."
+}

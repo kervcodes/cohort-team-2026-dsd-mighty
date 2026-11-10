@@ -30,4 +30,24 @@ describe("Invoice table", () => {
     expect(screen.getByText("Oct 1, 2026")).toBeInTheDocument();
     expect(screen.getByText("paid")).toBeInTheDocument();
   });
+
+  it("renders drafts that share an invoice number without duplicate React keys", () => {
+    // Drafts can share an invoice number until a vendor account is set.
+    const consoleError = jest.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <InvoiceTable
+        invoices={[
+          makeInvoice({ id: "bill-a", invoiceNumber: "INV-7" }),
+          makeInvoice({ id: "bill-b", invoiceNumber: "INV-7" }),
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("INV-7")).toHaveLength(2);
+    const keyWarnings = consoleError.mock.calls.filter((args) =>
+      String(args[0]).includes("same key"),
+    );
+    expect(keyWarnings).toHaveLength(0);
+    consoleError.mockRestore();
+  });
 });

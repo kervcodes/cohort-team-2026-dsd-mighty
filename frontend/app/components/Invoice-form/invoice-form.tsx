@@ -3,12 +3,18 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FileUp } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { type DragEvent, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
-import { FormField, inputClass } from "@/components/Form-field/form-field";
 import Button from "@/components/ui/button";
-import type { BillCreatePayload } from "@/lib/api/bills";
-import { createBill } from "@/lib/api/bills";
+import { FormField, inputClass } from "@/components/Form-field/form-field";
+import {
+  type BillCreatePayload,
+  type BillDraftPayload,
+  createBill,
+  saveBillDraft,
+  updateBillDraft,
+  uploadInvoicePdf,
+} from "@/lib/api/bills";
 import {
   accountStatuses,
   emptyInvoiceForm,
@@ -16,21 +22,40 @@ import {
   invoiceFormSchema,
 } from "@/lib/invoice-form-schema";
 
+type ActionStatus = "idle" | "loading" | "success" | "error";
+
+// Browsers sometimes report an empty MIME type for dropped files, so the
+// extension is checked as well.
+function isPdf(file: File) {
+  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+}
+
 export function InvoiceForm() {
   const router = useRouter();
   const [submitError, setSubmitError] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadMessage, setUploadMessage] = useState("");
+  const [uploadError, setUploadError] = useState("");
+  const [draftMessage, setDraftMessage] = useState("");
+  const [pdfStatus, setPdfStatus] = useState<ActionStatus>("idle");
+  const [draftStatus, setDraftStatus] = useState<ActionStatus>("idle");
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [createStatus, setCreateStatus] = useState<ActionStatus>("idle");
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     register,
     handleSubmit,
-
-    formState: { errors, isSubmitting },
+    getValues,
+    formState: { errors },
   } = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
     defaultValues: emptyInvoiceForm,
   });
 
   async function onSubmit(values: InvoiceFormValues) {
+    setCreateStatus("loading");
     setSubmitError("");
 
     const payload: BillCreatePayload = {
@@ -51,16 +76,137 @@ export function InvoiceForm() {
     try {
       await createBill(payload);
 
+      setCreateStatus("success");
       router.push("/dashboard");
     } catch (err) {
+      setCreateStatus("error");
       setSubmitError(
         err instanceof Error ? err.message : "Unable to create the bill. Please try again.",
       );
     }
   }
 
+  // Shared by the file picker and drag-and-drop: a new file always resets
+  // validation so a previous success never carries over to it.
+  function selectFile(file: File | null) {
+    setPdfStatus("idle");
+    setUploadMessage("");
+
+    if (file && !isPdf(file)) {
+      setSelectedFile(null);
+      setUploadError("Only PDF files can be uploaded.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setSelectedFile(file);
+    setUploadError("");
+  }
+
+  function handleDragOver(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLLabelElement>) {
+    // dragleave also fires when moving onto a child element; ignore those.
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setIsDragging(false);
+  }
+
+  function handleDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setIsDragging(false);
+
+    const files = event.dataTransfer.files;
+    if (files.length > 1) {
+      setSelectedFile(null);
+      setPdfStatus("idle");
+      setUploadMessage("");
+      setUploadError("Drop one PDF at a time.");
+      return;
+    }
+
+    // The input keeps no record of dropped files; clear it so picking the
+    // same file again later still fires onChange.
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    selectFile(files[0] ?? null);
+  }
+
+  async function handleUploadPdf() {
+    if (!selectedFile || !draftId) return;
+
+    setPdfStatus("loading");
+    setUploadError("");
+    setUploadMessage("");
+
+    try {
+      const result = await uploadInvoicePdf(selectedFile, draftId);
+
+      setPdfStatus("success");
+      setUploadMessage(`PDF saved successfully: ${result.document_path}`);
+    } catch (error) {
+      setPdfStatus("error");
+      setUploadError(error instanceof Error ? error.message : "Unable to upload PDF.");
+    }
+  }
+
+  async function handleSaveDraft() {
+    setDraftStatus("loading");
+    setSubmitError("");
+    setDraftMessage("");
+
+    try {
+      const values = getValues();
+
+      // Blank fields are sent as null so that clearing a field on an
+      // existing draft clears it in the database too.
+      const payload: BillDraftPayload = {
+        account_number_raw: values.accountNumber.trim() || null,
+        invoice_number: values.statementId.trim() || null,
+        vendor_name_raw: values.companyName.trim() || null,
+        invoice_date: values.issueDate || null,
+        due_date: values.dueDate || null,
+        amount: values.currentDue.trim() || null,
+        prev_payments: values.previousPayments.trim() || null,
+        description: values.description.trim() || null,
+        processing_notes: values.notes.trim() || null,
+        property_address: values.propertyAddress.trim() || null,
+        account_status: values.accountStatus || null,
+        website_name: values.websiteName.trim() || null,
+      };
+
+      // The first save creates the draft; later saves update the same bill.
+      const saved = draftId
+        ? await updateBillDraft(draftId, payload)
+        : await saveBillDraft(payload);
+
+      setDraftId(saved.bill_id);
+      setDraftStatus("success");
+      setDraftMessage(`Draft saved successfully: ${saved.bill_id}`);
+    } catch (error) {
+      setDraftStatus("error");
+      setSubmitError(error instanceof Error ? error.message : "Unable to save draft.");
+    }
+  }
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate className="mx-auto max-w-3xl space-y-6">
+    <form
+      onSubmit={handleSubmit(onSubmit)}
+      onChange={(event) => {
+        // Editing a field after a save means there are unsaved changes.
+        // Choosing a PDF is not a draft edit, so the file input is ignored.
+        const target = event.target;
+        if (target instanceof HTMLInputElement && target.type === "file") return;
+        if (draftStatus === "success") {
+          setDraftStatus("idle");
+          setDraftMessage("");
+        }
+      }}
+      noValidate
+      className="mx-auto max-w-3xl space-y-6"
+    >
       {submitError && (
         <p
           role="alert"
@@ -69,11 +215,32 @@ export function InvoiceForm() {
           {submitError}
         </p>
       )}
+      {draftMessage && (
+        <p
+          role="status"
+          className="rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-800"
+        >
+          {draftMessage}
+        </p>
+      )}
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">New Invoice</h1>
 
         <div className="flex items-center gap-3">
-          <Button label="Save" type="button" />
+          <Button
+            label={
+              draftStatus === "loading"
+                ? "Saving..."
+                : draftStatus === "success"
+                  ? "Draft Saved ✓"
+                  : draftStatus === "error"
+                    ? "Retry Save"
+                    : "Save Draft"
+            }
+            type="button"
+            onClick={handleSaveDraft}
+            disabled={draftStatus === "loading"}
+          />
           <Button
             label="Cancel"
             variant="secondary"
@@ -83,10 +250,64 @@ export function InvoiceForm() {
         </div>
       </div>
 
-      <section className="rounded-xl border border-dashed border-border bg-surface p-6 text-center">
-        <FileUp className="mx-auto h-6 w-6 text-foreground-muted" />
-        <p className="mt-2 text-sm font-medium text-foreground">Upload / import invoice (PDF)</p>
-        <p className="text-xs text-foreground-muted">Coming soon</p>
+      <section className="rounded-xl border border-border bg-surface p-6 text-center">
+        <label
+          htmlFor="invoicePdf"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`block cursor-pointer rounded-lg border-2 border-dashed p-6 transition-colors focus-within:ring-2 focus-within:ring-ring ${
+            isDragging ? "border-blue-600 bg-blue-50" : "border-border hover:bg-surface-muted"
+          }`}
+        >
+          <FileUp className="mx-auto h-6 w-6 text-foreground-muted" />
+
+          <span className="mt-2 block text-sm font-medium">
+            {isDragging ? "Drop the PDF here" : "Upload / import invoice (PDF)"}
+          </span>
+
+          <span className="mt-1 block text-sm text-foreground-muted">
+            {selectedFile ? selectedFile.name : "Drag and drop a PDF here, or click to browse"}
+          </span>
+
+          <input
+            ref={fileInputRef}
+            id="invoicePdf"
+            type="file"
+            accept=".pdf,application/pdf"
+            className="sr-only"
+            onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
+          />
+        </label>
+
+        <Button
+          type="button"
+          onClick={handleUploadPdf}
+          disabled={!selectedFile || !draftId || pdfStatus === "loading" || pdfStatus === "success"}
+          className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
+        >
+          {pdfStatus === "loading"
+            ? "Uploading..."
+            : pdfStatus === "success"
+              ? "PDF Saved ✓"
+              : pdfStatus === "error"
+                ? "Retry Upload"
+                : !draftId
+                  ? "Save Draft First"
+                  : "Upload PDF"}
+        </Button>
+
+        {uploadMessage && (
+          <p role="status" className="mt-3 text-sm text-green-700">
+            {uploadMessage}
+          </p>
+        )}
+
+        {uploadError && (
+          <p role="alert" className="mt-3 text-sm text-red-600">
+            {uploadError}
+          </p>
+        )}
       </section>
 
       <fieldset className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm">
@@ -255,9 +476,17 @@ export function InvoiceForm() {
       </fieldset>
 
       <Button
-        label={isSubmitting ? "Creating…" : "Create"}
+        label={
+          createStatus === "loading"
+            ? "Creating..."
+            : createStatus === "success"
+              ? "Created ✓"
+              : createStatus === "error"
+                ? "Retry Create"
+                : "Create"
+        }
         type="submit"
-        disabled={isSubmitting}
+        disabled={createStatus === "loading" || createStatus === "success"}
         className="w-full border-2"
       />
     </form>

@@ -1,8 +1,8 @@
 "use client";
 
+import Button from "@/components/ui/button";
 import { useState } from "react";
 import { StatusBadge } from "@/components/Status-Badge/status-badge";
-import Button from "@/components/ui/button";
 import type { Invoice } from "@/types/invoice";
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -10,7 +10,9 @@ const currency = new Intl.NumberFormat("en-US", {
   currency: "USD",
 });
 
-function formatDate(iso: string) {
+function formatDate(iso: string | null) {
+  if (!iso) return "—";
+
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -21,9 +23,12 @@ function formatDate(iso: string) {
 const columns = ["Invoice ID", "Property", "Company", "Due Date", "Vendor", "Amount", "Status"];
 
 export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
-  const [_page, _setPage] = useState<number>(1);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(invoices.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
 
-  const rows = invoices.slice(0, 10);
+  const rows = invoices.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
     <section className="rounded-xl border border-border bg-surface shadow-sm">
@@ -63,13 +68,15 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
                   key={invoice.id}
                   className="text-foreground transition-colors hover:bg-surface-muted"
                 >
-                  <td className="px-6 py-4 font-mono text-xs">{invoice.id}</td>
+                  <td className="px-6 py-4 font-mono text-xs">
+                    {invoice.invoiceNumber ?? invoice.id.slice(0, 8)}
+                  </td>
                   <td className="px-6 py-4">{invoice.property}</td>
                   <td className="px-6 py-4">{invoice.company}</td>
                   <td className="px-6 py-4 tabular-nums">{formatDate(invoice.dueDate)}</td>
                   <td className="px-6 py-4">{invoice.vendor}</td>
                   <td className="px-6 py-4 text-right font-medium tabular-nums">
-                    {currency.format(invoice.amount)}
+                    {invoice.amount === null ? "—" : currency.format(invoice.amount)}
                   </td>
                   <td className="px-6 py-4">
                     <StatusBadge status={invoice.status} />
@@ -82,11 +89,27 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
       </div>
 
       <footer className="flex items-center justify-between border-t border-border px-6 py-4">
-        <p className="text-sm text-foreground-muted tabular-nums">Page 1 of 10</p>
+        <p className="text-sm text-foreground-muted tabular-nums">
+          Page {currentPage} of {totalPages}
+        </p>
 
         <div className="flex gap-2">
-          <Button type="button" variant="secondary" size="sm" label="Previous" />
-          <Button type="button" variant="secondary" size="sm" label="Next" />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            label="Previous"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            label="Next"
+          />
         </div>
       </footer>
     </section>

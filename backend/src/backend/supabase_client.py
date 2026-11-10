@@ -1,24 +1,29 @@
-import os
+from functools import lru_cache
 
-from dotenv import load_dotenv
+from backend.settings import get_settings
+from supabase import Client, ClientOptions, create_client
 
-from supabase import Client, create_client
+# One client each per process, shared by every request. They must never hold
+# a user session: with persist_session off, a sign-in on a shared client
+# cannot leak one user's token into another request.
+SHARED_CLIENT_OPTIONS = ClientOptions(persist_session=False, auto_refresh_token=False)
 
-load_dotenv()
 
-
+@lru_cache
 def get_supabase() -> Client:
-    url = os.environ["SUPABASE_URL"]
-    key = os.environ["SUPABASE_PUBLISHABLE_KEY"]
-    if not url:
-        print("Supabase URL was not found!")
-    elif not key:
-        print("Supabase key was not found or ")
-    elif not key.startswith("sk-proj-"):
-        print(
-            "Supabase key was found, but it doesn't start with sk-proj-; "
-            "please check you're using the right key"
-        )
-    else:
-        print("Supabase url and Supabase key found")
-    return create_client(url, key)
+    settings = get_settings()
+    return create_client(
+        settings.supabase_url,
+        settings.supabase_publishable_key,
+        options=SHARED_CLIENT_OPTIONS,
+    )
+
+
+@lru_cache
+def get_admin_supabase() -> Client:
+    settings = get_settings()
+    return create_client(
+        settings.supabase_url,
+        settings.supabase_secret_key,
+        options=SHARED_CLIENT_OPTIONS,
+    )
