@@ -38,6 +38,14 @@ class _Result:
         self.data = data
 
 
+def _insert_defaults(table: str) -> dict[str, Any]:
+    """The column defaults Postgres fills in on insert, per table."""
+    now = datetime.now(UTC).isoformat()
+    if table == "vendors":
+        return {"vendor_id": str(uuid4()), "created_at": now}
+    return {"bill_id": str(uuid4()), "document_path": None, "created_at": now}
+
+
 class _Query:
     def __init__(self, db: "FakeSupabase", table: str) -> None:
         self._db = db
@@ -124,12 +132,7 @@ class _Query:
 
     def execute(self) -> _Result | None:
         if self._op == "insert":
-            row = {
-                "bill_id": str(uuid4()),
-                "document_path": None,
-                "created_at": datetime.now(UTC).isoformat(),
-                **(self._payload or {}),
-            }
+            row = {**_insert_defaults(self._table), **(self._payload or {})}
             self._check_foreign_keys(row)
             self._rows.append(row)
             rows = [row]
@@ -210,4 +213,17 @@ class FakeSupabase:
             **fields,
         }
         self.tables.setdefault("bills", []).append(row)
+        return row
+
+    def add_vendor(self, vendor_name: str, **fields: Any) -> dict[str, Any]:
+        row = {
+            "vendor_id": str(uuid4()),
+            "vendor_name": vendor_name,
+            "contact_email": None,
+            "contact_phone": None,
+            "default_payment_method": None,
+            "created_at": datetime.now(UTC).isoformat(),
+            **fields,
+        }
+        self.table("vendors")._rows.append(row)
         return row

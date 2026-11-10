@@ -15,6 +15,10 @@ bearer = HTTPBearer(auto_error=False)
 # Every 401 names the scheme the client should retry with (RFC 6750).
 BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 
+# Who may use the vendor routes: everyone reads, only admins add or change.
+VENDOR_READERS = (UserRole.analyst, UserRole.approver, UserRole.admin)
+VENDOR_WRITERS = (UserRole.admin,)
+
 
 class CurrentUser(MeRead):
     """The signed-in caller: the same fields `GET /me` returns."""

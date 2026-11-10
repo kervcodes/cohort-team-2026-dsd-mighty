@@ -1,4 +1,4 @@
-"""Every bill route enforces the role table: who may call it, active only.
+"""Every bill and vendor route enforces the role table: who may call it, active only.
 
 The table below is the rule, written out as data. Each case overrides
 `get_current_user` only, so the routes' real `require_active` check runs, and
@@ -34,6 +34,10 @@ ROLE_TABLE = [
     ("POST", "/bills/drafts", {ANALYST, ADMIN}, 201),
     ("PATCH", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
     ("POST", "/bills/{bill_id}/document", {ANALYST, ADMIN}, 201),
+    ("GET", "/vendors", {ANALYST, APPROVER, ADMIN}, 200),
+    ("POST", "/vendors", {ADMIN}, 201),
+    ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
+    ("PATCH", "/vendors/{vendor_id}", {ADMIN}, 200),
 ]
 
 # Routes that need a signed-in user but no role.
@@ -52,6 +56,8 @@ REQUEST_BODY = {
     ("POST", "/bills/drafts"): {"json": {"amount": "10.00"}},
     ("PATCH", "/bills/{bill_id}/draft"): {"json": {"amount": "10.00"}},
     ("POST", "/bills/{bill_id}/document"): {"files": {"file": PDF}},
+    ("POST", "/vendors"): {"json": {"name": "Acme Water"}},
+    ("PATCH", "/vendors/{vendor_id}"): {"json": {"contact_phone": "555-0100"}},
 }
 
 CASES = [
@@ -75,6 +81,7 @@ def db():
     with (
         patch("backend.api.bills.get_admin_supabase", return_value=fake),
         patch("backend.api.bill_documents.get_admin_supabase", return_value=fake),
+        patch("backend.api.vendors.get_admin_supabase", return_value=fake),
     ):
         yield fake
 
@@ -83,11 +90,12 @@ def db():
 def test_route_allows_only_its_active_roles(db, method, path, role, status, expected):
     user = make_user(role=role, status=status)
     bill = db.add_bill(str(user.id))
+    vendor = db.add_vendor("Acme Water")
     app.dependency_overrides[get_current_user] = lambda: user
 
     response = TestClient(app).request(
         method,
-        path.format(bill_id=bill["bill_id"]),
+        path.format(bill_id=bill["bill_id"], vendor_id=vendor["vendor_id"]),
         **REQUEST_BODY.get((method, path), {}),
     )
 
@@ -110,9 +118,6 @@ OPEN_ROUTES = {
     ("POST", "/approvals/{approval_id}/decision"),
     # In-memory stubs, no Supabase; must get a role-table row before they touch
     # Supabase.
-    ("POST", "/vendors"),
-    ("GET", "/vendors/{vendor_id}"),
-    ("PATCH", "/vendors/{vendor_id}"),
     ("POST", "/vendor-accounts"),
     ("GET", "/vendor-accounts/{account_id}"),
     ("PATCH", "/vendor-accounts/{account_id}"),
