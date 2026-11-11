@@ -175,3 +175,121 @@ $$;
 
 revoke execute on function audit.mask(jsonb)
 from public, anon, authenticated, service_role;
+
+-- 4. RECORDING A CHANGE
+
+-- One function for every audited table. Trigger arguments:
+--   1. the primary key column, e.g. 'bill_id'
+--   2. optional: the column holding the bill id, when the table has one
+-- security definer: the trigger runs as the caller, which has no privilege on
+-- audit.record_changes; the function runs as its owner, the only writer.
+create or replace function audit.capture()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+    pk_column text := tg_argv[0];
+    bill_column text := tg_argv[1];
+    old_json jsonb;
+    new_json jsonb;
+    row_json jsonb;
+    changed text[];
+begin
+    if tg_op <> 'INSERT' then
+        old_json := to_jsonb(old);
+    end if;
+    if tg_op <> 'DELETE' then
+        new_json := to_jsonb(new);
+    end if;
+
+    if tg_op = 'UPDATE' then
+        -- updated_at is rewritten by set_updated_at() on every update, so it
+        -- is left out: an update that changes nothing else changes nothing.
+        select coalesce(array_agg(n.key order by n.key), '{}')
+        into changed
+        from jsonb_each(new_json) as n
+        where n.key <> 'updated_at'
+            and old_json -> n.key is distinct from n.value;
+
+        if cardinality(changed) = 0 then
+            return null;
+        end if;
+    end if;
+
+    row_json := coalesce(new_json, old_json);
+
+    insert into audit.record_changes (
+        table_schema,
+        table_name,
+        op,
+        record_pk,
+        bill_id,
+        old_row,
+        new_row,
+        changed_cols,
+        actor_id,
+        actor_role
+    )
+    values (
+        tg_table_schema,
+        tg_table_name,
+        tg_op,
+        jsonb_build_object(pk_column, row_json -> pk_column),
+        (row_json ->> bill_column)::uuid,
+        audit.mask(old_json),
+        audit.mask(new_json),
+        changed,
+        audit.actor_id(),
+        -- The API caller's role; a direct connection has no JWT, so its login.
+        coalesce(
+            nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
+            session_user
+        )
+    );
+
+    return null;
+end;
+$$;
+
+revoke execute on function audit.capture()
+from public, anon, authenticated, service_role;
+
+-- 5. THE AUDITED TABLES
+
+create trigger audit_bills
+after insert or update or delete on public.bills
+for each row
+execute function audit.capture('bill_id', 'bill_id');
+
+create trigger audit_approvals
+after insert or update or delete on public.approvals
+for each row
+execute function audit.capture('approval_id', 'bill_id');
+
+create trigger audit_payments
+after insert or update or delete on public.payments
+for each row
+execute function audit.capture('payment_id', 'bill_id');
+
+create trigger audit_vendors
+after insert or update or delete on public.vendors
+for each row
+execute function audit.capture('vendor_id');
+
+create trigger audit_vendor_accounts
+after insert or update or delete on public.vendor_accounts
+for each row
+execute function audit.capture('account_id');
+
+create trigger audit_properties
+after insert or update or delete on public.properties
+for each row
+execute function audit.capture('property_id');
+
+-- Only privilege changes: a role or active-status change.
+create trigger audit_app_users
+after update of role, status on public.app_users
+for each row
+execute function audit.capture('user_id');
