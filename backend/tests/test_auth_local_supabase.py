@@ -5,6 +5,8 @@ Opt in with RUN_LOCAL_SUPABASE_TESTS=1, with the local values from
 (API_URL), SUPABASE_PUBLISHABLE_KEY (PUBLISHABLE_KEY) and SUPABASE_SECRET_KEY
 (SECRET_KEY). backend/.env may hold live values, so these tests fail unless
 SUPABASE_URL points at 127.0.0.1 or localhost. Users they create are deleted.
+CI runs them on every PR and on main (the backend-real-login job in
+.github/workflows/ci.yml) and fails the job if they skip.
 """
 
 import os

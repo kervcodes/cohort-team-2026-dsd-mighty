@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { StatusBadge } from "@/components/Status-Badge/status-badge";
 import type { Invoice } from "@/types/invoice";
@@ -21,7 +22,15 @@ function formatDate(iso: string | null) {
 
 const columns = ["Invoice ID", "Property", "Company", "Due Date", "Vendor", "Amount", "Status"];
 
-export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
+export function InvoiceTable({
+  invoices,
+  title = "Invoice History",
+  emptyMessage = "No invoices yet. Click 'New Invoice' to add one.",
+}: {
+  invoices: Invoice[];
+  title?: string;
+  emptyMessage?: string;
+}) {
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(invoices.length / pageSize));
@@ -32,7 +41,7 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
   return (
     <section className="rounded-xl border border-border bg-surface shadow-sm">
       <header className="border-b border-border px-6 py-5">
-        <h2 className="text-xl font-semibold text-foreground">Invoice History</h2>
+        <h2 className="text-xl font-semibold text-foreground">{title}</h2>
       </header>
 
       <div className="overflow-x-auto">
@@ -58,7 +67,7 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
                   colSpan={columns.length}
                   className="px-6 py-12 text-center text-foreground-muted"
                 >
-                  No invoices yet. Click "New Invoice" to add one.
+                  <p>{emptyMessage}</p>
                 </td>
               </tr>
             ) : (
@@ -68,7 +77,16 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
                   className="text-foreground transition-colors hover:bg-surface-muted"
                 >
                   <td className="px-6 py-4 font-mono text-xs">
-                    {invoice.invoiceNumber ?? invoice.id.slice(0, 8)}
+                    {invoice.status === "draft" ? (
+                      <Link
+                        href={`/invoices/${invoice.id}/edit`}
+                        className="text-blue-600 hover:underline"
+                      >
+                        {invoice.invoiceNumber ?? invoice.id.slice(0, 8)}
+                      </Link>
+                    ) : (
+                      <span>{invoice.invoiceNumber ?? invoice.id.slice(0, 8)}</span>
+                    )}
                   </td>
                   <td className="px-6 py-4">{invoice.property}</td>
                   <td className="px-6 py-4">{invoice.company}</td>

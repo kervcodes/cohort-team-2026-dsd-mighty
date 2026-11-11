@@ -7,6 +7,7 @@ from backend.schemas.bill import (
     BillCreate,
     BillDashboardRow,
     BillDraftCreate,
+    BillDraftDetail,
     BillDraftRead,
     BillRead,
     BillStatus,
@@ -18,6 +19,7 @@ from backend.services.bill_access import (
     default_scope,
 )
 from backend.services.bill_repository import (
+    get_editable_draft,
     get_readable_bill,
     list_dashboard_bills,
     list_readable_bills,
@@ -135,3 +137,24 @@ def update_existing_draft(
         )
 
     return BillDraftRead.model_validate(updated)
+
+
+# retrieves an existing one
+@router.get("/{bill_id}/draft", response_model=BillDraftDetail)
+def get_draft(
+    bill_id: UUID,
+    user: CurrentUser = Depends(require_active(*BILL_WRITERS)),
+) -> BillDraftDetail:
+    draft = get_editable_draft(
+        client=get_admin_supabase(),
+        bill_id=bill_id,
+        user_id=str(user.id),
+    )
+
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Editable draft not found.",
+        )
+
+    return BillDraftDetail.model_validate(draft)

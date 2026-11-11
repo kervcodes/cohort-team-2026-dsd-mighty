@@ -102,6 +102,13 @@ class BillDraftRead(BaseModel):
     document_path: str | None = None
 
 
+class BillDraftDetail(BillDraftCreate):
+    model_config = ConfigDict(extra="ignore")
+    bill_id: UUID
+    status: BillStatus
+    document_path: str | None = None
+
+
 class BillDashboardRow(BaseModel):
     """One row of GET /bills/dashboard. Only these columns leave the server,
     whatever `list_dashboard_bills` selects."""

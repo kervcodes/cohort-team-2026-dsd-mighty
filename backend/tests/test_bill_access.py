@@ -190,6 +190,34 @@ def test_owner_can_read_their_own_empty_draft(db):
 # Create (POST /bills) and Save draft share one save path.
 
 
+def test_user_cannot_read_another_users_draft(db):
+    draft = db.add_bill(USER_A)
+
+    response = as_user(USER_B).get(f"/bills/{draft['bill_id']}/draft")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Editable draft not found."
+
+
+def test_owner_can_read_their_own_draft(db):
+    draft = db.add_bill(USER_A)
+
+    response = as_user(USER_A).get(f"/bills/{draft['bill_id']}/draft")
+
+    assert response.status_code == 200
+    assert response.json()["bill_id"] == draft["bill_id"]
+    assert response.json()["status"] == "draft"
+
+
+def test_owner_cannot_read_their_own_non_draft(db):
+    bill = db.add_bill(USER_A, status="pending_approval")
+
+    response = as_user(USER_A).get(f"/bills/{bill['bill_id']}/draft")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Editable draft not found."
+
+
 def test_create_saves_the_bill_for_the_caller_pending_approval(db):
     db.add_user(USER_A, full_name="Ada Analyst")
 

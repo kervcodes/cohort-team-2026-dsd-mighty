@@ -2,6 +2,7 @@
 import Link from "next/link";
 import {
   LuBuilding2,
+  LuFilePenLine,
   LuFilePlus,
   LuFileText,
   LuHouse,
@@ -21,6 +22,7 @@ import type { UserRole } from "@/types/user";
 const COPY = {
   home: "Home",
   invoices: "Invoices",
+  savedDrafts: "Saved Drafts",
   newInvoice: "New Invoice",
   properties: "Properties",
   vendors: "Vendors",
@@ -33,10 +35,11 @@ const COPY = {
   switchToLight: "Switch to light mode",
   signOut: "Sign Out",
   signOutFailed: "Couldn't sign out. Try again.",
-  roles: { admin: "Admin", analyst: "Analyst", approver: "Approver" } satisfies Record<
-    UserRole,
-    string
-  >,
+  roles: {
+    admin: "Admin",
+    analyst: "Analyst",
+    approver: "Approver",
+  } satisfies Record<UserRole, string>,
 };
 
 // Links and buttons share one shape so every icon lines up in one column.
@@ -67,6 +70,13 @@ export default function Sidebar() {
             <Link title={COPY.invoices} href="/dashboard" className={ITEM}>
               <LuFileText size={20} aria-hidden="true" />
               <span className="hidden sm:block">{COPY.invoices}</span>
+            </Link>
+          </li>
+
+          <li>
+            <Link title={COPY.savedDrafts} href="/invoices/drafts" className={ITEM}>
+              <LuFilePenLine size={20} aria-hidden="true" />
+              <span className="hidden sm:block">{COPY.savedDrafts}</span>
             </Link>
           </li>
 
