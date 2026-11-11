@@ -1,8 +1,11 @@
 -- Audit trail: a database-level change log (audit.record_changes).
 --
 -- Triggers write one row for every insert, update and delete on the bill
--- workflow tables, so no code path (API route, SQL console, script) can change
--- them without leaving a trace. public.audit_events stays as the business
+-- workflow tables, so no insert, update or delete from any code path (API
+-- route, SQL console, script) changes them without leaving a trace. The
+-- triggers are row-level and do not fire on TRUNCATE: truncating an audited
+-- table is not captured. Only the log itself and public.audit_events have a
+-- TRUNCATE guard. public.audit_events stays as the business
 -- timeline; this is the row-level log underneath it.
 --
 -- The migration reads in order: the table, who made the change, masking, the
