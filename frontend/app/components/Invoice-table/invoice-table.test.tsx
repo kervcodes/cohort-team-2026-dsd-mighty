@@ -87,25 +87,29 @@ describe("Invoice table", () => {
     );
   });
 
-  it("does not link approved invoices to the edit page", () => {
+  it("links approved invoices to the detail page, not the edit page", () => {
     render(<InvoiceTable invoices={[approvedInvoice]} />);
 
-    expect(screen.queryByRole("link", { name: "INV-APPROVED-1" })).not.toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "INV-APPROVED-1" });
 
-    expect(screen.getByText("INV-APPROVED-1")).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/invoices/approved-1001");
   });
 
-  it("does not link paid invoices to the edit page", () => {
-    const paidInvoice = makeInvoice({
+  it("links paid invoices to the detail page, not the edit page", () => {
+    const paidInvoice: Invoice = {
       id: "paid-1001",
       invoiceNumber: "INV-PAID-1",
+      property: "123 Main Street",
+      company: "Electric Company",
+      dueDate: "2026-11-01",
+      vendor: "Electric Company",
+      amount: 250,
       status: "paid",
-    });
-
+    };
     render(<InvoiceTable invoices={[paidInvoice]} />);
 
-    expect(screen.queryByRole("link", { name: "INV-PAID-1" })).not.toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "INV-PAID-1" });
 
-    expect(screen.getByText("INV-PAID-1")).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/invoices/paid-1001");
   });
 });

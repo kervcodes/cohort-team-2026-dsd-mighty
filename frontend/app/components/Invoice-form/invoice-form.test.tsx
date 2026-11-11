@@ -157,17 +157,25 @@ describe("InvoiceForm", () => {
   });
 
   describe("PDF upload", () => {
+    const savedDraft = {
+      bill_id: "bill-1",
+      status: "draft" as const,
+      document_path: null,
+    };
+
     beforeEach(() => {
       mockSaveBillDraft.mockReset();
       mockUploadInvoicePdf.mockReset();
     });
 
-    it("requires a saved draft before a PDF can be uploaded", () => {
+    it("keeps Upload PDF disabled until a file is selected", async () => {
       render(<InvoiceForm />);
+
+      expect(screen.getByRole("button", { name: "Upload PDF" })).toBeDisabled();
 
       fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
 
-      expect(screen.getByRole("button", { name: "Save Draft First" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Upload PDF" })).toBeEnabled();
     });
 
     it("uploads the selected PDF against the saved draft", async () => {
@@ -197,6 +205,51 @@ describe("InvoiceForm", () => {
 
       expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
       expect(await screen.findByRole("button", { name: "PDF Saved ✓" })).toBeDisabled();
+    });
+
+    it("saves the draft automatically when uploading without one", async () => {
+      const user = userEvent.setup();
+      mockSaveBillDraft.mockResolvedValue(savedDraft);
+      mockUploadInvoicePdf.mockResolvedValue({
+        bill_id: "bill-1",
+        document_path: "bills/bill-1/invoice.pdf",
+        status: "draft",
+      });
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      const file = pdf();
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
+
+      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
+
+      expect(await screen.findByRole("button", { name: "PDF Saved ✓" })).toBeDisabled();
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
+    });
+
+    it("uploads the selected PDF against an already saved draft", async () => {
+      const user = userEvent.setup();
+      mockSaveBillDraft.mockResolvedValue(savedDraft);
+      mockUploadInvoicePdf.mockResolvedValue({
+        bill_id: "bill-1",
+        document_path: "bills/bill-1/invoice.pdf",
+        status: "draft",
+      });
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
+
+      const file = pdf();
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
+      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
+
+      expect(await screen.findByRole("button", { name: "PDF Saved ✓" })).toBeDisabled();
+      // The existing draft is reused, not saved a second time.
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
     });
 
     it("offers a retry when the upload fails", async () => {
