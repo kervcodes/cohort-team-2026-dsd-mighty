@@ -9,7 +9,9 @@
 -- in backend/services/bill_access.py). A row written while the bill was a
 -- draft stays the submitter's after the bill is submitted: the bill's status
 -- at that moment is the one captured by the latest bills row of the log at or
--- before `row_id` (the row itself, for a row on the bills table).
+-- before `row_id` (the row itself, for a row on the bills table). A bill
+-- written before the log existed has no such row: its status then is the one
+-- before the first logged change to it, or, with none, its current status.
 -- security definer: app_users and bills have row-level security and no policy
 -- for the caller, and the log rows read here may not be the caller's.
 create or replace function audit.can_read(row_bill_id uuid, row_id bigint)
@@ -48,7 +50,17 @@ as $$
                                             order by r.id desc
                                             limit 1
                                         ),
-                                        ''
+                                        (
+                                            select r.old_row ->> 'status'
+                                            from audit.record_changes as r
+                                            where r.bill_id = row_bill_id
+                                                and r.table_schema = 'public'
+                                                and r.table_name = 'bills'
+                                                and r.id > row_id
+                                            order by r.id
+                                            limit 1
+                                        ),
+                                        b.status
                                     ) <> 'draft'
                                 )
                             )

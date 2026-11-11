@@ -4,7 +4,7 @@
 
 begin;
 
-select plan(28);
+select plan(33);
 
 -- 1. WIRING
 
@@ -93,6 +93,28 @@ where bill_id = '10000000-0000-4000-8000-000000000005';
 insert into public.approvals (bill_id)
 values ('10000000-0000-4000-8000-000000000005');
 
+-- Bills ...06 and ...07 were written before the log existed (capture off):
+-- ...06 a draft of ...b1 that gets an approval and is then submitted, ...07 a
+-- submitted bill of ...b2 that gets an approval and is never changed again.
+alter table public.bills disable trigger audit_bills;
+insert into public.bills (
+    bill_id, submitted_by, invoice_number, invoice_date, due_date, amount,
+    account_number_raw, status
+)
+values
+    ('10000000-0000-4000-8000-000000000006',
+     '00000000-0000-4000-8000-0000000000b1',
+     'INV-6', '2026-11-01', '2026-12-01', 10.00, '666666', 'draft'),
+    ('10000000-0000-4000-8000-000000000007',
+     '00000000-0000-4000-8000-0000000000b2',
+     'INV-7', '2026-11-01', '2026-12-01', 10.00, '777777', 'pending_approval');
+alter table public.bills enable trigger audit_bills;
+insert into public.approvals (bill_id) values
+    ('10000000-0000-4000-8000-000000000006'),
+    ('10000000-0000-4000-8000-000000000007');
+update public.bills set status = 'pending_approval'
+where bill_id = '10000000-0000-4000-8000-000000000006';
+
 select set_config(
     't.total', (select count(*) from audit.record_changes)::text, true
 );
@@ -133,6 +155,13 @@ select is(
     'an admin reads the draft-time log of a submitted bill'
 );
 
+select is(
+    (select count(*)::int from audit.record_changes
+     where bill_id = '10000000-0000-4000-8000-000000000006'),
+    2,
+    'an admin reads the draft-time log of a bill written before the log existed'
+);
+
 select set_config(
     'request.jwt.claims',
     '{"role": "authenticated", "sub": "00000000-0000-4000-8000-0000000000d1"}',
@@ -163,6 +192,13 @@ select is(
      where bill_id = '10000000-0000-4000-8000-000000000005'),
     5,
     'an analyst reads the draft-time log of their own submitted bill'
+);
+
+select is(
+    (select count(*)::int from audit.record_changes
+     where bill_id = '10000000-0000-4000-8000-000000000006'),
+    2,
+    'an analyst reads the draft-time log of their own bill written before the log existed'
 );
 
 select is(
@@ -206,6 +242,13 @@ select is(
     'an analyst reads only the post-submit log of another analyst''s bill, never its draft-time rows'
 );
 
+select is(
+    (select count(*)::int from audit.record_changes
+     where bill_id = '10000000-0000-4000-8000-000000000006'),
+    1,
+    'an analyst never reads the draft-time log of another analyst''s bill written before the log existed'
+);
+
 select set_config(
     'request.jwt.claims',
     '{"role": "authenticated", "sub": "00000000-0000-4000-8000-0000000000c1"}',
@@ -232,6 +275,20 @@ select is(
      where bill_id = '10000000-0000-4000-8000-000000000005'),
     2,
     'an approver reads only the post-submit log of a bill, never its draft-time rows'
+);
+
+select is(
+    (select count(*)::int from audit.record_changes
+     where bill_id = '10000000-0000-4000-8000-000000000006'),
+    1,
+    'an approver never reads the draft-time log of a bill written before the log existed'
+);
+
+select is(
+    (select count(*)::int from audit.record_changes
+     where bill_id = '10000000-0000-4000-8000-000000000007'),
+    1,
+    'an approver reads the log of a submitted bill written before the log existed'
 );
 
 select set_config('request.jwt.claims', '{"role": "authenticated"}', true);
