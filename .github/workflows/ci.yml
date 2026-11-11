@@ -102,7 +102,7 @@ jobs:
           import xml.etree.ElementTree as ET
           from pathlib import Path
 
-          EXPECTED_TESTS = 5  # the tests in tests/test_auth_local_supabase.py
+          EXPECTED_TESTS = 6  # the tests in tests/test_auth_local_supabase.py
 
           report = Path("real-login.xml")
           if not report.is_file():
