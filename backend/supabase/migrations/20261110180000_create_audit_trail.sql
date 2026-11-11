@@ -293,3 +293,37 @@ create trigger audit_app_users
 after update of role, status on public.app_users
 for each row
 execute function audit.capture('user_id');
+
+-- 6. APPEND-ONLY
+
+create or replace function audit.prevent_changes()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+    raise exception 'Audit records cannot be modified, deleted or truncated';
+end;
+$$;
+
+revoke execute on function audit.prevent_changes()
+from public, anon, authenticated, service_role;
+
+-- Even the table's owner cannot edit or erase a row.
+create trigger prevent_audit_mutation
+before update or delete on audit.record_changes
+for each row
+execute function audit.prevent_changes();
+
+-- Row-level triggers do not fire on TRUNCATE, so it gets its own. The same
+-- guard closes the gap on public.audit_events, which already refuses row
+-- updates and deletes (migration 20261027135848) but not TRUNCATE.
+create trigger prevent_audit_truncate
+before truncate on audit.record_changes
+for each statement
+execute function audit.prevent_changes();
+
+create trigger prevent_audit_events_truncate
+before truncate on public.audit_events
+for each statement
+execute function audit.prevent_changes();
