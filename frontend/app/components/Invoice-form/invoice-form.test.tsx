@@ -184,6 +184,7 @@ describe("InvoiceForm", () => {
       });
       render(<InvoiceForm />);
 
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
       await user.click(screen.getByRole("button", { name: "Save Draft" }));
       const upload = await screen.findByRole("button", { name: "Upload PDF" });
       expect(upload).toBeDisabled();
@@ -208,6 +209,7 @@ describe("InvoiceForm", () => {
       mockUploadInvoicePdf.mockRejectedValue(new Error("Unable to store the invoice PDF."));
       render(<InvoiceForm />);
 
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
       await user.click(screen.getByRole("button", { name: "Save Draft" }));
       fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
       await user.click(await screen.findByRole("button", { name: "Upload PDF" }));
@@ -261,6 +263,7 @@ describe("InvoiceForm", () => {
       const user = userEvent.setup();
       render(<InvoiceForm />);
 
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
       await user.click(screen.getByRole("button", { name: "Save Draft" }));
       await screen.findByRole("button", { name: "Draft Saved ✓" });
 
@@ -274,6 +277,7 @@ describe("InvoiceForm", () => {
       const user = userEvent.setup();
       render(<InvoiceForm />);
 
+      await user.type(screen.getByLabelText("Account / Customer #"), "ACC-100");
       await user.click(screen.getByRole("button", { name: "Save Draft" }));
       await screen.findByRole("button", { name: "Draft Saved ✓" });
 
@@ -282,6 +286,45 @@ describe("InvoiceForm", () => {
 
       await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
       expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+    });
+    it("disables Save Draft until the user enters something", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+    });
+
+    it("keeps Save Draft disabled when a field only contains spaces", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "   ");
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+    });
+
+    it("disables Save Draft again when the user clears the only field", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      const field = screen.getByLabelText("Statement / Bill ID");
+      await user.type(field, "INV-2001");
+      await user.clear(field);
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+    });
+
+    it("does not call the API when the disabled button is clicked", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+
+      expect(mockSaveBillDraft).not.toHaveBeenCalled();
     });
   });
 
@@ -327,6 +370,31 @@ describe("InvoiceForm", () => {
       expect(screen.getByDisplayValue("2026-11-01")).toBeInTheDocument();
       expect(screen.getByLabelText("Account Status")).toHaveValue("unpaid");
       expect(screen.getByDisplayValue("electric.example.com")).toBeInTheDocument();
+    });
+
+    it("enables Save Draft once an existing draft has loaded", async () => {
+      mockGetBillDraft.mockResolvedValue({
+        bill_id: "bill-1",
+        status: "draft",
+        account_number_raw: "ACC-100",
+        invoice_number: null,
+        vendor_name_raw: null,
+        invoice_date: null,
+        due_date: null,
+        amount: null,
+        prev_payments: null,
+        description: null,
+        processing_notes: null,
+        property_address: null,
+        account_status: null,
+        website_name: null,
+        document_path: null,
+      });
+
+      render(<InvoiceForm />);
+      expect(await screen.findByDisplayValue("ACC-100")).toBeInTheDocument();
+
+      expect(await screen.findByRole("button", { name: "Save Draft" })).toBeEnabled();
     });
   });
 });

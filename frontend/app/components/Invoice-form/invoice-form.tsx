@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { FileUp } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { type DragEvent, useEffect, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import Button from "@/components/Button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
 import {
@@ -71,12 +71,21 @@ export function InvoiceForm() {
     register,
     handleSubmit,
     getValues,
+    control,
     formState: { errors },
     reset,
   } = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
     defaultValues: emptyInvoiceForm,
   });
+
+  const watchedValues = useWatch({ control });
+
+  const hasAnyInput = Object.values(watchedValues).some(
+    (value) => typeof value === "string" && value.trim() !== "",
+  );
+
+  const canSaveDraft = hasAnyInput && draftStatus !== "loading";
 
   async function onSubmit(values: InvoiceFormValues) {
     setCreateStatus("loading");
@@ -215,6 +224,7 @@ export function InvoiceForm() {
   }
 
   async function handleSaveDraft() {
+    if (!hasAnyInput) return;
     setDraftStatus("loading");
     setSubmitError("");
     setDraftMessage("");
@@ -333,7 +343,7 @@ export function InvoiceForm() {
             }
             type="button"
             onClick={handleSaveDraft}
-            disabled={draftStatus === "loading"}
+            disabled={!canSaveDraft}
           />
           <Button
             label="Cancel"
