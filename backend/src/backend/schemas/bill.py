@@ -58,10 +58,25 @@ class BillUpdate(BaseModel):
     website_name: str | None = Field(default=None, max_length=500)
 
 
-class BillRead(BillBase):
-    model_config = ConfigDict(from_attributes=True)
+class BillRead(BaseModel):
+    """A bill as the API returns it. A draft may leave any invoice field
+    empty; a submitted bill always has `account_number_raw`, `invoice_number`,
+    `invoice_date`, `due_date` and `amount` (the `bills_required_unless_draft`
+    check)."""
 
     id: UUID
+    account_number_raw: str | None = None
+    vendor_name_raw: str | None = None
+    invoice_number: str | None = None
+    invoice_date: date | None = None
+    due_date: date | None = None
+    amount: Decimal | None = None
+    prev_payments: Decimal | None = None
+    description: str | None = None
+    processing_notes: str | None = None
+    property_address: str | None = None
+    account_status: AccountStatus | None = None
+    website_name: str | None = None
     vendor_account_id: UUID | None = None  # None while the bill is unmatched
     submitted_by: UserSummary
     status: BillStatus
@@ -89,7 +104,7 @@ class BillDraftRead(BaseModel):
 
 class BillDashboardRow(BaseModel):
     """One row of GET /bills/dashboard. Only these columns leave the server,
-    whatever `list_user_bills` selects."""
+    whatever `list_dashboard_bills` selects."""
 
     bill_id: UUID
     invoice_number: str | None = None

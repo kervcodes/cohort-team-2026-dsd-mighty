@@ -132,3 +132,46 @@ def test_a_deleted_profile_is_403_and_stays_deleted(sign_up, api):
     assert response.json()["detail"] == "Account not found. Contact an admin."
     rows = app_users.select("user_id").eq("user_id", user_id).execute().data
     assert rows == []
+
+
+def test_bills_are_saved_and_shared_by_the_real_database(sign_up, api):
+    # Proves the PostgREST syntax the fake only imitates: the insert with an
+    # embedded submitter, the `or` visibility filter and the 404 for a draft.
+    author_id, author = sign_up(status="active")
+    reader_id, reader = sign_up(status="active")
+    bills = get_admin_supabase().table("bills")
+    try:
+        created = api.post(
+            "/bills",
+            headers=bearer(author),
+            json={
+                "account_number_raw": "ACC-1",
+                "invoice_number": f"INV-{uuid4().hex[:8]}",
+                "invoice_date": "2026-11-01",
+                "due_date": "2026-12-01",
+                "amount": "250.00",
+            },
+        )
+        assert created.status_code == 201, created.text
+        bill = created.json()
+        assert bill["status"] == "pending_approval"
+        assert bill["submitted_by"]["id"] == author_id
+        draft = api.post(
+            "/bills/drafts", headers=bearer(author), json={"amount": "1.00"}
+        ).json()
+
+        mine = api.get("/bills", headers=bearer(reader)).json()
+        everyone = api.get("/bills?scope=all", headers=bearer(reader)).json()
+        ids = {row["id"] for row in everyone}
+        assert mine == []
+        assert bill["id"] in ids and draft["bill_id"] not in ids
+
+        found = api.get(f"/bills/{bill['id']}", headers=bearer(reader))
+        assert found.json() == bill
+        hidden = api.get(f"/bills/{draft['bill_id']}", headers=bearer(reader))
+        assert hidden.status_code == 404
+        own_draft = api.get(f"/bills/{draft['bill_id']}", headers=bearer(author))
+        assert own_draft.json()["status"] == "draft"
+    finally:
+        # bills.submitted_by does not cascade, so the users cannot go first.
+        bills.delete().in_("submitted_by", [author_id, reader_id]).execute()

@@ -1,4 +1,4 @@
-"""Every bill route enforces the role table: who may call it, active only.
+"""Every bill and vendor route enforces the role table: who may call it, active only.
 
 The table below is the rule, written out as data. Each case overrides
 `get_current_user` only, so the routes' real `require_active` check runs, and
@@ -27,19 +27,38 @@ PDF = ("invoice.pdf", b"%PDF-1.4\nsample", "application/pdf")
 
 # (method, path, roles allowed when active, status code when allowed)
 ROLE_TABLE = [
+    ("POST", "/bills", {ANALYST, ADMIN}, 201),
+    ("GET", "/bills", {ANALYST, APPROVER, ADMIN}, 200),
+    ("GET", "/bills/{bill_id}", {ANALYST, APPROVER, ADMIN}, 200),
     ("GET", "/bills/dashboard", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/bills/drafts", {ANALYST, ADMIN}, 201),
     ("PATCH", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
     ("POST", "/bills/{bill_id}/document", {ANALYST, ADMIN}, 201),
+    ("GET", "/vendors", {ANALYST, APPROVER, ADMIN}, 200),
+    ("POST", "/vendors", {ADMIN}, 201),
+    ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
+    ("PATCH", "/vendors/{vendor_id}", {ADMIN}, 200),
+    ("GET", "/admin/users", {ADMIN}, 200),
 ]
 
 # Routes that need a signed-in user but no role.
 ANY_SIGNED_IN = {("GET", "/me")}
 
 REQUEST_BODY = {
-    "/bills/drafts": {"json": {"amount": "10.00"}},
-    "/bills/{bill_id}/draft": {"json": {"amount": "10.00"}},
-    "/bills/{bill_id}/document": {"files": {"file": PDF}},
+    ("POST", "/bills"): {
+        "json": {
+            "account_number_raw": "ACC-1",
+            "invoice_number": "INV-1",
+            "invoice_date": "2026-11-01",
+            "due_date": "2026-12-01",
+            "amount": "10.00",
+        }
+    },
+    ("POST", "/bills/drafts"): {"json": {"amount": "10.00"}},
+    ("PATCH", "/bills/{bill_id}/draft"): {"json": {"amount": "10.00"}},
+    ("POST", "/bills/{bill_id}/document"): {"files": {"file": PDF}},
+    ("POST", "/vendors"): {"json": {"name": "Acme Water"}},
+    ("PATCH", "/vendors/{vendor_id}"): {"json": {"contact_phone": "555-0100"}},
 }
 
 CASES = [
@@ -63,6 +82,8 @@ def db():
     with (
         patch("backend.api.bills.get_admin_supabase", return_value=fake),
         patch("backend.api.bill_documents.get_admin_supabase", return_value=fake),
+        patch("backend.api.vendors.get_admin_supabase", return_value=fake),
+        patch("backend.api.users.get_admin_supabase", return_value=fake),
     ):
         yield fake
 
@@ -70,13 +91,19 @@ def db():
 @pytest.mark.parametrize(("method", "path", "role", "status", "expected"), CASES)
 def test_route_allows_only_its_active_roles(db, method, path, role, status, expected):
     user = make_user(role=role, status=status)
+    db.add_user(
+        str(user.id),
+        role=role.value,
+        status=status,
+    )
     bill = db.add_bill(str(user.id))
+    vendor = db.add_vendor("Acme Water")
     app.dependency_overrides[get_current_user] = lambda: user
 
     response = TestClient(app).request(
         method,
-        path.format(bill_id=bill["bill_id"]),
-        **REQUEST_BODY.get(path, {}),
+        path.format(bill_id=bill["bill_id"], vendor_id=vendor["vendor_id"]),
+        **REQUEST_BODY.get((method, path), {}),
     )
 
     assert response.status_code == expected, response.text
@@ -91,11 +118,6 @@ def test_route_allows_only_its_active_roles(db, method, path, role, status, expe
 OPEN_ROUTES = {
     # Health check; stays open.
     ("GET", "/"),
-    # In-memory bill routes; DC-67 (39b) moves them to Supabase behind the
-    # role table.
-    ("POST", "/bills"),
-    ("GET", "/bills"),
-    ("GET", "/bills/{bill_id}"),
     # Reads with the publishable client, so RLS applies; DC-68 (39c) removes it.
     ("GET", "/test-db"),
     # In-memory stubs; DC-43 (approve and reject actions) adds the role check.
@@ -103,9 +125,6 @@ OPEN_ROUTES = {
     ("POST", "/approvals/{approval_id}/decision"),
     # In-memory stubs, no Supabase; must get a role-table row before they touch
     # Supabase.
-    ("POST", "/vendors"),
-    ("GET", "/vendors/{vendor_id}"),
-    ("PATCH", "/vendors/{vendor_id}"),
     ("POST", "/vendor-accounts"),
     ("GET", "/vendor-accounts/{account_id}"),
     ("PATCH", "/vendor-accounts/{account_id}"),
