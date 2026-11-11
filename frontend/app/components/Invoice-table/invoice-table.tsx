@@ -77,16 +77,16 @@ export function InvoiceTable({
                   className="text-foreground transition-colors hover:bg-surface-muted"
                 >
                   <td className="px-6 py-4 font-mono text-xs">
-                    {invoice.status === "draft" ? (
-                      <Link
-                        href={`/invoices/${invoice.id}/edit`}
-                        className="text-blue-600 hover:underline"
-                      >
-                        {invoice.invoiceNumber ?? invoice.id.slice(0, 8)}
-                      </Link>
-                    ) : (
-                      <span>{invoice.invoiceNumber ?? invoice.id.slice(0, 8)}</span>
-                    )}
+                    <Link
+                      href={
+                        invoice.status === "draft"
+                          ? `/invoices/${invoice.id}/edit`
+                          : `/invoices/${invoice.id}`
+                      }
+                      className="text-blue-600 hover:underline"
+                    >
+                      {invoice.invoiceNumber ?? invoice.id.slice(0, 8)}
+                    </Link>
                   </td>
                   <td className="px-6 py-4">{invoice.property}</td>
                   <td className="px-6 py-4">{invoice.company}</td>
