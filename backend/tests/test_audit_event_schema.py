@@ -6,9 +6,11 @@ new_status the table allows to be null. Two hand-written lists (one in a
 test, one in a migration check) never met, so nothing caught it. This asks the
 database for its columns and compares them with the models' own fields.
 
-Opt in with DATABASE_URL pointing at a database with the migrations applied:
-`scripts/test-db.sh -- uv run pytest tests/test_audit_event_schema.py`, or, in
-CI, the `database` job. The queries only read.
+Opt in with DATABASE_URL pointing at a database with the migrations applied,
+e.g. from `backend/` after `supabase db start`:
+`DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres uv run
+pytest tests/test_audit_event_schema.py`. In CI, the `database` job runs it.
+The queries only read.
 """
 
 import os
