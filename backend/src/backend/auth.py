@@ -19,6 +19,9 @@ BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 VENDOR_READERS = (UserRole.analyst, UserRole.approver, UserRole.admin)
 VENDOR_WRITERS = (UserRole.admin,)
 
+USER_READERS = (UserRole.admin,)
+USER_EDITORS = (UserRole.admin,)
+
 
 class CurrentUser(MeRead):
     """The signed-in caller: the same fields `GET /me` returns."""

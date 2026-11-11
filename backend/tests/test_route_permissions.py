@@ -38,6 +38,7 @@ ROLE_TABLE = [
     ("POST", "/vendors", {ADMIN}, 201),
     ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
     ("PATCH", "/vendors/{vendor_id}", {ADMIN}, 200),
+    ("GET", "/admin/users", {ADMIN}, 200),
 ]
 
 # Routes that need a signed-in user but no role.
@@ -82,6 +83,7 @@ def db():
         patch("backend.api.bills.get_admin_supabase", return_value=fake),
         patch("backend.api.bill_documents.get_admin_supabase", return_value=fake),
         patch("backend.api.vendors.get_admin_supabase", return_value=fake),
+        patch("backend.api.users.get_admin_supabase", return_value=fake),
     ):
         yield fake
 
@@ -89,6 +91,11 @@ def db():
 @pytest.mark.parametrize(("method", "path", "role", "status", "expected"), CASES)
 def test_route_allows_only_its_active_roles(db, method, path, role, status, expected):
     user = make_user(role=role, status=status)
+    db.add_user(
+        str(user.id),
+        role=role.value,
+        status=status,
+    )
     bill = db.add_bill(str(user.id))
     vendor = db.add_vendor("Acme Water")
     app.dependency_overrides[get_current_user] = lambda: user

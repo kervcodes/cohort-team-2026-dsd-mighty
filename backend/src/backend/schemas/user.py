@@ -20,7 +20,16 @@ class UserSummary(BaseModel):
     full_name: str
 
 
+# class UserRead(UserSummary):
+#     email: EmailStr
+#     role: UserRole
+#     status: ActiveStatus
+#     created_at: datetime
 class UserRead(UserSummary):
+    id: UUID = Field(
+        validation_alias="user_id",
+        serialization_alias="user_id",
+    )
     email: EmailStr
     role: UserRole
     status: ActiveStatus

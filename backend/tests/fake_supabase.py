@@ -194,11 +194,6 @@ class FakeSupabase:
         rows = self.tables.get(table, [])
         return next((row for row in rows if row.get(column) == value), None)
 
-    def add_user(self, user_id: str, full_name: str = "Test User") -> dict[str, Any]:
-        row = {"user_id": user_id, "full_name": full_name}
-        self.tables.setdefault("app_users", []).append(row)
-        return row
-
     def add_bill(self, submitted_by: str, **fields: Any) -> dict[str, Any]:
         """A bill row; its submitter's `app_users` row is added if missing, as
         the foreign key needs it."""
@@ -226,4 +221,21 @@ class FakeSupabase:
             **fields,
         }
         self.table("vendors")._rows.append(row)
+        return row
+
+    def add_user(
+        self,
+        user_id: str,
+        **fields: Any,
+    ) -> dict[str, Any]:
+        row = {
+            "user_id": user_id,
+            "full_name": "Test User",
+            "email": "test@example.com",
+            "role": "analyst",
+            "status": "active",
+            "created_at": datetime.now(UTC).isoformat(),
+            **fields,
+        }
+        self.table("app_users")._rows.append(row)
         return row

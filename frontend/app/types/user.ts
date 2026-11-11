@@ -10,3 +10,11 @@ export type Profile = {
   role: UserRole;
   status: UserStatus;
 };
+
+export type ApiProfile = {
+  user_id: string;
+  full_name: string;
+  email: string;
+  role: UserRole;
+  status: UserStatus;
+};
