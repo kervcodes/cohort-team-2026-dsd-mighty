@@ -91,8 +91,6 @@ export default function DashboardPage() {
 
   const drafts = bills.filter((bill) => bill.status === "draft");
 
-  const submittedBills = bills.filter((bill) => bill.status !== "draft");
-
   const draftInvoices = drafts.map(toInvoice);
   const invoices = bills.map(toInvoice);
 

@@ -56,4 +56,9 @@ describe("invoiceDraftFormSchema", () => {
       }).success,
     ).toBe(true);
   });
+  it.each(["issueDate", "dueDate"])("rejects an impossible calendar %s", (field) => {
+    expect(
+      invoiceDraftFormSchema.safeParse({ ...emptyDraftInvoiceForm, [field]: "2026-02-31" }).success,
+    ).toBe(false);
+  });
 });

@@ -131,11 +131,36 @@ describe("createBill", () => {
     await expect(createBill(payload)).rejects.toThrow("Bill not found.");
   });
 
-  it("reports a missing API URL instead of a network error", async () => {
-    delete process.env.NEXT_PUBLIC_API_URL;
+  it("sends the user's bearer token", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 201, json: async () => savedBill });
 
-    await expect(createBill(payload)).rejects.toThrow("NEXT_PUBLIC_API_URL is missing");
+    await createBill(payload);
+
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer test-token",
+    });
+  });
+
+  it("asks the user to sign in when there is no session", async () => {
+    signedOut();
+
+    await expect(createBill(payload)).rejects.toThrow(
+      "You must be signed in to submit an invoice.",
+    );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("joins FastAPI 422 field errors into one message", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        detail: [{ loc: ["body", "amount"], msg: "Input should be a valid decimal" }],
+      }),
+    });
+
+    await expect(createBill(payload)).rejects.toThrow("amount: Input should be a valid decimal");
   });
 });
 

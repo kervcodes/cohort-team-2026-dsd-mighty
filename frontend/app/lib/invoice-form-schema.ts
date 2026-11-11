@@ -76,11 +76,11 @@ export const invoiceDraftFormSchema = z
     propertyAddress: z.string().trim(),
     issueDate: z
       .string()
-      .refine((value) => value === "" || isoDate.test(value), "Enter a valid issue date"),
+      .refine((value) => value === "" || isValidIsoDate(value), "Enter a valid issue date"),
 
     dueDate: z
       .string()
-      .refine((value) => value === "" || isoDate.test(value), "Enter a valid due date"),
+      .refine((value) => value === "" || isValidIsoDate(value), "Enter a valid due date"),
     description: z.string().trim(),
     previousPayments: z
       .string()

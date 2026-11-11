@@ -9,40 +9,19 @@ import type {
 } from "@/types/bill";
 import { apiRequest } from "./http";
 
-// Read per request, not at import: a module-level throw breaks every
-// importer (including tests) whenever the variable is unset.
-// Keep the literal process.env reference for Next.js build-time inlining.
-function apiUrl(): string {
-  const url = process.env.NEXT_PUBLIC_API_URL;
-
-  if (!url) {
-    throw new Error("NEXT_PUBLIC_API_URL is missing. Check .env.local");
-  }
-
-  return url;
-}
-
-export async function createBill(payload: BillCreatePayload): Promise<Bill> {
-  const url = `${apiUrl()}/bills`;
-
-  let res: Response;
-
-  try {
-    res = await fetch(url, {
+export function createBill(payload: BillCreatePayload): Promise<Bill> {
+  return apiRequest<Bill>(
+    "/bills",
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-    });
-  } catch {
-    throw new Error("Unable to reach the backend. Check your connection and try again.");
-  }
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => null);
-    throw new Error(error?.detail ?? `Request failed (${res.status})`);
-  }
-
-  return res.json();
+    },
+    {
+      signedOut: "You must be signed in to submit an invoice.",
+      failed: "Request failed",
+    },
+  );
 }
 
 // A dropped file can have an empty MIME type (the form accepts it by its
