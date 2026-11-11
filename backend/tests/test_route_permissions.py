@@ -119,8 +119,9 @@ def test_route_allows_only_its_active_roles(db, method, path, role, status, expe
 OPEN_ROUTES = {
     # Health check; stays open.
     ("GET", "/"),
-    # Reads with the publishable client, so RLS applies; DC-68 (39c) removes it.
-    ("GET", "/test-db"),
+    # Health check for Render and the team; publishable client only, so RLS
+    # applies (test_health.py checks it never uses the admin client).
+    ("GET", "/health"),
     # In-memory stubs; DC-43 (approve and reject actions) adds the role check.
     ("GET", "/approvals"),
     ("POST", "/approvals/{approval_id}/decision"),
