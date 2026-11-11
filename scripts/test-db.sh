@@ -13,9 +13,9 @@
 # What Supabase provides and Postgres does not is stubbed in
 # scripts/test-db-supabase-stub.sql: the anon / authenticated / service_role
 # roles, auth.users and auth.uid(). The storage schema is not, so the invoices
-# bucket migration and its test are skipped. `supabase db start` + `supabase
-# test db` (what CI runs) remains the reference; this script is the quick
-# local check that needs no containers.
+# bucket migration and its test are skipped. CI's `supabase start` + `supabase
+# test db` (.github/workflows/ci.yml) remains the reference; this script is the
+# quick local check that needs no containers.
 #
 # Needs Postgres 15+ (initdb, pg_ctl, psql) and pgTAP:
 #   PG_BIN     directory with initdb, pg_ctl and psql. Default: pg_config's, the
