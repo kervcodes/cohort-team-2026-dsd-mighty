@@ -13,6 +13,7 @@ type Props = {
   label: string;
   tooltip: string;
   value: string;
+  type?: string;
   onChange: (value: string) => void;
   hint?: string;
   error?: string;
@@ -30,6 +31,7 @@ export default function RuleField({
   tooltip,
   value,
   onChange,
+  type = "text",
   error,
   hint,
   prefix,
@@ -42,10 +44,13 @@ export default function RuleField({
   const hintId = `${id}-hint`;
 
   const describedBy =
-    [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ") || undefined;
+    [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ") ||
+    undefined;
 
   const handleChange = (raw: string) => {
-    onChange(currency ? sanitizeCurrencyInput(raw) : sanitizeWholeNumberInput(raw));
+    onChange(
+      currency ? sanitizeCurrencyInput(raw) : sanitizeWholeNumberInput(raw),
+    );
   };
 
   return (
@@ -66,10 +71,13 @@ export default function RuleField({
             error ? "border-overdue" : "border-border"
           } ${editing ? "bg-surface" : "bg-surface-muted"}`}
         >
-          {prefix && <span className="mr-1 text-foreground-muted">{prefix}</span>}
+          {prefix && (
+            <span className="mr-1 text-foreground-muted">{prefix}</span>
+          )}
+
           <input
             id={id}
-            type="text"
+            type={type}
             inputMode={inputMode}
             value={value}
             disabled={!editing}

@@ -70,16 +70,21 @@ describe("AdminUsersPage", () => {
   });
 
   describe("Access control", () => {
-    it.each(["analyst", "approver"] as const)("shows an access message for the %s role", (role) => {
-      signInAs(role);
+    it.each(["analyst", "approver"] as const)(
+      "shows an access message for the %s role",
+      (role) => {
+        signInAs(role);
 
-      render(<AdminUsersPage />);
+        render(<AdminUsersPage />);
 
-      expect(screen.getByText("Your role does not have access")).toBeInTheDocument();
+        expect(
+          screen.getByText("Your role does not have access"),
+        ).toBeInTheDocument();
 
-      expect(screen.queryByRole("table")).not.toBeInTheDocument();
-      expect(mockListUsers).not.toHaveBeenCalled();
-    });
+        expect(screen.queryByRole("table")).not.toBeInTheDocument();
+        expect(mockListUsers).not.toHaveBeenCalled();
+      },
+    );
 
     it("shows an access message without a profile", () => {
       mockUseAuth.mockReturnValue({
@@ -89,7 +94,9 @@ describe("AdminUsersPage", () => {
 
       render(<AdminUsersPage />);
 
-      expect(screen.getByText("Your role does not have access")).toBeInTheDocument();
+      expect(
+        screen.getByText("Your role does not have access"),
+      ).toBeInTheDocument();
 
       expect(screen.queryByRole("table")).not.toBeInTheDocument();
       expect(mockListUsers).not.toHaveBeenCalled();
@@ -113,7 +120,9 @@ describe("AdminUsersPage", () => {
 
       render(<AdminUsersPage />);
 
-      expect(screen.getByText("Your role does not have access")).toBeInTheDocument();
+      expect(
+        screen.getByText("Your role does not have access"),
+      ).toBeInTheDocument();
 
       expect(screen.queryByRole("table")).not.toBeInTheDocument();
       expect(mockListUsers).not.toHaveBeenCalled();
@@ -168,7 +177,9 @@ describe("AdminUsersPage", () => {
 
       render(<AdminUsersPage />);
 
-      expect(screen.getByRole("status")).toHaveTextContent("Loading profiles...");
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Loading profiles...",
+      );
     });
 
     it("lists users in the table", async () => {
@@ -225,7 +236,7 @@ describe("AdminUsersPage", () => {
         name: "user-123",
       });
 
-      expect(link).toHaveAttribute("href", "/admin/user/user-123456789/edit");
+      expect(link).toHaveAttribute("href", "/admin/users/user-123456789/edit");
     });
 
     it("displays a placeholder for missing user information", async () => {
@@ -294,7 +305,9 @@ describe("AdminUsersPage", () => {
 
       render(<AdminUsersPage />);
 
-      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load profiles.");
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Unable to load profiles.",
+      );
     });
   });
 

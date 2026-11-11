@@ -37,6 +37,7 @@ class _Query:
         self._order: tuple[str, bool] | None = None
         self._limit: int | None = None
         self._single: str | None = None  # "maybe" or "one"
+        self._neq_filters: list[tuple[str, Any]] = []
 
     def select(self, *_columns: str) -> "_Query":
         return self  # after insert/update: return the affected rows
@@ -73,10 +74,22 @@ class _Query:
     def single(self) -> "_Query":
         self._single = "one"
         return self
+    def neq(self, column: str, value: Any) -> "_Query":
+        self._neq_filters.append((column, value))
+        return self
 
     def _matches(self, row: dict[str, Any]) -> bool:
-        return all(row.get(column) == value for column, value in self._filters)
+        matches_equal = all(
+            row.get(column) == value
+            for column, value in self._filters
+        )
 
+        matches_not_equal = all(
+            row.get(column) != value
+            for column, value in self._neq_filters
+        )
+
+        return matches_equal and matches_not_equal
     def execute(self) -> _Result | None:
         if self._op == "insert":
             row = {**_insert_defaults(self._table), **(self._payload or {})}
