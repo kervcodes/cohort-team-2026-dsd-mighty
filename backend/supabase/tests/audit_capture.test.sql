@@ -74,7 +74,8 @@ select results_eq(
 
 select is(
     (select bill_id from audit.record_changes
-     where table_name = 'app_users' limit 1),
+     where table_name = 'app_users'
+        and record_pk ->> 'user_id' = '00000000-0000-4000-8000-0000000000c1'),
     null,
     'an app_users row belongs to no bill'
 );
@@ -109,6 +110,10 @@ select results_eq(
             new_row ->> 'invoice_number', new_row ->> 'amount', changed_cols is null
         from audit.record_changes
         where table_name = 'bills'
+            and bill_id in (
+                '10000000-0000-4000-8000-000000000001',
+                '10000000-0000-4000-8000-000000000002'
+            )
     $$,
     $$
         values (
@@ -132,7 +137,9 @@ select results_eq(
         select op, changed_cols, old_row ->> 'amount', new_row ->> 'amount',
             old_row ->> 'status', new_row ->> 'status'
         from audit.record_changes
-        where table_name = 'bills' and op = 'UPDATE'
+        where table_name = 'bills'
+            and bill_id = '10000000-0000-4000-8000-000000000001'
+            and op = 'UPDATE'
     $$,
     $$
         values (
@@ -154,7 +161,8 @@ update public.bills set amount = amount
 where bill_id = '10000000-0000-4000-8000-000000000001';
 
 select is(
-    (select count(*)::int from audit.record_changes where table_name = 'bills'),
+    (select count(*)::int from audit.record_changes
+     where table_name = 'bills' and bill_id = '10000000-0000-4000-8000-000000000001'),
     2,
     'an update that changes nothing writes no row'
 );
@@ -213,6 +221,7 @@ select results_eq(
         select op, bill_id, changed_cols
         from audit.record_changes
         where table_name = 'properties'
+            and record_pk ->> 'property_id' = '20000000-0000-4000-8000-000000000001'
         order by id
     $$,
     $$
@@ -233,6 +242,7 @@ select results_eq(
         select op, old_row ->> 'contact_email', new_row ->> 'contact_email'
         from audit.record_changes
         where table_name = 'vendors'
+            and record_pk ->> 'vendor_id' = '30000000-0000-4000-8000-000000000001'
         order by id
     $$,
     $$
@@ -260,6 +270,7 @@ select results_eq(
         select op, old_row ->> 'payment_method', new_row ->> 'payment_method'
         from audit.record_changes
         where table_name = 'vendor_accounts'
+            and record_pk ->> 'account_id' = '40000000-0000-4000-8000-000000000001'
         order by id
     $$,
     $$
@@ -286,6 +297,7 @@ select results_eq(
         select op, bill_id, changed_cols, new_row ->> 'reviewer_id'
         from audit.record_changes
         where table_name = 'approvals'
+            and record_pk ->> 'approval_id' = '50000000-0000-4000-8000-000000000001'
         order by id
     $$,
     $$
@@ -315,6 +327,7 @@ select results_eq(
         select op, bill_id, changed_cols
         from audit.record_changes
         where table_name = 'payments'
+            and record_pk ->> 'payment_id' = '60000000-0000-4000-8000-000000000001'
         order by id
     $$,
     $$
@@ -333,7 +346,9 @@ select results_eq(
     $$
         select op, old_row ->> 'payment_status', new_row is null, changed_cols is null
         from audit.record_changes
-        where table_name = 'payments' and op = 'DELETE'
+        where table_name = 'payments'
+            and record_pk ->> 'payment_id' = '60000000-0000-4000-8000-000000000001'
+            and op = 'DELETE'
     $$,
     $$ values ('DELETE'::text, 'failed'::text, true, true) $$,
     'a delete logs the deleted row and no new row'
@@ -348,7 +363,12 @@ select results_eq(
     $$
         select op, old_row ->> 'invoice_number', new_row is null
         from audit.record_changes
-        where table_name = 'bills' and op = 'DELETE'
+        where table_name = 'bills'
+            and bill_id in (
+                '10000000-0000-4000-8000-000000000001',
+                '10000000-0000-4000-8000-000000000002'
+            )
+            and op = 'DELETE'
     $$,
     $$ values ('DELETE'::text, 'INV-2'::text, true) $$,
     'deleting a bill logs the bill as it was'
@@ -358,7 +378,8 @@ select results_eq(
 
 select is(
     (select new_row ->> 'account_number' from audit.record_changes
-     where table_name = 'vendor_accounts' and op = 'INSERT'),
+     where table_name = 'vendor_accounts' and op = 'INSERT'
+        and record_pk ->> 'account_id' = '40000000-0000-4000-8000-000000000001'),
     '****2222',
     'a vendor account number is stored masked, last four kept'
 );
@@ -396,7 +417,9 @@ select results_eq(
     $$
         select changed_cols, old_row ->> 'account_number', new_row ->> 'account_number'
         from audit.record_changes
-        where table_name = 'vendor_accounts' and changed_cols = array['account_number']
+        where table_name = 'vendor_accounts'
+            and record_pk ->> 'account_id' = '40000000-0000-4000-8000-000000000001'
+            and changed_cols = array['account_number']
     $$,
     $$ values (array['account_number']::text[], '****2222'::text, '****2222'::text) $$,
     'a masked column that changed is still named in changed_cols'
@@ -417,7 +440,9 @@ where vendor_id = '30000000-0000-4000-8000-000000000001';
 select results_eq(
     $$
         select actor_id, actor_role from audit.record_changes
-        where table_name = 'vendors' and changed_cols = array['vendor_name']
+        where table_name = 'vendors'
+            and record_pk ->> 'vendor_id' = '30000000-0000-4000-8000-000000000001'
+            and changed_cols = array['vendor_name']
     $$,
     $$ values ('00000000-0000-4000-8000-0000000000b1'::uuid, 'service_role'::text) $$,
     'a service-role write records the user named in the request header'
@@ -433,7 +458,9 @@ select lives_ok(
 
 select is(
     (select actor_id from audit.record_changes
-     where table_name = 'vendors' and new_row ->> 'vendor_name' = 'City Water 3'),
+     where table_name = 'vendors'
+         and record_pk ->> 'vendor_id' = '30000000-0000-4000-8000-000000000001'
+        and new_row ->> 'vendor_name' = 'City Water 3'),
     null,
     'a malformed actor header records no actor'
 );
@@ -451,7 +478,9 @@ where vendor_id = '30000000-0000-4000-8000-000000000001';
 select results_eq(
     $$
         select actor_id, actor_role from audit.record_changes
-        where table_name = 'vendors' and new_row ->> 'vendor_name' = 'City Water 4'
+        where table_name = 'vendors'
+            and record_pk ->> 'vendor_id' = '30000000-0000-4000-8000-000000000001'
+        and new_row ->> 'vendor_name' = 'City Water 4'
     $$,
     $$ values (null::uuid, 'anon'::text) $$,
     'the actor header is ignored unless the caller is the service role'
@@ -466,14 +495,18 @@ where vendor_id = '30000000-0000-4000-8000-000000000001';
 
 select is(
     (select actor_id from audit.record_changes
-     where table_name = 'vendors' and new_row ->> 'vendor_name' = 'City Water 6'),
+     where table_name = 'vendors'
+         and record_pk ->> 'vendor_id' = '30000000-0000-4000-8000-000000000001'
+        and new_row ->> 'vendor_name' = 'City Water 6'),
     '00000000-0000-4000-8000-0000000000b2'::uuid,
     'the app.actor_id setting names the actor for direct SQL'
 );
 
 select ok(
     (select actor_role from audit.record_changes
-     where table_name = 'vendors' and new_row ->> 'vendor_name' = 'City Water 6')
+     where table_name = 'vendors'
+         and record_pk ->> 'vendor_id' = '30000000-0000-4000-8000-000000000001'
+        and new_row ->> 'vendor_name' = 'City Water 6')
         = session_user::text collate "default",
     'a connection with no JWT records its login role'
 );
@@ -484,7 +517,9 @@ where vendor_id = '30000000-0000-4000-8000-000000000001';
 
 select is(
     (select actor_id from audit.record_changes
-     where table_name = 'vendors' and new_row ->> 'vendor_name' = 'City Water 7'),
+     where table_name = 'vendors'
+         and record_pk ->> 'vendor_id' = '30000000-0000-4000-8000-000000000001'
+        and new_row ->> 'vendor_name' = 'City Water 7'),
     null,
     'with no actor named, the actor is null'
 );
