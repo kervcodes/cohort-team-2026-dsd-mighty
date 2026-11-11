@@ -18,5 +18,18 @@ const backend = (files) => {
 export default {
   "frontend/**/*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc,css}": (files) =>
     `sh -c 'cd frontend && ./node_modules/.bin/biome check --write --no-errors-on-unmatched "$@"' biome ${files.map((f) => `"${f}"`).join(" ")}`,
+  "frontend/**/*.{ts,tsx}": (files) => {
+    const list = files.map((f) => `"${f}"`).join(" ");
+    return [
+      `node frontend/scripts/check-no-emoji.mjs ${list}`,
+      `sh -c 'cd frontend && bash scripts/tsc-staged.sh'`,
+    ];
+  },
+  "frontend/**/*.{jsx,tsx}": (files) =>
+    `sh -c 'cd frontend && DS_ALIAS_ROOT=app DS_UI_DIR=app/components/ui node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-design-system.ts --staged-only "$@"' ds ${files.map((f) => `"${f.replace(/^.*?\/frontend\//, "")}"`).join(" ")}`,
+  "frontend/app/components/ui/**": () =>
+    `sh -c 'cd frontend && DS_ALIAS_ROOT=app DS_UI_DIR=app/components/ui node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-ds-coverage.ts && DS_UI_DIR=app/components/ui node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-ds-page.ts'`,
+  "frontend/app/design-system/**": () =>
+    `sh -c 'cd frontend && DS_UI_DIR=app/components/ui node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-ds-page.ts'`,
   "backend/**/*.py": backend,
 };

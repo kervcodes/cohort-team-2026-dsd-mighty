@@ -16,6 +16,7 @@ import {
 } from "react-icons/lu";
 import { useAuth } from "@/auth/AuthProvider";
 import { useSignOut } from "@/auth/useSignOut";
+import Button from "@/components/ui/button";
 import { useTheme } from "@/context/ThemeContext";
 import type { UserRole } from "@/types/user";
 
@@ -139,12 +140,13 @@ export default function Sidebar() {
           )}
 
           <li>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={toggleTheme}
               title={themeLabel}
               aria-label={themeLabel}
-              className={`${FOOTER_ITEM} cursor-pointer`}
+              className={`${FOOTER_ITEM} cursor-pointer justify-start`}
             >
               {theme === "light" ? (
                 <LuMoon size={20} aria-hidden="true" />
@@ -154,7 +156,7 @@ export default function Sidebar() {
               <span className="hidden sm:block">
                 {theme === "light" ? COPY.darkMode : COPY.lightMode}
               </span>
-            </button>
+            </Button>
           </li>
           <li>
             <Link title={COPY.settings} href="/settings" className={FOOTER_ITEM}>
@@ -165,18 +167,19 @@ export default function Sidebar() {
 
           {user && (
             <li>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={signOut}
                 title={COPY.signOut}
                 aria-label={COPY.signOut}
                 disabled={signingOut}
                 aria-busy={signingOut}
-                className={`${FOOTER_ITEM} cursor-pointer disabled:cursor-not-allowed disabled:opacity-50`}
+                className={`${FOOTER_ITEM} cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 justify-start`}
               >
                 <LuLogOut size={20} aria-hidden="true" />
                 <span className="hidden sm:block">{COPY.signOut}</span>
-              </button>
+              </Button>
               {signOutFailed && (
                 <p role="alert" className="sr-only sm:not-sr-only px-1 pt-1 text-xs text-overdue">
                   {COPY.signOutFailed}

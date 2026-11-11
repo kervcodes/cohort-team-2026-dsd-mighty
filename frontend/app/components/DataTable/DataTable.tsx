@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode, useState } from "react";
-import Button from "@/components/Button";
+import Button from "@/components/ui/button";
 
 const COPY = {
   loading: "Loading...",
@@ -31,9 +31,6 @@ export type DataTableProps<T> = {
   onRetry?: () => void;
   pageSize?: number;
 };
-
-const pageButton =
-  "rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface";
 
 /**
  * A table of `rows`, one column per entry in `columns`, with loading, error
@@ -141,22 +138,22 @@ export function DataTable<T>({
           </p>
 
           <div className="flex gap-2">
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
               onClick={() => setPage(Math.max(1, currentPage - 1))}
               disabled={currentPage === 1}
-              className={pageButton}
-            >
-              {COPY.previous}
-            </button>
-            <button
+              label={COPY.previous}
+            />
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
               onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
               disabled={currentPage === totalPages}
-              className={pageButton}
-            >
-              {COPY.next}
-            </button>
+              label={COPY.next}
+            />
           </div>
         </footer>
       )}

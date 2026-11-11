@@ -5,8 +5,8 @@ import { FileUp } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
-import Button from "@/components/Button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
+import Button from "@/components/ui/button";
 import {
   createBill,
   getBillDraft,
@@ -374,7 +374,7 @@ export function InvoiceForm() {
           />
         </label>
 
-        <button
+        <Button
           type="button"
           onClick={handleUploadPdf}
           disabled={!selectedFile || !draftId || pdfStatus === "loading" || pdfStatus === "success"}
@@ -389,7 +389,7 @@ export function InvoiceForm() {
                 : !draftId
                   ? "Save Draft First"
                   : "Upload PDF"}
-        </button>
+        </Button>
 
         {uploadMessage && (
           <p role="status" className="mt-3 text-sm text-green-700">

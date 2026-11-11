@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { StatusBadge } from "@/components/Status-Badge/status-badge";
+import Button from "@/components/ui/button";
 import type { Property } from "@/types/property";
 import type { UserRole } from "@/types/user";
 
@@ -100,22 +101,22 @@ export function PropertyTable({
         </p>
 
         <div className="flex gap-2">
-          <button
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={currentPage === 1}
+            label="Previous"
+          />
+          <Button
             type="button"
-            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface"
-          >
-            Previous
-          </button>
-          <button
+            variant="secondary"
+            size="sm"
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={currentPage === totalPages}
-            type="button"
-            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface"
-          >
-            Next
-          </button>
+            label="Next"
+          />
         </div>
       </footer>
     </section>

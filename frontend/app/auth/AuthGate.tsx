@@ -2,7 +2,7 @@
 
 import type { IconType } from "react-icons";
 import { LuCircleAlert, LuHourglass } from "react-icons/lu";
-import Button from "@/components/Button";
+import Button from "@/components/ui/button";
 import { useAuth } from "./AuthProvider";
 import { useSignOut } from "./useSignOut";
 
