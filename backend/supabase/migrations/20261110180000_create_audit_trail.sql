@@ -70,3 +70,63 @@ create index idx_record_changes_occurred_at
 revoke all on audit.record_changes from public, anon, authenticated, service_role;
 revoke all on all sequences in schema audit
 from public, anon, authenticated, service_role;
+
+-- 2. WHO MADE THE CHANGE
+
+-- The FastAPI backend uses the service-role client, so auth.uid() is null for
+-- every API write. The backend names the signed-in user in the
+-- X-Audit-Actor-Id request header, which PostgREST exposes to the transaction
+-- as request.headers, and it applies to that one request only.
+--
+-- In order: the signed-in user (auth.uid()); an app.actor_id setting
+-- (set_config('app.actor_id', ..., true) in a transaction, for scripts and
+-- direct SQL); the header, but only when the caller's JWT role is
+-- service_role, so a browser role cannot name someone else.
+-- Anything that is not a uuid is ignored: a bad header must not fail a write.
+create or replace function audit.actor_id()
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+    uuid_pattern constant text :=
+        '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+    claims jsonb;
+    headers jsonb;
+    candidate text;
+begin
+    if auth.uid() is not null then
+        return auth.uid();
+    end if;
+
+    candidate := nullif(current_setting('app.actor_id', true), '');
+
+    if candidate is null then
+        begin
+            claims := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
+            headers := nullif(current_setting('request.headers', true), '')::jsonb;
+        exception when others then
+            return null;
+        end;
+
+        if claims ->> 'role' = 'service_role' then
+            select h.value
+            into candidate
+            from jsonb_each_text(headers) as h
+            where lower(h.key) = 'x-audit-actor-id'
+            limit 1;
+        end if;
+    end if;
+
+    if candidate ~ uuid_pattern then
+        return candidate::uuid;
+    end if;
+
+    return null;
+end;
+$$;
+
+revoke execute on function audit.actor_id()
+from public, anon, authenticated, service_role;
