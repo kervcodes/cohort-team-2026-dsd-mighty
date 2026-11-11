@@ -130,3 +130,48 @@ $$;
 
 revoke execute on function audit.actor_id()
 from public, anon, authenticated, service_role;
+
+-- 3. MASKING
+
+-- Bank, account and tax identifiers must not become a second, weaker copy of
+-- the data. null in, null out (the old row of an insert). Matched by column
+-- name on every audited table, so a column added later is masked too. The last
+-- four characters stay, so an edit still shows.
+create or replace function audit.mask(row_data jsonb)
+returns jsonb
+language sql
+immutable
+strict
+set search_path = ''
+as $$
+    select coalesce(
+        jsonb_object_agg(
+            e.key,
+            case
+                when e.key in (
+                    'account_number',
+                    'account_number_raw',
+                    'bank_account_number',
+                    'routing_number',
+                    'tax_id',
+                    'ein',
+                    'ssn'
+                )
+                and jsonb_typeof(e.value) = 'string'
+                then to_jsonb(
+                    '****' || case
+                        when length(e.value #>> '{}') > 4
+                        then right(e.value #>> '{}', 4)
+                        else ''
+                    end
+                )
+                else e.value
+            end
+        ),
+        '{}'::jsonb
+    )
+    from jsonb_each(row_data) as e;
+$$;
+
+revoke execute on function audit.mask(jsonb)
+from public, anon, authenticated, service_role;
