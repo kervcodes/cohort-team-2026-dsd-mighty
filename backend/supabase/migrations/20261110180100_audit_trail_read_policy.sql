@@ -38,3 +38,18 @@ $$;
 
 revoke execute on function audit.can_read(uuid) from public, anon;
 grant execute on function audit.can_read(uuid) to authenticated;
+
+-- 2. THE POLICY AND THE GRANTS
+
+alter table audit.record_changes enable row level security;
+
+create policy record_changes_select
+on audit.record_changes
+for select
+to authenticated
+using (audit.can_read(bill_id));
+
+-- Read-only: the backend (service role, which bypasses row-level security)
+-- enforces the same bill_access scope in the route that serves a timeline.
+grant usage on schema audit to authenticated, service_role;
+grant select on audit.record_changes to authenticated, service_role;

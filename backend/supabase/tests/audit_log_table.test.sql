@@ -1,10 +1,10 @@
--- The audit log table exists and no API role can touch it
+-- The audit log table exists and no API role can write it
 -- (migration 20261110180000_create_audit_trail, section 1).
 -- Runs in one transaction that rolls back.
 
 begin;
 
-select plan(14);
+select plan(13);
 
 select has_schema('audit', 'the audit schema exists');
 select has_table('audit', 'record_changes', 'audit.record_changes exists');
@@ -32,9 +32,19 @@ select is(
     (select count(*)::int from information_schema.table_privileges
      where table_schema = 'audit'
         and table_name = 'record_changes'
-        and grantee in ('anon', 'authenticated', 'service_role', 'PUBLIC')),
+        and grantee in ('anon', 'authenticated', 'service_role', 'PUBLIC')
+        and privilege_type <> 'SELECT'),
     0,
-    'no API role holds a privilege on the log'
+    'no API role holds a privilege on the log other than reading it'
+);
+
+select is(
+    (select count(*)::int from information_schema.table_privileges
+     where table_schema = 'audit'
+        and table_name = 'record_changes'
+        and grantee in ('anon', 'PUBLIC')),
+    0,
+    'anonymous users hold no privilege on the log'
 );
 
 set local role service_role;
@@ -43,10 +53,6 @@ select throws_ok(
     $$ insert into audit.record_changes (table_schema, table_name, op)
        values ('public', 'bills', 'INSERT') $$,
     '42501', null, 'the service role cannot write a log row'
-);
-select throws_ok(
-    $$ select count(*) from audit.record_changes $$,
-    '42501', null, 'the service role cannot read the log directly'
 );
 select throws_ok(
     $$ update audit.record_changes set actor_id = null $$,
@@ -64,10 +70,6 @@ select throws_ok(
     $$ insert into audit.record_changes (table_schema, table_name, op)
        values ('public', 'bills', 'INSERT') $$,
     '42501', null, 'a signed-in user cannot write a log row'
-);
-select throws_ok(
-    $$ select count(*) from audit.record_changes $$,
-    '42501', null, 'a signed-in user cannot read the log directly'
 );
 select throws_ok(
     $$ truncate audit.record_changes $$,
