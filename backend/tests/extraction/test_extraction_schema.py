@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from bill_factory import clean_extraction, ex, null
+from bill_factory import clean_extraction, ex, null, status
 from pydantic import ValidationError
 
 from backend.extraction.schema import (
@@ -15,9 +15,11 @@ from backend.extraction.schema import (
     IssueCode,
     parse_amount,
     parse_date,
+    parse_url,
     to_bill_create_dict,
 )
 from backend.schemas.bill import BillCreate
+from backend.schemas.common import AccountStatus
 
 # --- JSON schema --------------------------------------------------------------
 
@@ -101,6 +103,30 @@ def test_unknown_confidence_is_rejected():
         BillExtraction.model_validate(data)
 
 
+@pytest.mark.parametrize("value", ["unpaid", "outstanding", "paid", None])
+def test_account_status_is_a_bill_create_status_or_null(value):
+    data = clean_extraction().model_dump(mode="json")
+    data["account_status"]["value"] = value
+    parsed = BillExtraction.model_validate(data).account_status.value
+    assert parsed == (None if value is None else AccountStatus(value))
+
+
+@pytest.mark.parametrize("value", ["UNPAID", "Paid", "past due", "pending", ""])
+def test_any_other_account_status_does_not_fit_the_schema(value: str):
+    data = clean_extraction().model_dump(mode="json")
+    data["account_status"]["value"] = value
+    with pytest.raises(ValidationError):
+        BillExtraction.model_validate(data)
+
+
+def test_json_schema_lists_the_statuses_and_the_new_fields():
+    schema = BillExtraction.model_json_schema()
+    for name in ("description", "payment_website", "account_status"):
+        assert name in schema["required"]
+    assert schema["$defs"]["AccountStatus"]["enum"] == [s.value for s in AccountStatus]
+    assert schema["$defs"]["ExtractedAccountStatus"]["additionalProperties"] is False
+
+
 def test_issue_codes_are_exactly_the_spec_codes():
     assert {code.value for code in IssueCode} == {
         "MISSING_REQUIRED",
@@ -108,6 +134,7 @@ def test_issue_codes_are_exactly_the_spec_codes():
         "DUE_BEFORE_INVOICE",
         "DATE_OUT_OF_RANGE",
         "BAD_AMOUNT",
+        "BAD_URL",
         "LINE_ITEMS_MISMATCH",
         "BALANCE_MISMATCH",
         "EVIDENCE_NOT_FOUND",
@@ -148,6 +175,26 @@ def test_parse_amount_rejects(text):
     assert parse_amount(text) is None
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("https://pay.example/bills", "https://pay.example/bills"),
+        (" http://pay.example ", "http://pay.example"),
+        ("HTTPS://Pay.Example/A?b=1", "HTTPS://Pay.Example/A?b=1"),  # as written
+    ],
+)
+def test_parse_url(text: str, expected: str):
+    assert parse_url(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [None, "", "pay.example", "ftp://pay.example", "https://", "http://a b.example"],
+)
+def test_parse_url_rejects(text):
+    assert parse_url(text) is None
+
+
 def test_parse_date():
     assert parse_date("2026-10-20") == date(2026, 10, 20)
     assert parse_date("20261020") is None
@@ -159,9 +206,7 @@ def test_parse_date():
 
 
 def validate_with_bill_create(mapped: dict) -> BillCreate:
-    """BillCreate on this branch has no property_address yet (PR #10 adds it)."""
-    allowed = set(BillCreate.model_fields)
-    return BillCreate.model_validate({k: v for k, v in mapped.items() if k in allowed})
+    return BillCreate.model_validate(mapped)
 
 
 def test_clean_extraction_maps_to_a_valid_bill_create():
@@ -174,6 +219,10 @@ def test_clean_extraction_maps_to_a_valid_bill_create():
     assert bill.due_date == date(2026, 11, 10)
     assert bill.amount == Decimal("5680.00")
     assert bill.prev_payments == Decimal("1520.00")
+    assert bill.property_address == "2110 Example Ave, Dallas, TX 75201"
+    assert bill.description == "Commercial water and sewer service"
+    assert bill.website_name == "https://pay.brightwater.example/bills"
+    assert bill.account_status == AccountStatus.unpaid
     assert bill.processing_notes is None
 
 
@@ -199,12 +248,51 @@ def test_mapping_follows_the_spec_column():
         "prev_payments",
         "property_address",
         "description",
+        "website_name",
+        "account_status",
         "processing_notes",
     }
+    assert set(mapped) <= set(BillCreate.model_fields)
 
 
-def test_description_is_built_from_vendor_and_service_period():
+@pytest.mark.parametrize("value", ["unpaid", "outstanding", "paid"])
+def test_account_status_maps_to_the_bill_create_status(value: str):
+    mapped = to_bill_create_dict(clean_extraction(account_status=status(value)))
+    assert mapped["account_status"] == AccountStatus(value)
+    assert validate_with_bill_create(mapped).account_status == AccountStatus(value)
+
+
+def test_missing_status_and_website_map_to_none():
+    extraction = clean_extraction(account_status=status(None), payment_website=null())
+    mapped = to_bill_create_dict(extraction)
+    assert mapped["account_status"] is None
+    assert mapped["website_name"] is None
+    validate_with_bill_create(mapped)
+
+
+@pytest.mark.parametrize("text", ["pay.brightwater.example", "mailto:a@b.example"])
+def test_website_that_is_not_an_http_url_becomes_none(text: str):
+    assert (
+        to_bill_create_dict(clean_extraction(payment_website=ex(text)))["website_name"]
+        is None
+    )
+
+
+def test_website_is_stripped_and_kept_as_printed():
+    url = " https://Pay.Brightwater.example/Bills "
+    mapped = to_bill_create_dict(clean_extraction(payment_website=ex(url)))
+    assert mapped["website_name"] == "https://Pay.Brightwater.example/Bills"
+
+
+def test_printed_description_is_used_as_is():
     description = to_bill_create_dict(clean_extraction())["description"]
+    assert description == "Commercial water and sewer service"
+
+
+def test_description_is_built_from_vendor_and_service_period_when_none_is_printed():
+    description = to_bill_create_dict(clean_extraction(description=null()))[
+        "description"
+    ]
     assert description == (
         "Brightwater Utilities - service period 2026-09-13 to 2026-10-12"
     )
@@ -212,22 +300,25 @@ def test_description_is_built_from_vendor_and_service_period():
 
 def test_description_with_partial_information():
     only_vendor = clean_extraction(
-        service_period_start=null(), service_period_end=null()
+        description=null(), service_period_start=null(), service_period_end=null()
     )
     assert to_bill_create_dict(only_vendor)["description"] == "Brightwater Utilities"
-    only_period = clean_extraction(vendor_name=null())
+    only_period = clean_extraction(description=null(), vendor_name=null())
     assert to_bill_create_dict(only_period)["description"] == (
         "service period 2026-09-13 to 2026-10-12"
     )
     nothing = clean_extraction(
-        vendor_name=null(), service_period_start=null(), service_period_end=null()
+        description=null(),
+        vendor_name=null(),
+        service_period_start=null(),
+        service_period_end=null(),
     )
     assert to_bill_create_dict(nothing)["description"] is None
 
 
 def test_unparseable_dates_become_none_and_valid_description_parts_survive():
     extraction = clean_extraction(
-        invoice_date=ex("Oct 20"), service_period_end=ex("soon")
+        description=null(), invoice_date=ex("Oct 20"), service_period_end=ex("soon")
     )
     mapped = to_bill_create_dict(extraction)
     assert mapped["invoice_date"] is None
@@ -271,28 +362,43 @@ def test_max_lengths_are_read_from_bill_create():
         "invoice_number": 100,
         "description": 2000,
         "processing_notes": 2000,
+        "property_address": 300,
+        "website_name": 500,
     }
 
 
 @pytest.mark.parametrize(
-    ("field", "key"),
+    ("field", "key", "prefix"),
     [
-        ("vendor_name", "vendor_name_raw"),
-        ("account_number", "account_number_raw"),
-        ("invoice_number", "invoice_number"),
+        ("vendor_name", "vendor_name_raw", ""),
+        ("account_number", "account_number_raw", ""),
+        ("invoice_number", "invoice_number", ""),
+        ("service_address", "property_address", ""),
+        ("description", "description", ""),
+        ("payment_website", "website_name", "https://pay.example/"),
     ],
 )
-def test_text_longer_than_bill_create_allows_becomes_none(field: str, key: str):
+def test_text_longer_than_bill_create_allows_becomes_none(
+    field: str, key: str, prefix: str
+):
     limit = MAX_LENGTHS[key]
-    at_limit = to_bill_create_dict(clean_extraction(**{field: ex("A" * limit)}))
-    assert at_limit[key] == "A" * limit
+    fits = prefix + "A" * (limit - len(prefix))
+    at_limit = to_bill_create_dict(clean_extraction(**{field: ex(fits)}))
+    assert at_limit[key] == fits
     validate_with_bill_create(at_limit)
-    too_long = to_bill_create_dict(clean_extraction(**{field: ex("A" * (limit + 1))}))
-    assert too_long[key] is None
+    too_long = to_bill_create_dict(clean_extraction(**{field: ex(fits + "A")}))
+    if key == "description":  # falls back to the built description
+        assert too_long[key] == (
+            "Brightwater Utilities - service period 2026-09-13 to 2026-10-12"
+        )
+    else:
+        assert too_long[key] is None
 
 
 def test_too_long_vendor_is_left_out_of_the_description():
-    mapped = to_bill_create_dict(clean_extraction(vendor_name=ex("A" * 201)))
+    mapped = to_bill_create_dict(
+        clean_extraction(description=null(), vendor_name=ex("A" * 201))
+    )
     assert mapped["description"] == "service period 2026-09-13 to 2026-10-12"
 
 
