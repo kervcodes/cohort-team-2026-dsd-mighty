@@ -62,5 +62,4 @@ class UserAdminUpdate(BaseModel):
 
         if "status" in self.model_fields_set and self.status is None:
             raise ValueError("Status cannot be null.")
-
         return self

@@ -174,7 +174,7 @@ export default function AdminUsersEditPage() {
   const hasChanges = user !== null && (role !== user.role || status !== user.status);
 
   if (authLoading) {
-    return <p role="status">{}</p>;
+    return <p role="status">{COPY.permissionsLoad}</p>;
   }
 
   if (!canViewUsers) {
