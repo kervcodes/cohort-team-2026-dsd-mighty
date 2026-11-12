@@ -15,6 +15,7 @@ import {
   updateBillDraft,
   uploadInvoicePdf,
 } from "@/lib/api/bills";
+import { ApiError } from "@/lib/api/http";
 import {
   clearedValues,
   type ExtractedFormField,
@@ -330,13 +331,19 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
 
     try {
       await submitBill(id, createPayload(values));
-
-      setCreateStatus("success");
-      router.push("/dashboard");
     } catch (error) {
-      setCreateStatus("error");
-      setSubmitError(errorMessage(error, "Unable to create the bill. Please try again."));
+      // 409 means this draft was already submitted: an earlier try reached
+      // the server but its response was lost. The bill is with the approver,
+      // so this try succeeded too. Only the caller's own bill can answer 409.
+      if (!(error instanceof ApiError && error.status === 409)) {
+        setCreateStatus("error");
+        setSubmitError(errorMessage(error, "Unable to create the bill. Please try again."));
+        return;
+      }
     }
+
+    setCreateStatus("success");
+    router.push("/dashboard");
   }
 
   // Effects run again each time the page is shown, so after back or forward

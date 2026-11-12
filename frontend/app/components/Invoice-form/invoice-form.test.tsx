@@ -9,6 +9,7 @@ import {
   updateBillDraft,
   uploadInvoicePdf,
 } from "@/lib/api/bills";
+import { ApiError } from "@/lib/api/http";
 import { accountStatuses } from "@/lib/invoice-form-schema";
 import type { AccountStatus, Bill, BillDraftDetail } from "@/types/bill";
 import type {
@@ -604,6 +605,36 @@ describe("InvoiceForm", () => {
       expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
       expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
       expect(mockSubmitBill.mock.calls.map(([id]) => id)).toEqual(["bill-1", "bill-1"]);
+    });
+
+    it("goes to the dashboard when a retry finds the draft already submitted", async () => {
+      const user = userEvent.setup();
+      // The first submit reached the server but its answer was lost.
+      mockSubmitBill
+        .mockRejectedValueOnce(new Error("Unable to reach the server."))
+        .mockRejectedValueOnce(new ApiError("This bill has already been submitted.", 409));
+      render(<InvoiceForm />);
+      fillInValidBill();
+
+      await create(user);
+      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to reach the server.");
+
+      await user.click(screen.getByRole("button", { name: "Retry Create" }));
+
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+      expect(screen.queryByText("This bill has already been submitted.")).not.toBeInTheDocument();
+    });
+
+    it("still shows other submit errors, such as a missing draft", async () => {
+      const user = userEvent.setup();
+      mockSubmitBill.mockRejectedValueOnce(new ApiError("Editable draft not found.", 404));
+      render(<InvoiceForm />);
+      fillInValidBill();
+
+      await create(user);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Editable draft not found.");
+      expect(push).not.toHaveBeenCalled();
     });
 
     it("does not submit when the PDF can't be stored, and a retry continues", async () => {
