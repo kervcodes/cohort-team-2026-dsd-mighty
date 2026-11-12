@@ -249,7 +249,7 @@ export function planFill(
     }
 
     const read = extraction[from];
-    const normalized = normalizeValue(kind, read.value);
+    const normalized = normalizeValue(kind, read?.value ?? null);
     const issues = result.issues.filter((issue) => issue.field === from);
     let reasons = issues.map(issueReason);
 
@@ -264,7 +264,7 @@ export function planFill(
           ...reasons.filter((reason) => reason !== ISSUE_REASONS.BAD_AMOUNT),
         ];
       }
-      if (read.confidence === "low" && !issues.some((i) => i.code === "LOW_CONFIDENCE")) {
+      if (read?.confidence === "low" && !issues.some((i) => i.code === "LOW_CONFIDENCE")) {
         reasons.push(ISSUE_REASONS.LOW_CONFIDENCE);
       }
     } else {
