@@ -62,15 +62,36 @@ const MAX_DETAILS = 5;
 // The statuses the Account Status select offers, without "Select status".
 const STATUSES = new Set<string>(accountStatuses.filter((status) => status !== ""));
 
-type Normalized = { ok: true; value: string } | { ok: false; problem: string } | null;
+// `note` is set when the value was filled but changed from what was printed,
+// so the person sees what the bill said.
+type Normalized =
+  | { ok: true; value: string; note?: string }
+  | { ok: false; problem: string }
+  | null;
+
+type ReadAmount = { amount: string; credit: boolean };
 
 // "$1,234.56", "1 234.56" and "1234.56" all become "1234.56". Commas must
-// group thousands ("1,18" is not 118).
-function normalizeAmount(raw: string): string | null {
-  const compact = raw.replace(/\s+/g, "");
+// group thousands ("1,18" is not 118). A leading minus or parentheses mark a
+// credit ("-$1,180.50", "(1,180.50)"). Zeros past the cents are dropped
+// ("12.340" is 12.34); a real third decimal ("12.345") is not an amount the
+// form takes, and the backend flags it too.
+function readAmount(raw: string): ReadAmount | null {
+  let compact = raw.replace(/\s+/g, "");
+  let credit = false;
+  const parenthesized = /^\((.+)\)$/.exec(compact);
+  if (parenthesized) {
+    compact = parenthesized[1];
+    credit = true;
+  }
+  const signed = /^(\$?)-(.+)$/.exec(compact);
+  if (signed) {
+    compact = signed[1] + signed[2];
+    credit = true;
+  }
   if (!/^\$?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$/.test(compact)) return null;
-  const amount = compact.replace(/[$,]/g, "");
-  return isMoney(amount) ? amount : null;
+  const amount = compact.replace(/[$,]/g, "").replace(/^(\d+\.\d{2})0+$/, "$1");
+  return isMoney(amount) ? { amount, credit } : null;
 }
 
 // null when the bill has no value, so there is nothing to fill or report.
@@ -85,16 +106,26 @@ export function normalizeValue(kind: ValueKind, raw: string | null): Normalized 
       return isValidIsoDate(value)
         ? { ok: true, value }
         : { ok: false, problem: `read "${value}", which isn't a valid date` };
-    case "amount":
-    case "amountAboveZero": {
-      const amount = normalizeAmount(value);
-      if (amount === null) {
+    case "amount": {
+      // Payments received: the form wants the positive amount, even when the
+      // bill prints the payment as a credit.
+      const read = readAmount(value);
+      if (read === null) {
         return { ok: false, problem: `read "${value}", which isn't a valid amount` };
       }
-      if (kind === "amountAboveZero" && Number(amount) <= 0) {
+      return read.credit
+        ? { ok: true, value: read.amount, note: `the bill printed it as a credit ("${value}")` }
+        : { ok: true, value: read.amount };
+    }
+    case "amountAboveZero": {
+      const read = readAmount(value);
+      if (read === null) {
+        return { ok: false, problem: `read "${value}", which isn't a valid amount` };
+      }
+      if (read.credit || Number(read.amount) <= 0) {
         return { ok: false, problem: `read "${value}", but the amount must be more than 0` };
       }
-      return { ok: true, value: amount };
+      return { ok: true, value: read.amount };
     }
     case "website":
       return isWebsite(value)
@@ -225,6 +256,14 @@ export function planFill(
     if (normalized?.ok) {
       values[to] = normalized.value;
       filled += 1;
+      if (normalized.note) {
+        // The backend flags the printed form (a credit) as a bad amount; the
+        // note says what was changed instead.
+        reasons = [
+          normalized.note,
+          ...reasons.filter((reason) => reason !== ISSUE_REASONS.BAD_AMOUNT),
+        ];
+      }
       if (read.confidence === "low" && !issues.some((i) => i.code === "LOW_CONFIDENCE")) {
         reasons.push(ISSUE_REASONS.LOW_CONFIDENCE);
       }
