@@ -90,6 +90,32 @@ describe("planFill", () => {
     });
   });
 
+  it("fills the other fields when the backend does not return description, website or status", () => {
+    const {
+      description: _description,
+      payment_website: _website,
+      account_status: _status,
+      ...older
+    } = extraction();
+
+    const plan = planFill(
+      result({ extraction: older as unknown as BillExtraction }),
+      emptyInvoiceForm,
+    );
+
+    expect(plan.values).toEqual({
+      companyName: "City Power",
+      accountNumber: "ACC-100",
+      statementId: "INV-2001",
+      issueDate: "2026-10-01",
+      dueDate: "2026-10-31",
+      currentDue: "1234.56",
+      previousPayments: "50.00",
+      propertyAddress: "12 Elm St",
+    });
+    expect(plan.banner.tone).not.toBe("error");
+  });
+
   it("never fills a field that already has a value", () => {
     const plan = planFill(result({ issues: [issue("LOW_CONFIDENCE", "account_number")] }), {
       ...emptyInvoiceForm,
