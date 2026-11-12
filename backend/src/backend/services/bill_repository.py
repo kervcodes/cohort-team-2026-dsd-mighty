@@ -12,6 +12,7 @@ from backend.schemas.bill import (
 from backend.services.bill_access import (
     BillScope,
     editable_bills,
+    own_bills,
     readable_bills,
 )
 from supabase import Client
@@ -134,13 +135,20 @@ def list_dashboard_bills(
     return response.data or []
 
 
+def _filtered(
+    query: SyncSelectRequestBuilder,
+    filters: dict[str, str],
+) -> SyncSelectRequestBuilder:
+    for column, value in filters.items():
+        query = query.eq(column, value)
+    return query
+
+
 def _editable(
     query: SyncSelectRequestBuilder,
     user_id: str,
 ) -> SyncSelectRequestBuilder:
-    for column, value in editable_bills(user_id).items():
-        query = query.eq(column, value)
-    return query
+    return _filtered(query, editable_bills(user_id))
 
 
 def get_editable_draft(
@@ -169,18 +177,23 @@ def attach_document(
     bill_id: UUID,
     user_id: str,
     storage_path: str,
+    replacing: str | None,
 ) -> dict | None:
-    response = (
-        _editable(
-            client.table("bills")
-            .update({"document_path": storage_path})
-            .eq("bill_id", str(bill_id)),
-            user_id,
-        )
-        .is_("document_path", "null")
-        .select(DRAFT_COLUMNS)
-        .execute()
+    """Point the caller's draft at `storage_path`, but only while it still
+    points at `replacing` (None: no document yet), so a concurrent upload or
+    submit makes this return None instead of being overwritten."""
+    query = _editable(
+        client.table("bills")
+        .update({"document_path": storage_path})
+        .eq("bill_id", str(bill_id)),
+        user_id,
     )
+    query = (
+        query.is_("document_path", "null")
+        if replacing is None
+        else query.eq("document_path", replacing)
+    )
+    response = query.select(DRAFT_COLUMNS).execute()
 
     rows = response.data or []
 
@@ -216,3 +229,52 @@ def update_draft(
     rows = response.data or []
 
     return rows[0] if len(rows) == 1 else None
+
+
+def submit_draft(
+    client: Client,
+    bill_id: UUID,
+    user_id: str,
+    fields: BillCreate,
+) -> BillRead | None:
+    """Write the final values to the caller's draft and send it for approval,
+    in one update; None if it is not (or no longer) the caller's draft.
+
+    Every field is written, so a value cleared in the form is cleared here.
+    The update matches drafts only, so a second submit changes nothing. The
+    stored document, submitter and creation time stay as they are.
+    """
+    payload = fields.model_dump(mode="json")
+    payload["status"] = BillStatus.pending_approval
+
+    response = (
+        _editable(
+            client.table("bills").update(payload).eq("bill_id", str(bill_id)),
+            user_id,
+        )
+        .select(BILL_COLUMNS)
+        .execute()
+    )
+
+    rows = response.data or []
+
+    return _to_bill(rows[0]) if len(rows) == 1 else None
+
+
+def get_own_bill_status(
+    client: Client,
+    bill_id: UUID,
+    user_id: str,
+) -> BillStatus | None:
+    """The status of a bill `user_id` submitted, or None when there is no
+    such bill of theirs (another user's bill counts as missing)."""
+    response = (
+        _filtered(
+            client.table("bills").select("status").eq("bill_id", str(bill_id)),
+            own_bills(user_id),
+        )
+        .maybe_single()
+        .execute()
+    )
+
+    return BillStatus(response.data["status"]) if response else None

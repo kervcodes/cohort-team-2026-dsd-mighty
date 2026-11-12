@@ -20,10 +20,12 @@ from backend.services.bill_access import (
 )
 from backend.services.bill_repository import (
     get_editable_draft,
+    get_own_bill_status,
     get_readable_bill,
     list_dashboard_bills,
     list_readable_bills,
     save_bill,
+    submit_draft,
     update_draft,
 )
 from backend.supabase_client import get_admin_supabase
@@ -137,6 +139,39 @@ def update_existing_draft(
         )
 
     return BillDraftRead.model_validate(updated)
+
+
+@router.post("/{bill_id}/submit", response_model=BillRead)
+def submit_existing_draft(
+    bill_id: UUID,
+    bill: BillCreate,
+    user: CurrentUser = Depends(require_active(*BILL_WRITERS)),
+) -> BillRead:
+    """Create from a saved draft: the same bill, with its stored PDF, goes for
+    approval with the final values. `POST /bills` still creates a bill with
+    no draft behind it."""
+    client = get_admin_supabase()
+    submitted = submit_draft(
+        client=client,
+        bill_id=bill_id,
+        user_id=str(user.id),
+        fields=bill,
+    )
+
+    if submitted is not None:
+        return submitted
+
+    # Only the caller's own bills are told apart, so the 409 leaks nothing.
+    if get_own_bill_status(client, bill_id, str(user.id)) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This bill has already been submitted.",
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Editable draft not found.",
+    )
 
 
 # retrieves an existing one

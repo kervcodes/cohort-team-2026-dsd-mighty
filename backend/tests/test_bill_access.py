@@ -15,6 +15,7 @@ from current_users import make_user
 from fake_supabase import FakeSupabase
 from fastapi.testclient import TestClient
 
+from backend.api import bill_documents
 from backend.app import app
 from backend.auth import get_current_user
 from backend.schemas.bill import BillRead
@@ -359,10 +360,77 @@ def test_upload_rejects_a_pdf_content_type_without_pdf_bytes(db):
     assert db.storage.objects == {}
 
 
-def test_upload_to_a_bill_that_already_has_a_document_is_409(db):
-    bill = db.add_bill(USER_A, document_path="bills/x/existing.pdf")
+def test_upload_replaces_the_pdf_stored_with_a_draft(db):
+    old = "bills/x/old.pdf"
+    bill = db.add_bill(USER_A, document_path=old)
+    db.storage.objects[old] = b"%PDF-old"
 
-    assert upload(bill["bill_id"]).status_code == 409
+    response = upload(bill["bill_id"])
+
+    assert response.status_code == 201, response.text
+    new = response.json()["document_path"]
+    assert new != old
+    assert db.tables["bills"][0]["document_path"] == new
+    assert db.storage.objects == {new: PDF[1]}  # the old file is gone
+    assert db.storage.removed == [old]
+
+
+def test_a_failed_delete_of_the_replaced_pdf_still_attaches_the_new_one(db, caplog):
+    old = "bills/x/old.pdf"
+    bill = db.add_bill(USER_A, document_path=old)
+
+    with patch(
+        "backend.api.bill_documents.delete_pdf",
+        side_effect=RuntimeError("storage down"),
+    ):
+        response = upload(bill["bill_id"])
+
+    assert response.status_code == 201
+    assert db.tables["bills"][0]["document_path"] == response.json()["document_path"]
+    assert f"Orphaned invoice object requires cleanup: {old}" in caplog.text
+
+
+def test_a_pdf_replaced_during_upload_is_409_and_the_new_file_is_deleted(db):
+    bill = db.add_bill(USER_A, document_path="bills/x/old.pdf")
+    real_upload = bill_documents.upload_pdf
+
+    # Another tab replaced the PDF while this upload was in flight.
+    def upload_then_race(client, storage_path, contents):
+        real_upload(client, storage_path, contents)
+        db.tables["bills"][0]["document_path"] = "bills/x/other-tab.pdf"
+
+    with patch("backend.api.bill_documents.upload_pdf", side_effect=upload_then_race):
+        response = upload(bill["bill_id"])
+
+    assert response.status_code == 409
+    assert db.tables["bills"][0]["document_path"] == "bills/x/other-tab.pdf"
+    assert db.storage.objects == {}  # the new file is cleaned up
+    assert "bills/x/old.pdf" not in db.storage.removed  # not ours to delete
+
+
+@pytest.mark.parametrize("status", ["pending_approval", "approved"])
+def test_upload_to_a_submitted_bill_is_404_and_keeps_its_pdf(db, status):
+    bill = db.add_bill(USER_A, status=status, document_path="bills/x/sent.pdf")
+
+    assert upload(bill["bill_id"]).status_code == 404
+    assert db.tables["bills"][0]["document_path"] == "bills/x/sent.pdf"
+    assert db.storage.objects == {}
+    assert db.storage.removed == []
+
+
+def test_upload_to_a_draft_submitted_during_upload_is_409(db):
+    bill = db.add_bill(USER_A, document_path="bills/x/old.pdf")
+    real_upload = bill_documents.upload_pdf
+
+    def upload_then_submit(client, storage_path, contents):
+        real_upload(client, storage_path, contents)
+        db.tables["bills"][0]["status"] = "pending_approval"
+
+    with patch("backend.api.bill_documents.upload_pdf", side_effect=upload_then_submit):
+        response = upload(bill["bill_id"])
+
+    assert response.status_code == 409
+    assert db.tables["bills"][0]["document_path"] == "bills/x/old.pdf"
     assert db.storage.objects == {}
 
 
