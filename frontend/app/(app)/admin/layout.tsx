@@ -16,7 +16,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
 
   return (
-    <main className="mx-auto max-w-5xl p-8">
+    <main className="mx-auto max-w-5xl py-8">
       <h1 className="mb-8 text-3xl font-semibold text-foreground">{COPY.title}</h1>
 
       <div className="rounded-lg border border-border bg-surface">
