@@ -132,7 +132,7 @@ describe("planFill", () => {
           invoice_date: read("10/01/2026"),
           due_date: read("2026-02-30"),
           amount_due: read("1,18"),
-          payments_received: read("-50.00"),
+          payments_received: read("50.005"),
         }),
         issues: [issue("BAD_DATE", "invoice_date"), issue("BAD_AMOUNT", "amount_due")],
       }),
@@ -147,7 +147,7 @@ describe("planFill", () => {
       issueDate: 'Check this: read "10/01/2026", which isn\'t a valid date',
       dueDate: 'Check this: read "2026-02-30", which isn\'t a valid date',
       currentDue: 'Check this: read "1,18", which isn\'t a valid amount',
-      previousPayments: 'Check this: read "-50.00", which isn\'t a valid amount',
+      previousPayments: 'Check this: read "50.005", which isn\'t a valid amount',
     });
     expect(plan.banner).toEqual({
       tone: "warning",
@@ -155,6 +155,23 @@ describe("planFill", () => {
         "Filled 4 fields from the invoice. Some values need checking - see the marked fields.",
       details: [],
     });
+  });
+
+  it("fills a payment printed as a credit with the positive amount and says so", () => {
+    const plan = planFill(
+      result({
+        status: "needs_attention",
+        extraction: extraction({ payments_received: read("-$1,180.50") }),
+        // The backend flags a negative payment; the note replaces that reason.
+        issues: [issue("BAD_AMOUNT", "payments_received")],
+      }),
+      emptyInvoiceForm,
+    );
+
+    expect(plan.values.previousPayments).toBe("1180.50");
+    expect(plan.notes.previousPayments).toBe(
+      'Check this: the bill printed it as a credit ("-$1,180.50")',
+    );
   });
 
   it("does not fill a current due of 0, which the form rejects", () => {
@@ -419,11 +436,36 @@ describe("normalizeValue", () => {
     ["1234.5", "1234.5"],
     ["1,234,567", "1234567"],
     ["0", "0"],
+    ["12.340", "12.34"],
+    ["392.0800", "392.08"],
   ])("reads the amount %p as %p", (raw, expected) => {
     expect(normalizeValue("amount", raw)).toEqual({ ok: true, value: expected });
   });
 
-  it.each(["1,18", "12.345", "-5", "abc", "$", "12345678901", "1e3"])(
+  it.each([
+    ["-$1,180.50", "1180.50"],
+    ["$-1,180.50", "1180.50"],
+    ["(1,180.50)", "1180.50"],
+    ["- 50", "50"],
+  ])("reads the payment %p, printed as a credit, as %p with a note", (raw, expected) => {
+    expect(normalizeValue("amount", raw)).toEqual({
+      ok: true,
+      value: expected,
+      note: `the bill printed it as a credit ("${raw.trim()}")`,
+    });
+  });
+
+  it.each(["-$392.08", "(392.08)", "0.00"])(
+    "does not take %p as an amount due, which must be more than 0",
+    (raw) => {
+      expect(normalizeValue("amountAboveZero", raw)).toEqual({
+        ok: false,
+        problem: `read "${raw}", but the amount must be more than 0`,
+      });
+    },
+  );
+
+  it.each(["1,18", "12.345", "--5", "(5", "abc", "$", "12345678901", "1e3"])(
     "rejects the amount %p",
     (raw) => {
       expect(normalizeValue("amount", raw)).toMatchObject({ ok: false });
