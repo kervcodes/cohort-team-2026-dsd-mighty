@@ -4,6 +4,7 @@ import { Eye, EyeOff, Lock } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { safeNextPath } from "@/lib/auth-redirects";
 import { createClient } from "@/lib/supabase/client";
 
 const CALLBACK_ERROR_MESSAGE =
@@ -47,7 +48,8 @@ export function LoginForm() {
         return;
       }
 
-      router.push("/dashboard");
+      // Back to the page the proxy sent them here from, if it is on this site.
+      router.push(safeNextPath(searchParams.get("next"), window.location.origin));
       router.refresh();
     } catch (err) {
       console.error("Login error:", err);
