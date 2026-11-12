@@ -19,3 +19,40 @@ describe("formfield", () => {
     expect(screen.getByText("invalid email")).toBeInTheDocument();
   });
 });
+
+describe("FormField note", () => {
+  it("shows the note and describes the control with it", () => {
+    render(
+      <FormField label="Amount" htmlFor="amount" note="Check this: the reader wasn't sure">
+        {(field) => <input {...field} />}
+      </FormField>,
+    );
+
+    expect(screen.getByLabelText("Amount")).toHaveAccessibleDescription(
+      "Check this: the reader wasn't sure",
+    );
+  });
+
+  it("describes the control with both the note and the error", () => {
+    render(
+      <FormField label="Amount" htmlFor="amount" note="Check this" error="Required">
+        {(field) => <input {...field} />}
+      </FormField>,
+    );
+
+    expect(screen.getByLabelText("Amount")).toHaveAttribute(
+      "aria-describedby",
+      "amount-note amount-error",
+    );
+  });
+
+  it("renders no note and no description without one", () => {
+    render(
+      <FormField label="Amount" htmlFor="amount">
+        {(field) => <input {...field} />}
+      </FormField>,
+    );
+
+    expect(screen.getByLabelText("Amount")).not.toHaveAttribute("aria-describedby");
+  });
+});

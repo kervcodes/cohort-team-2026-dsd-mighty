@@ -1,19 +1,29 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { FileUp } from "lucide-react";
-import { useParams, useRouter } from "next/navigation";
-import { type DragEvent, useEffect, useRef, useState } from "react";
+import { FileUp, LoaderCircle } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import Button from "@/components/Button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
 import {
   createBill,
+  extractBill,
   getBillDraft,
   saveBillDraft,
   updateBillDraft,
   uploadInvoicePdf,
 } from "@/lib/api/bills";
+import {
+  clearedValues,
+  type ExtractedFormField,
+  type ExtractionBanner,
+  errorBanner,
+  type FieldValues,
+  planFill,
+  READING_MESSAGE,
+} from "@/lib/extraction";
 import {
   accountStatuses,
   emptyInvoiceForm,
@@ -24,6 +34,36 @@ import {
 import type { BillCreatePayload, BillDraftDetail, BillDraftPayload } from "@/types/bill";
 
 type ActionStatus = "idle" | "loading" | "success" | "error";
+
+// Reading the picked PDF with POST /bills/extract.
+type ReaderState =
+  | { phase: "idle" }
+  | { phase: "reading" }
+  | { phase: "done"; banner: ExtractionBanner };
+
+const bannerTones: Record<ExtractionBanner["tone"], string> = {
+  success: "border-paid/30 bg-paid-bg text-paid",
+  warning: "border-due-soon/30 bg-due-soon-bg text-due-soon",
+  error: "border-overdue/30 bg-overdue-bg text-overdue",
+};
+
+function ExtractionNotice({ banner }: { banner: ExtractionBanner }) {
+  return (
+    <div
+      role={banner.tone === "error" ? "alert" : "status"}
+      className={`mt-4 rounded-lg border p-3 text-left text-sm ${bannerTones[banner.tone]}`}
+    >
+      <p>{banner.message}</p>
+      {banner.details.length > 0 && (
+        <ul className="mt-1 list-disc space-y-0.5 pl-5">
+          {banner.details.map((detail) => (
+            <li key={detail}>{detail}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 // Browsers sometimes report an empty MIME type for dropped files, so the
 // extension is checked as well.
@@ -48,7 +88,76 @@ function mapDraftToFormValues(draft: BillDraftDetail): InvoiceFormValues {
   };
 }
 
+const DRAFT_PATH = /^\/invoices\/([^/]+)\/edit\/?$/;
+
+// Where a saved draft is edited. The first Save Draft on a new invoice moves
+// the address bar here without leaving the page.
+function draftPath(draftId: string): string {
+  return `/invoices/${encodeURIComponent(draftId)}/edit`;
+}
+
+// The draft a pathname opens, or null for a new invoice.
+function draftIdFromPath(pathname: string): string | null {
+  const match = DRAFT_PATH.exec(pathname);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+// The New Invoice and Edit Draft pages. Next keeps a page mounted (hidden by
+// <Activity>) after the person leaves it, so the form state outlives the
+// visit unless it is reset. Each visit gets its own InvoiceFormVisit:
+// - A link or router.push/replace into the page gives the segment a new
+//   bfcacheId, so it starts fresh. Back and forward keep the bfcacheId, so the
+//   form comes back as the person left it.
+// - The first Save Draft moves the URL with history.replaceState. Next syncs
+//   usePathname with that, but its route tree (and useParams) still say
+//   /invoices/new, so a later link to /invoices/new reuses this segment and
+//   its bfcacheId. A pathname change the form did not make is therefore a new
+//   visit too. Layout effects only run while the page is shown, so the
+//   pathnames of other pages, seen while hidden, never count.
 export function InvoiceForm() {
+  const { bfcacheId } = useRouter();
+  const pathname = usePathname();
+  const [visit, setVisit] = useState(0);
+  const shown = useRef({ bfcacheId, pathname });
+  // The URL the form itself moved to, until Next reports it back.
+  const ownPath = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    const last = shown.current;
+    shown.current = { bfcacheId, pathname };
+    // A new bfcacheId already remounted the form for the current URL.
+    if (pathname === last.pathname || bfcacheId !== last.bfcacheId) return;
+    if (pathname === ownPath.current) {
+      ownPath.current = null;
+      return;
+    }
+    setVisit((current) => current + 1);
+  }, [bfcacheId, pathname]);
+
+  function showDraftUrl(draftId: string) {
+    const path = draftPath(draftId);
+    ownPath.current = path;
+    window.history.replaceState(null, "", path);
+  }
+
+  return (
+    <InvoiceFormVisit
+      key={`${bfcacheId}:${visit}`}
+      initialDraftId={draftIdFromPath(pathname)}
+      onDraftCreated={showDraftUrl}
+    />
+  );
+}
+
+type InvoiceFormVisitProps = {
+  // The draft this visit opens, loaded from the server; null for a new
+  // invoice. Read once: a later change (the first save) does not reload.
+  initialDraftId: string | null;
+  // The first Save Draft created this draft.
+  onDraftCreated: (draftId: string) => void;
+};
+
+function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitProps) {
   const router = useRouter();
   const [submitError, setSubmitError] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -57,20 +166,30 @@ export function InvoiceForm() {
   const [draftMessage, setDraftMessage] = useState("");
   const [pdfStatus, setPdfStatus] = useState<ActionStatus>("idle");
   const [draftStatus, setDraftStatus] = useState<ActionStatus>("idle");
-  const params = useParams<{ invoiceId: string }>();
-  const routeInvoiceId = params.invoiceId;
-  const [draftId, setDraftId] = useState<string | null>(params.invoiceId ?? null);
-  const [isLoadingDraft, setIsLoadingDraft] = useState(Boolean(params.invoiceId));
+  const [openedDraftId] = useState(initialDraftId);
+  const [draftId, setDraftId] = useState(openedDraftId);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(openedDraftId !== null);
   const [draftLoadError, setDraftLoadError] = useState<string | null>(null);
+  const draftLoaded = useRef(false);
 
   const [createStatus, setCreateStatus] = useState<ActionStatus>("idle");
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [reader, setReader] = useState<ReaderState>({ phase: "idle" });
+  const [notes, setNotes] = useState<FieldValues>({});
+  // The read in flight. Aborting it (a new file, or leaving the page) also
+  // tells readInvoice to drop its result.
+  const readRef = useRef<AbortController | null>(null);
+  // The fields holding exactly what the last read filled, with that value.
+  // The next read may replace them; editing a field takes it out.
+  const readerFilled = useRef(new Map<ExtractedFormField, string>());
 
   const {
     register,
     handleSubmit,
     getValues,
+    setValue,
+    getFieldState,
     control,
     formState: { errors },
     reset,
@@ -119,11 +238,11 @@ export function InvoiceForm() {
     }
   }
 
+  // Effects run again each time the page is shown, so after back or forward
+  // the draft is not reloaded over the person's unsaved edits.
   useEffect(() => {
-    if (!routeInvoiceId) {
-      setIsLoadingDraft(false);
-      return;
-    }
+    if (openedDraftId === null || draftLoaded.current) return;
+    const id = openedDraftId;
 
     let cancelled = false;
 
@@ -132,10 +251,11 @@ export function InvoiceForm() {
       setDraftLoadError(null);
 
       try {
-        const draft = await getBillDraft(routeInvoiceId);
+        const draft = await getBillDraft(id);
 
         if (cancelled) return;
 
+        draftLoaded.current = true;
         reset(mapDraftToFormValues(draft));
       } catch (err) {
         if (cancelled) return;
@@ -155,7 +275,88 @@ export function InvoiceForm() {
     return () => {
       cancelled = true;
     };
-  }, [routeInvoiceId, reset]);
+  }, [openedDraftId, reset]);
+
+  // Leaving the page (or unmounting) stops a read in flight. Its result would
+  // be dropped, so "Reading invoice..." must not be left showing for when the
+  // person comes back.
+  useEffect(
+    () => () => {
+      if (!readRef.current) return;
+      readRef.current.abort();
+      readRef.current = null;
+      setReader({ phase: "idle" });
+    },
+    [],
+  );
+
+  // Any edit after a save means there are unsaved changes. Updaters, not the
+  // rendered draftStatus, because a read can finish long after this render.
+  function markEdited() {
+    setSubmitError("");
+    setDraftStatus((status) => (status === "success" ? "idle" : status));
+    setDraftMessage("");
+  }
+
+  // Stops any read in flight and clears what the last one showed.
+  function resetReader(next: ReaderState) {
+    readRef.current?.abort();
+    readRef.current = null;
+    setNotes({});
+    setReader(next);
+  }
+
+  // The fields still showing exactly what the last read filled. Checked
+  // against the current value too, so nothing the person changed counts.
+  function replaceableFields(): Set<ExtractedFormField> {
+    const current = getValues();
+    return new Set(
+      [...readerFilled.current]
+        .filter(([name, value]) => current[name] === value)
+        .map(([name]) => name),
+    );
+  }
+
+  function applyFill(values: Partial<Record<ExtractedFormField, string>>) {
+    const entries = Object.entries(values) as [ExtractedFormField, string][];
+    for (const [name, value] of entries) {
+      // Re-validate only a field already showing an error, so a filled
+      // value clears "required" without new errors appearing before Create.
+      setValue(name, value, { shouldDirty: true, shouldValidate: getFieldState(name).invalid });
+      if (value === "") readerFilled.current.delete(name);
+      else readerFilled.current.set(name, value);
+    }
+    if (entries.length > 0) markEdited();
+  }
+
+  // Pre-fills the form from the PDF. A field is set only if it is empty when
+  // the result arrives or still holds what the previous read filled, so
+  // nothing the person typed or edited (even while it was reading), and
+  // nothing loaded from a saved draft, is overwritten.
+  async function readInvoice(file: File) {
+    resetReader({ phase: "reading" });
+    const controller = new AbortController();
+    readRef.current = controller;
+
+    let banner: ExtractionBanner;
+    try {
+      const result = await extractBill(file, controller.signal);
+      if (controller.signal.aborted) return;
+
+      const plan = planFill(result, getValues(), replaceableFields());
+      applyFill(plan.values);
+      setNotes(plan.notes);
+      banner = plan.banner;
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      // The previous read's values came from the previous file.
+      applyFill(clearedValues(replaceableFields()));
+      banner = errorBanner(error instanceof Error ? error.message : "Unable to read the invoice.");
+    }
+
+    readRef.current = null;
+    setReader({ phase: "done", banner });
+  }
 
   // Shared by the file picker and drag-and-drop: a new file always resets
   // validation so a previous success never carries over to it.
@@ -165,6 +366,7 @@ export function InvoiceForm() {
 
     if (file && !isPdf(file)) {
       setSelectedFile(null);
+      resetReader({ phase: "idle" });
       setUploadError("Only PDF files can be uploaded.");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
@@ -172,6 +374,11 @@ export function InvoiceForm() {
 
     setSelectedFile(file);
     setUploadError("");
+    if (file) {
+      void readInvoice(file);
+    } else {
+      resetReader({ phase: "idle" });
+    }
   }
 
   function handleDragOver(event: DragEvent<HTMLLabelElement>) {
@@ -193,6 +400,7 @@ export function InvoiceForm() {
     const files = event.dataTransfer.files;
     if (files.length > 1) {
       setSelectedFile(null);
+      resetReader({ phase: "idle" });
       setPdfStatus("idle");
       setUploadMessage("");
       setUploadError("Drop one PDF at a time.");
@@ -272,7 +480,7 @@ export function InvoiceForm() {
 
       if (!draftId) {
         setDraftId(saved.bill_id);
-        window.history.replaceState(null, "", `/invoices/${saved.bill_id}/edit`);
+        onDraftCreated(saved.bill_id);
       }
 
       setDraftStatus("success");
@@ -312,10 +520,17 @@ export function InvoiceForm() {
         // Choosing a PDF is not a draft edit, so the file input is ignored.
         const target = event.target;
         if (target instanceof HTMLInputElement && target.type === "file") return;
-        setSubmitError("");
-        if (draftStatus === "success") {
-          setDraftStatus("idle");
-          setDraftMessage("");
+        markEdited();
+        // Editing a field marked "Check this" settles it, and makes its
+        // value the person's: no later read replaces it.
+        const name = "name" in target ? target.name : null;
+        if (typeof name === "string") {
+          readerFilled.current.delete(name as ExtractedFormField);
+          setNotes((current) =>
+            name in current
+              ? Object.fromEntries(Object.entries(current).filter(([field]) => field !== name))
+              : current,
+          );
         }
       }}
       noValidate
@@ -392,9 +607,30 @@ export function InvoiceForm() {
             type="file"
             accept=".pdf,application/pdf"
             className="sr-only"
-            onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
+            onChange={(event) => {
+              selectFile(event.target.files?.[0] ?? null);
+              // The picked file lives in state. Clearing the input lets the
+              // same file be picked again (to retry a read), which browsers
+              // otherwise ignore.
+              event.target.value = "";
+            }}
           />
         </label>
+
+        {reader.phase === "reading" && (
+          <p
+            role="status"
+            className="mt-3 flex items-center justify-center gap-2 text-sm text-foreground-muted"
+          >
+            <LoaderCircle
+              aria-hidden="true"
+              className="h-4 w-4 animate-spin motion-reduce:animate-none"
+            />
+            {READING_MESSAGE}
+          </p>
+        )}
+
+        {reader.phase === "done" && <ExtractionNotice banner={reader.banner} />}
 
         <button
           type="button"
@@ -431,6 +667,7 @@ export function InvoiceForm() {
           label="Account / Customer #"
           htmlFor="accountNumber"
           error={errors.accountNumber?.message}
+          note={notes.accountNumber}
         >
           {(field) => <input {...field} {...register("accountNumber")} className={inputClass} />}
         </FormField>
@@ -439,6 +676,7 @@ export function InvoiceForm() {
           label="Statement / Bill ID"
           htmlFor="statementId"
           error={errors.statementId?.message}
+          note={notes.statementId}
         >
           {(field) => <input {...field} {...register("statementId")} className={inputClass} />}
         </FormField>
@@ -447,6 +685,7 @@ export function InvoiceForm() {
           label="Customer / Business Name"
           htmlFor="companyName"
           error={errors.companyName?.message}
+          note={notes.companyName}
         >
           {(field) => <input {...field} {...register("companyName")} className={inputClass} />}
         </FormField>
@@ -455,6 +694,7 @@ export function InvoiceForm() {
           label="Property Address"
           htmlFor="propertyAddress"
           error={errors.propertyAddress?.message}
+          note={notes.propertyAddress}
         >
           {(field) => (
             <input
@@ -471,13 +711,19 @@ export function InvoiceForm() {
             label="Issue / Record / Invoice Date"
             htmlFor="issueDate"
             error={errors.issueDate?.message}
+            note={notes.issueDate}
           >
             {(field) => (
               <input {...field} type="date" {...register("issueDate")} className={inputClass} />
             )}
           </FormField>
 
-          <FormField label="Due / Pay Date" htmlFor="dueDate" error={errors.dueDate?.message}>
+          <FormField
+            label="Due / Pay Date"
+            htmlFor="dueDate"
+            error={errors.dueDate?.message}
+            note={notes.dueDate}
+          >
             {(field) => (
               <input {...field} type="date" {...register("dueDate")} className={inputClass} />
             )}
@@ -508,6 +754,7 @@ export function InvoiceForm() {
             label="Prev Payments"
             htmlFor="previousPayments"
             error={errors.previousPayments?.message}
+            note={notes.previousPayments}
           >
             {(field) => (
               <div className="relative">
@@ -525,7 +772,12 @@ export function InvoiceForm() {
             )}
           </FormField>
 
-          <FormField label="Current Due" htmlFor="currentDue" error={errors.currentDue?.message}>
+          <FormField
+            label="Current Due"
+            htmlFor="currentDue"
+            error={errors.currentDue?.message}
+            note={notes.currentDue}
+          >
             {(field) => (
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-muted">

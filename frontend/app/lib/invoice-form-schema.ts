@@ -5,7 +5,13 @@ export const accountStatuses = ["", "paid", "unpaid", "outstanding"] as const;
 const money = /^\d{1,10}(\.\d{1,2})?$/;
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
-function isValidIsoDate(value: string): boolean {
+// An amount the form accepts: up to 10 digits and at most 2 decimals, no sign.
+export function isMoney(value: string): boolean {
+  return money.test(value);
+}
+
+// A real calendar date written as YYYY-MM-DD, the format of <input type="date">.
+export function isValidIsoDate(value: string): boolean {
   if (!isoDate.test(value)) return false;
 
   const date = new Date(`${value}T00:00:00.000Z`);

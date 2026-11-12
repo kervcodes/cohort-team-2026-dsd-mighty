@@ -7,6 +7,7 @@ import type {
   DashboardBill,
   DocumentUploadResponse,
 } from "@/types/bill";
+import type { ExtractionResult } from "@/types/extraction";
 import { apiRequest } from "./http";
 
 export function createBill(payload: BillCreatePayload): Promise<Bill> {
@@ -39,6 +40,19 @@ export function uploadInvoicePdf(file: File, billId: string): Promise<DocumentUp
     `/bills/${billId}/document`,
     { method: "POST", body: formData },
     { signedOut: "You must be signed in to upload a PDF.", failed: "Upload failed" },
+  );
+}
+
+// Reads the bill with AI and returns the values for the form to pre-fill.
+// Nothing is saved. Takes 3-10 s, up to 90 s; `signal` stops waiting for it.
+export function extractBill(file: File, signal?: AbortSignal): Promise<ExtractionResult> {
+  const formData = new FormData();
+  formData.append("file", withPdfType(file));
+
+  return apiRequest<ExtractionResult>(
+    "/bills/extract",
+    { method: "POST", body: formData, signal },
+    { signedOut: "You must be signed in to read an invoice.", failed: "Couldn't read the invoice" },
   );
 }
 
