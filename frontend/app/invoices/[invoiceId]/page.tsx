@@ -102,8 +102,8 @@ export default function InvoiceDetailPage() {
           {error ?? "Invoice not found."}
         </p>
 
-        <Link href="/invoices" className="text-sm font-medium text-primary hover:underline">
-          Back to invoices
+        <Link href="/dashboard" className="text-sm font-medium text-primary hover:underline">
+          Back to dashboard
         </Link>
       </div>
     );
@@ -111,8 +111,8 @@ export default function InvoiceDetailPage() {
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 pt-16">
-      <Link href="/invoices" className="text-sm text-foreground-muted hover:text-foreground">
-        ← Back to invoices
+      <Link href="/dashboard" className="text-sm text-foreground-muted hover:text-foreground">
+        ← Back to dashboard
       </Link>
 
       <section className="rounded-xl border border-border bg-surface p-6 shadow-sm">
