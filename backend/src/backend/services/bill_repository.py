@@ -150,7 +150,8 @@ def get_editable_draft(
 ) -> dict | None:
     response = (
         _editable(
-            client.table("bills").select(DRAFT_COLUMNS).eq("bill_id", str(bill_id)),
+            # Every column: GET /bills/{id}/draft fills the form from this row.
+            client.table("bills").select("*").eq("bill_id", str(bill_id)),
             user_id,
         )
         .maybe_single()

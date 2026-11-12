@@ -209,6 +209,30 @@ def test_owner_can_read_their_own_draft(db):
     assert response.json()["status"] == "draft"
 
 
+def test_reading_a_draft_returns_what_was_saved(db):
+    # Opening a draft must fill the form with every saved field, not just its id.
+    db.add_user(USER_A)
+    saved = as_user(USER_A).post(
+        "/bills/drafts",
+        json={
+            "account_number_raw": "ACC-77",
+            "invoice_number": "INV-77",
+            "amount": "12.50",
+            "due_date": "2026-12-01",
+        },
+    )
+    assert saved.status_code == 201, saved.text
+
+    response = as_user(USER_A).get(f"/bills/{saved.json()['bill_id']}/draft")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["account_number_raw"] == "ACC-77"
+    assert body["invoice_number"] == "INV-77"
+    assert body["amount"] == "12.50"
+    assert body["due_date"] == "2026-12-01"
+
+
 def test_owner_cannot_read_their_own_non_draft(db):
     bill = db.add_bill(USER_A, status="pending_approval")
 
