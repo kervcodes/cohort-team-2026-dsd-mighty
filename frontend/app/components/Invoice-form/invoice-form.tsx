@@ -269,9 +269,9 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
 
   const watchedValues = useWatch({ control });
 
-  const hasAnyInput = Object.values(watchedValues).some(
-    (value) => typeof value === "string" && value.trim() !== "",
-  );
+  const hasAnyInput =
+    selectedFile !== null ||
+    Object.values(watchedValues).some((value) => typeof value === "string" && value.trim() !== "");
 
   // Save Draft and Create both may create the draft, so one waits for the
   // other: running both at once could make two bills.

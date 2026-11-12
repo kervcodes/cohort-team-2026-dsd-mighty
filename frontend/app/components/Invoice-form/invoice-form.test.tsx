@@ -732,6 +732,27 @@ describe("InvoiceForm", () => {
       await user.upload(document.querySelector("#invoicePdf") as HTMLInputElement, pdf());
       expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
     });
+    it("saves a draft holding only a picked PDF and stores the PDF with it", async () => {
+      const user = userEvent.setup();
+      mockUploadInvoicePdf.mockReset().mockResolvedValue({
+        bill_id: "bill-1",
+        document_path: "bills/bill-1/x.pdf",
+        status: "draft",
+      });
+      const file = pdf();
+      render(<InvoiceForm />);
+
+      await user.upload(document.querySelector("#invoicePdf") as HTMLInputElement, file);
+      const saveDraft = screen.getByRole("button", { name: "Save Draft" });
+      expect(saveDraft).toBeEnabled();
+
+      await user.click(saveDraft);
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
+
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
+    });
+
     it("disables Save Draft until the user enters something", async () => {
       const user = userEvent.setup();
       render(<InvoiceForm />);
@@ -1306,7 +1327,7 @@ describe("InvoiceForm", () => {
       ).toBeInTheDocument();
       expect(screen.getByRole("status")).toHaveTextContent("This file doesn't look like a bill.");
       expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("");
-      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
     });
 
     it("shows why a failed read failed and fills nothing", async () => {
