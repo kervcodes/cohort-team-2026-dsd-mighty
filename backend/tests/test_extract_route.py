@@ -43,22 +43,28 @@ SECRET_TEXT = b"Account 88-2110-4471 SECRET"
 
 
 def extraction() -> BillExtraction:
+    # Plain values, validated into each field's own type, so this stays valid
+    # when a field gets a narrower type than Extracted.
     fields = {
-        name: Extracted(value=None, evidence="", confidence=Confidence.low)
+        name: {"value": None, "evidence": "", "confidence": Confidence.low}
         for name in FIELD_NAMES
     }
-    fields["amount_due"] = Extracted(
-        value="5680.00", evidence="Total amount due 5680.00", confidence="high"
-    )
-    fields["due_date"] = Extracted(
-        value="2026-11-10", evidence="Due date 2026-11-10", confidence="medium"
-    )
+    fields["amount_due"] = {
+        "value": "5680.00",
+        "evidence": "Total amount due 5680.00",
+        "confidence": "high",
+    }
+    fields["due_date"] = {
+        "value": "2026-11-10",
+        "evidence": "Due date 2026-11-10",
+        "confidence": "medium",
+    }
     line = LineItem(
         description=Extracted(value="Water", evidence="Water", confidence="high"),
         amount=Extracted(value="5000.00", evidence="5000.00", confidence="high"),
     )
-    return BillExtraction(
-        document_type=DocumentType.invoice, line_items=[line], **fields
+    return BillExtraction.model_validate(
+        {"document_type": DocumentType.invoice, "line_items": [line], **fields}
     )
 
 
