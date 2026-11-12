@@ -206,14 +206,22 @@ export function InvoiceForm() {
   }
 
   async function handleUploadPdf() {
-    if (!selectedFile || !draftId) return;
+    if (!selectedFile) return;
 
     setPdfStatus("loading");
     setUploadError("");
     setUploadMessage("");
 
+    const id = draftId ?? (await persistDraft());
+
+    if (!id) {
+      setPdfStatus("idle");
+      setUploadError("The draft couldn't be saved, so the PDF wasn't uploaded.");
+      return;
+    }
+
     try {
-      const result = await uploadInvoicePdf(selectedFile, draftId);
+      const result = await uploadInvoicePdf(selectedFile, id);
 
       setPdfStatus("success");
       setUploadMessage(`PDF saved successfully: ${result.document_path}`);
@@ -223,21 +231,19 @@ export function InvoiceForm() {
     }
   }
 
-  async function handleSaveDraft() {
-    if (!hasAnyInput) return;
+  // Saves (or updates) the draft and returns its id, or null if it failed.
+  async function persistDraft(): Promise<string | null> {
     setDraftStatus("loading");
     setSubmitError("");
     setDraftMessage("");
 
     try {
-      const values = getValues();
-
-      const validation = invoiceDraftFormSchema.safeParse(values);
+      const validation = invoiceDraftFormSchema.safeParse(getValues());
 
       if (!validation.success) {
         setDraftStatus("error");
         setSubmitError(validation.error.issues[0]?.message ?? "Please check your draft.");
-        return;
+        return null;
       }
 
       const draftValues = validation.data;
@@ -266,16 +272,22 @@ export function InvoiceForm() {
 
       if (!draftId) {
         setDraftId(saved.bill_id);
-
         window.history.replaceState(null, "", `/invoices/${saved.bill_id}/edit`);
       }
 
       setDraftStatus("success");
       setDraftMessage(`Draft saved successfully: ${saved.bill_id}`);
+      return saved.bill_id;
     } catch (error) {
       setDraftStatus("error");
       setSubmitError(error instanceof Error ? error.message : "Unable to save draft.");
+      return null;
     }
+  }
+
+  async function handleSaveDraft() {
+    if (!hasAnyInput) return;
+    await persistDraft();
   }
 
   if (isLoadingDraft) {
@@ -387,7 +399,7 @@ export function InvoiceForm() {
         <button
           type="button"
           onClick={handleUploadPdf}
-          disabled={!selectedFile || !draftId || pdfStatus === "loading" || pdfStatus === "success"}
+          disabled={!selectedFile || pdfStatus === "loading" || pdfStatus === "success"}
           className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
         >
           {pdfStatus === "loading"
@@ -396,9 +408,7 @@ export function InvoiceForm() {
               ? "PDF Saved ✓"
               : pdfStatus === "error"
                 ? "Retry Upload"
-                : !draftId
-                  ? "Save Draft First"
-                  : "Upload PDF"}
+                : "Upload PDF"}
         </button>
 
         {uploadMessage && (
