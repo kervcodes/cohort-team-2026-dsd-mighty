@@ -157,26 +157,30 @@ describe("InvoiceForm", () => {
   });
 
   describe("PDF upload", () => {
+    const savedDraft = {
+      bill_id: "bill-1",
+      status: "draft" as const,
+      document_path: null,
+    };
+
     beforeEach(() => {
       mockSaveBillDraft.mockReset();
       mockUploadInvoicePdf.mockReset();
     });
 
-    it("requires a saved draft before a PDF can be uploaded", () => {
+    it("keeps Upload PDF disabled until a file is selected", async () => {
       render(<InvoiceForm />);
+
+      expect(screen.getByRole("button", { name: "Upload PDF" })).toBeDisabled();
 
       fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
 
-      expect(screen.getByRole("button", { name: "Save Draft First" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Upload PDF" })).toBeEnabled();
     });
 
-    it("uploads the selected PDF against the saved draft", async () => {
+    it("saves the draft automatically when uploading without one", async () => {
       const user = userEvent.setup();
-      mockSaveBillDraft.mockResolvedValue({
-        bill_id: "bill-1",
-        status: "draft",
-        document_path: null,
-      });
+      mockSaveBillDraft.mockResolvedValue(savedDraft);
       mockUploadInvoicePdf.mockResolvedValue({
         bill_id: "bill-1",
         document_path: "bills/bill-1/invoice.pdf",
@@ -184,18 +188,56 @@ describe("InvoiceForm", () => {
       });
       render(<InvoiceForm />);
 
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      const file = pdf();
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
+
+      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
+
+      expect(await screen.findByRole("button", { name: "PDF Saved ✓" })).toBeDisabled();
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
+    });
+
+    it("does not upload the PDF when the draft cannot be saved", async () => {
+      const user = userEvent.setup();
+      mockSaveBillDraft.mockRejectedValue(new Error("Unable to save draft."));
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
+
+      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
+
+      expect(
+        await screen.findByText("The draft couldn't be saved, so the PDF wasn't uploaded."),
+      ).toBeInTheDocument();
+      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Upload PDF" })).toBeEnabled();
+    });
+
+    it("uploads the selected PDF against an already saved draft", async () => {
+      const user = userEvent.setup();
+      mockSaveBillDraft.mockResolvedValue(savedDraft);
+      mockUploadInvoicePdf.mockResolvedValue({
+        bill_id: "bill-1",
+        document_path: "bills/bill-1/invoice.pdf",
+        status: "draft",
+      });
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
       await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      const upload = await screen.findByRole("button", { name: "Upload PDF" });
-      expect(upload).toBeDisabled();
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
 
       const file = pdf();
       fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
-      expect(upload).toBeEnabled();
+      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
 
-      await user.click(upload);
-
-      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
       expect(await screen.findByRole("button", { name: "PDF Saved ✓" })).toBeDisabled();
+      // The existing draft is reused, not saved a second time.
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
     });
 
     it("offers a retry when the upload fails", async () => {
@@ -208,6 +250,7 @@ describe("InvoiceForm", () => {
       mockUploadInvoicePdf.mockRejectedValue(new Error("Unable to store the invoice PDF."));
       render(<InvoiceForm />);
 
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
       await user.click(screen.getByRole("button", { name: "Save Draft" }));
       fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
       await user.click(await screen.findByRole("button", { name: "Upload PDF" }));
@@ -261,6 +304,7 @@ describe("InvoiceForm", () => {
       const user = userEvent.setup();
       render(<InvoiceForm />);
 
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
       await user.click(screen.getByRole("button", { name: "Save Draft" }));
       await screen.findByRole("button", { name: "Draft Saved ✓" });
 
@@ -274,6 +318,7 @@ describe("InvoiceForm", () => {
       const user = userEvent.setup();
       render(<InvoiceForm />);
 
+      await user.type(screen.getByLabelText("Account / Customer #"), "ACC-100");
       await user.click(screen.getByRole("button", { name: "Save Draft" }));
       await screen.findByRole("button", { name: "Draft Saved ✓" });
 
@@ -282,6 +327,45 @@ describe("InvoiceForm", () => {
 
       await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
       expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+    });
+    it("disables Save Draft until the user enters something", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+    });
+
+    it("keeps Save Draft disabled when a field only contains spaces", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "   ");
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+    });
+
+    it("disables Save Draft again when the user clears the only field", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      const field = screen.getByLabelText("Statement / Bill ID");
+      await user.type(field, "INV-2001");
+      await user.clear(field);
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+    });
+
+    it("does not call the API when the disabled button is clicked", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+
+      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+
+      expect(mockSaveBillDraft).not.toHaveBeenCalled();
     });
   });
 
@@ -327,6 +411,31 @@ describe("InvoiceForm", () => {
       expect(screen.getByDisplayValue("2026-11-01")).toBeInTheDocument();
       expect(screen.getByLabelText("Account Status")).toHaveValue("unpaid");
       expect(screen.getByDisplayValue("electric.example.com")).toBeInTheDocument();
+    });
+
+    it("enables Save Draft once an existing draft has loaded", async () => {
+      mockGetBillDraft.mockResolvedValue({
+        bill_id: "bill-1",
+        status: "draft",
+        account_number_raw: "ACC-100",
+        invoice_number: null,
+        vendor_name_raw: null,
+        invoice_date: null,
+        due_date: null,
+        amount: null,
+        prev_payments: null,
+        description: null,
+        processing_notes: null,
+        property_address: null,
+        account_status: null,
+        website_name: null,
+        document_path: null,
+      });
+
+      render(<InvoiceForm />);
+      expect(await screen.findByDisplayValue("ACC-100")).toBeInTheDocument();
+
+      expect(await screen.findByRole("button", { name: "Save Draft" })).toBeEnabled();
     });
   });
 });
