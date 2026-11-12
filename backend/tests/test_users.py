@@ -1,23 +1,21 @@
-
 """The admin user routes read and update public.app_users through the repository.
 
 Who may call each route is checked in test_route_permissions.py; these tests
 cover what the routes do for a caller who is allowed.
 """
 
+from datetime import datetime
 from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
-from fastapi.testclient import TestClient
-
 from current_users import make_user
 from fake_supabase import FakeSupabase
+from fastapi.testclient import TestClient
 
 from backend.app import app
 from backend.auth import get_current_user
 from backend.schemas.user import UserRole
-from datetime import datetime
 
 
 @pytest.fixture
@@ -44,7 +42,7 @@ def test_list_requires_sign_in(db):
 
 
 def test_list_returns_users_sorted_newest_first(db, admin):
-    older = db.add_user(
+    db.add_user(
         str(uuid4()),
         full_name="Older User",
         email="older@example.com",
@@ -70,13 +68,13 @@ def test_list_returns_users_sorted_newest_first(db, admin):
     ]
 
     assert body[0] == {
-    "user_id": newer["user_id"],
-    "full_name": "Newer User",
-    "email": "newer@example.com",
-    "role": "analyst",
-    "status": "active",
-    "created_at": body[0]["created_at"],
-}
+        "user_id": newer["user_id"],
+        "full_name": "Newer User",
+        "email": "newer@example.com",
+        "role": "analyst",
+        "status": "active",
+        "created_at": body[0]["created_at"],
+    }
 
     assert datetime.fromisoformat(
         body[0]["created_at"].replace("Z", "+00:00")
@@ -145,7 +143,6 @@ def test_get_rejects_invalid_user_id(db, admin):
     response = admin.get("/admin/users/not-a-uuid")
 
     assert response.status_code == 422
-
 
 
 def test_admin_changes_user_role(db, admin):
@@ -240,14 +237,14 @@ def test_update_unknown_user_is_404(db, admin):
     assert response.status_code == 404
 
 
-def test_admin_cannot_edit_own_account(db,monkeypatch):
+def test_admin_cannot_edit_own_account(db, monkeypatch):
     current_admin = make_user(role=UserRole.admin)
 
     monkeypatch.setitem(
-            app.dependency_overrides,
-            get_current_user,
-            lambda: current_admin,
-        )
+        app.dependency_overrides,
+        get_current_user,
+        lambda: current_admin,
+    )
     db.add_user(
         str(current_admin.id),
         role="admin",
@@ -271,7 +268,6 @@ def test_update_rejects_invalid_user_id(db, admin):
     )
 
     assert response.status_code == 422
-
 
 
 @pytest.mark.parametrize(

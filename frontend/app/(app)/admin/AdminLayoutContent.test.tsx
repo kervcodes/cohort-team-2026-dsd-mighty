@@ -19,7 +19,7 @@ describe("AdminLayoutContent", () => {
 
       render(
         <AdminLayoutContent>
-          <p>Page content</p>
+          <p>{"Page content"}</p>
         </AdminLayoutContent>,
       );
 
@@ -36,7 +36,7 @@ describe("AdminLayoutContent", () => {
 
       render(
         <AdminLayoutContent>
-          <p>Page content</p>
+          <p>{"Page content"}</p>
         </AdminLayoutContent>,
       );
 
@@ -50,7 +50,7 @@ describe("AdminLayoutContent", () => {
 
       render(
         <AdminLayoutContent>
-          <p>Content</p>
+          <p>{"Content"}</p>
         </AdminLayoutContent>,
       );
 
@@ -67,7 +67,7 @@ describe("AdminLayoutContent", () => {
 
       render(
         <AdminLayoutContent>
-          <p>Content</p>
+          <p>{"Content"}</p>
         </AdminLayoutContent>,
       );
 
@@ -79,7 +79,7 @@ describe("AdminLayoutContent", () => {
 
       render(
         <AdminLayoutContent>
-          <p>Content</p>
+          <p>{"Content"}</p>
         </AdminLayoutContent>,
       );
 
@@ -93,7 +93,7 @@ describe("AdminLayoutContent", () => {
 
       render(
         <AdminLayoutContent>
-          <p>Edit user content</p>
+          <p>{"Edit user content"}</p>
         </AdminLayoutContent>,
       );
 
@@ -117,7 +117,7 @@ describe("AdminLayoutContent", () => {
 
       render(
         <AdminLayoutContent>
-          <p>Edit user content</p>
+          <p>{"Edit user content"}</p>
         </AdminLayoutContent>,
       );
 
@@ -131,7 +131,7 @@ describe("AdminLayoutContent", () => {
 
     render(
       <AdminLayoutContent>
-        <p>Content</p>
+        <p>{"Content"}</p>
       </AdminLayoutContent>,
     );
 

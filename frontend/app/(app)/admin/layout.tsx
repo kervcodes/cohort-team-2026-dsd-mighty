@@ -4,7 +4,7 @@ import AdminLayoutContent from "./AdminLayoutContent";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <Suspense fallback={<p className="p-8">Loading admin...</p>}>
+    <Suspense fallback={<p className="p-8">{"Loading admin..."}</p>}>
       <AdminLayoutContent>{children}</AdminLayoutContent>
     </Suspense>
   );

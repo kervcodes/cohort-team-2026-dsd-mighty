@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { unauthorized, useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/auth/AuthProvider";
 import ConfirmModal from "@/components/ConfirmModal/ConfirmModal";
@@ -20,9 +20,11 @@ const COPY = {
   roleHint: "Determines which actions this user can perform.",
   status: "Account Status",
   statusHint: "Inactive users cannot access the application.",
+  adminAbility: "Manage account permissions and status.",
   save: "Save Changes",
   cancel: "Cancel",
   loading: "Loading user...",
+  permissionsLoad: "Loading permissions...",
   notFound: "User not found.",
   loadFailed: "Unable to load user.",
   notSet: "-",
@@ -31,6 +33,7 @@ const COPY = {
   confirmIntro: `This changes the user's permissions`,
   confirmSubmit: "Confirm Changes",
   saving: "Saving...",
+  unauthorized: "Your role does not have access.",
 };
 
 const roles = [
@@ -171,11 +174,11 @@ export default function AdminUsersEditPage() {
   const hasChanges = user !== null && (role !== user.role || status !== user.status);
 
   if (authLoading) {
-    return <p role="status">Loading permissions...</p>;
+    return <p role="status">{}</p>;
   }
 
   if (!canViewUsers) {
-    return <p role="alert">Your role does not have access.</p>;
+    return <p role="alert">{COPY.unauthorized}</p>;
   }
   if (loading && !saving) {
     return <p>{COPY.loading}</p>;
@@ -194,15 +197,13 @@ export default function AdminUsersEditPage() {
           href="/admin/users"
           className="inline-flex items-center gap-2 text-sm text-foreground-muted hover:text-foreground"
         >
-          <span aria-hidden="true">&larr;</span>
+          <span aria-hidden="true">{"->"}</span>
           {COPY.back}
         </Link>
 
         <div>
           <h2 className="text-2xl font-semibold text-foreground">{COPY.title}</h2>
-          <p className="mt-1 text-sm text-foreground-muted">
-            Manage account permissions and status.
-          </p>
+          <p className="mt-1 text-sm text-foreground-muted">{COPY.adminAbility}</p>
         </div>
       </div>
 

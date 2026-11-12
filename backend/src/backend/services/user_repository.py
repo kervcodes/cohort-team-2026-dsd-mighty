@@ -1,7 +1,8 @@
-from supabase import Client
 from backend.schemas.user import UserAdminUpdate
+from supabase import Client
 
 USER_COLUMNS = "user_id, full_name, email, role, status, created_at"
+
 
 def get_users(client: Client) -> list[dict]:
     response = (
@@ -14,15 +15,17 @@ def get_users(client: Client) -> list[dict]:
 
     return response.data or []
 
-def get_user_by_id(client:Client,user_id:str)-> dict | None:
+
+def get_user_by_id(client: Client, user_id: str) -> dict | None:
     response = (
         client.table("app_users")
         .select(USER_COLUMNS)
-        .eq("user_id",user_id)
+        .eq("user_id", user_id)
         .maybe_single()
         .execute()
     )
     return response.data if response else None
+
 
 def update_user(
     client: Client,

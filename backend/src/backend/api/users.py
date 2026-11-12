@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from backend.auth import CurrentUser, require_active, USER_READERS, USER_EDITORS
-from backend.schemas.user import UserRead, UserAdminUpdate
-from backend.services.user_repository import get_users, update_user, get_user_by_id
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from backend.auth import USER_EDITORS, USER_READERS, CurrentUser, require_active
+from backend.schemas.user import UserAdminUpdate, UserRead
+from backend.services.user_repository import get_user_by_id, get_users, update_user
 from backend.supabase_client import get_admin_supabase
 
 router = APIRouter(
@@ -38,14 +39,13 @@ def get_user(
         )
 
     return UserRead.model_validate(user)
-    
+
+
 @router.patch("/{user_id}", response_model=UserRead)
 def edit_user(
     user_id: UUID,
     draft: UserAdminUpdate,
-    current_user: CurrentUser = Depends(
-        require_active(*USER_EDITORS)
-    ),
+    current_user: CurrentUser = Depends(require_active(*USER_EDITORS)),
 ) -> UserRead:
 
     if user_id == current_user.id:
