@@ -19,6 +19,16 @@ export function isValidIsoDate(value: string): boolean {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+// A full web address the Website Name field accepts: http or https.
+export function isWebsite(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export const invoiceFormSchema = z
   .object({
     accountNumber: z.string().trim().min(1, "Account / customer # is required"),
@@ -42,15 +52,7 @@ export const invoiceFormSchema = z
     websiteName: z
       .string()
       .trim()
-      .refine((v) => {
-        if (v === "") return true;
-        try {
-          const { protocol } = new URL(v);
-          return protocol === "http:" || protocol === "https:";
-        } catch {
-          return false;
-        }
-      }, "Enter a full URL like https://domainname.com"),
+      .refine((v) => v === "" || isWebsite(v), "Enter a full URL like https://domainname.com"),
   })
   .refine((v) => v.dueDate >= v.issueDate, {
     message: "Due date can't be before the issue date",
@@ -104,15 +106,7 @@ export const invoiceDraftFormSchema = z
     websiteName: z
       .string()
       .trim()
-      .refine((v) => {
-        if (v === "") return true;
-        try {
-          const { protocol } = new URL(v);
-          return protocol === "http:" || protocol === "https:";
-        } catch {
-          return false;
-        }
-      }, "Enter a full URL like https://domainname.com"),
+      .refine((v) => v === "" || isWebsite(v), "Enter a full URL like https://domainname.com"),
   })
   .refine((v) => !v.issueDate || !v.dueDate || v.dueDate >= v.issueDate, {
     message: "Due date can't be before the issue date",

@@ -9,7 +9,14 @@ import {
   uploadInvoicePdf,
 } from "@/lib/api/bills";
 import { accountStatuses } from "@/lib/invoice-form-schema";
-import type { BillExtraction, Extracted, ExtractionResult } from "@/types/extraction";
+import type { AccountStatus } from "@/types/bill";
+import type {
+  BillExtraction,
+  Confidence,
+  Extracted,
+  ExtractedAccountStatus,
+  ExtractionResult,
+} from "@/types/extraction";
 import { InvoiceForm } from "./invoice-form";
 
 const push = jest.fn();
@@ -106,7 +113,14 @@ const mockUploadInvoicePdf = uploadInvoicePdf as jest.MockedFunction<typeof uplo
 const mockGetBillDraft = getBillDraft as jest.MockedFunction<typeof getBillDraft>;
 const mockExtractBill = extractBill as jest.MockedFunction<typeof extractBill>;
 
-function read(value: string | null, confidence: Extracted["confidence"] = "high"): Extracted {
+function read(value: string | null, confidence: Confidence = "high"): Extracted {
+  return { value, evidence: value ?? "", confidence };
+}
+
+function status(
+  value: AccountStatus | null,
+  confidence: Confidence = "high",
+): ExtractedAccountStatus {
   return { value, evidence: value ?? "", confidence };
 }
 
@@ -126,6 +140,11 @@ function extraction(overrides: Partial<BillExtraction> = {}): BillExtraction {
     service_address: read("12 Elm St"),
     service_period_start: read(null),
     service_period_end: read(null),
+    // Most tests are about the bill's required fields; the ones on these
+    // three set them.
+    description: read(null),
+    payment_website: read(null),
+    account_status: status(null),
     ...overrides,
   };
 }
@@ -802,6 +821,116 @@ describe("InvoiceForm", () => {
       expect(screen.getByLabelText("Prev Payments")).toHaveValue("50.00");
       expect(screen.getByLabelText("Property Address")).toHaveValue("12 Elm St");
       expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+    });
+
+    it("fills Description, Website Name and Account Status, and replaces them from the next PDF", async () => {
+      mockExtractBill
+        .mockResolvedValueOnce(
+          extractionResult({
+            extraction: extraction({
+              description: read("Electric service", "low"),
+              payment_website: read("https://citypower.example/pay"),
+              account_status: status("outstanding"),
+            }),
+          }),
+        )
+        .mockResolvedValueOnce(
+          extractionResult({
+            extraction: extraction({
+              description: read("Water service"),
+              payment_website: read("https://water.example"),
+              account_status: status("paid"),
+            }),
+          }),
+        );
+      render(<InvoiceForm />);
+
+      pick(pdf("a.pdf"));
+
+      expect(
+        await screen.findByText(
+          "Filled 11 fields from the invoice. Check them before you create the bill.",
+        ),
+      ).toBeInTheDocument();
+      const description = screen.getByLabelText("Bill Description / Explanation");
+      expect(description).toHaveValue("Electric service");
+      expect(description).toHaveAccessibleDescription("Check this: the reader wasn't sure");
+      expect(screen.getByLabelText("Website Name (optional)")).toHaveValue(
+        "https://citypower.example/pay",
+      );
+      const statusSelect = screen.getByLabelText("Account Status");
+      expect(statusSelect).toHaveValue("outstanding");
+      expect(statusSelect).toHaveDisplayValue("outstanding");
+
+      pick(pdf("b.pdf"));
+
+      await waitFor(() => {
+        expect(statusSelect).toHaveDisplayValue("paid");
+      });
+      expect(description).toHaveValue("Water service");
+      expect(description).not.toHaveAccessibleDescription();
+      expect(screen.getByLabelText("Website Name (optional)")).toHaveValue("https://water.example");
+    });
+
+    it("keeps a typed description and notes a website it could not use", async () => {
+      const user = userEvent.setup();
+      mockExtractBill.mockResolvedValue(
+        extractionResult({
+          status: "needs_attention",
+          extraction: extraction({
+            description: read("Electric service"),
+            payment_website: read("citypower.example/pay"),
+            account_status: status("unpaid"),
+          }),
+          issues: [{ code: "BAD_URL", field: "payment_website", message: "not a URL" }],
+        }),
+      );
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Bill Description / Explanation"), "Power bill");
+      pick();
+
+      expect(
+        await screen.findByText(
+          "Filled 9 fields from the invoice. Some values need checking - see the marked fields.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByLabelText("Bill Description / Explanation")).toHaveValue("Power bill");
+      expect(screen.getByLabelText("Account Status")).toHaveValue("unpaid");
+      const website = screen.getByLabelText("Website Name (optional)");
+      expect(website).toHaveValue("");
+      expect(website).toHaveAccessibleDescription(
+        'Check this: read "citypower.example/pay", which isn\'t a valid web address',
+      );
+    });
+
+    it("clears the Account Status note when the person picks a status, and keeps their pick", async () => {
+      const user = userEvent.setup();
+      mockExtractBill
+        .mockResolvedValueOnce(
+          extractionResult({ extraction: extraction({ account_status: status("paid", "low") }) }),
+        )
+        .mockResolvedValueOnce(
+          extractionResult({ extraction: extraction({ account_status: status("outstanding") }) }),
+        );
+      render(<InvoiceForm />);
+
+      pick(pdf("a.pdf"));
+
+      const statusSelect = await screen.findByDisplayValue("paid");
+      expect(statusSelect).toHaveAccessibleDescription("Check this: the reader wasn't sure");
+
+      await user.selectOptions(statusSelect, "unpaid");
+
+      expect(statusSelect).toHaveDisplayValue("unpaid");
+      expect(screen.queryByText("Check this: the reader wasn't sure")).not.toBeInTheDocument();
+
+      // The person's choice is theirs: the next read leaves it alone.
+      pick(pdf("b.pdf"));
+      await screen.findByText(
+        "Filled 8 fields from the invoice. Check them before you create the bill.",
+      );
+      expect(statusSelect).toHaveDisplayValue("unpaid");
     });
 
     it("never overwrites a value typed before or during the read", async () => {

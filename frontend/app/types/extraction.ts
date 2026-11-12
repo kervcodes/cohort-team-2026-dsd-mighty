@@ -1,6 +1,8 @@
 // The response of POST /bills/extract: `ExtractionResult` in
 // backend/src/backend/extraction/schema.py.
 
+import type { AccountStatus } from "@/types/bill";
+
 export type ExtractionStatus = "ready_for_review" | "needs_attention" | "not_an_invoice" | "failed";
 
 export type Confidence = "high" | "medium" | "low";
@@ -9,6 +11,10 @@ export type Extracted = {
   value: string | null;
   evidence: string;
   confidence: Confidence;
+};
+
+export type ExtractedAccountStatus = Omit<Extracted, "value"> & {
+  value: AccountStatus | null;
 };
 
 export type ExtractedLineItem = {
@@ -31,6 +37,9 @@ export type BillExtraction = {
   service_address: Extracted;
   service_period_start: Extracted;
   service_period_end: Extracted;
+  description: Extracted;
+  payment_website: Extracted;
+  account_status: ExtractedAccountStatus;
 };
 
 export type IssueCode =
@@ -39,6 +48,7 @@ export type IssueCode =
   | "DUE_BEFORE_INVOICE"
   | "DATE_OUT_OF_RANGE"
   | "BAD_AMOUNT"
+  | "BAD_URL"
   | "LINE_ITEMS_MISMATCH"
   | "BALANCE_MISMATCH"
   | "EVIDENCE_NOT_FOUND"
