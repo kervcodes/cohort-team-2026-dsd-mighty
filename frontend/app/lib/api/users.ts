@@ -1,5 +1,5 @@
-import type { ApiProfile, UserRole } from "@/types/user";
 import type { EntityStatus } from "@/types/entity";
+import type { ApiProfile, UserRole } from "@/types/user";
 import { apiRequest } from "./http";
 
 function apiUrl(): string {
@@ -39,10 +39,7 @@ export function getUser(user_id: string): Promise<ApiProfile> {
   );
 }
 
-export function updateUser(
-  user_id: string,
-  payload: UserUpdatePayload,
-): Promise<ApiProfile> {
+export function updateUser(user_id: string, payload: UserUpdatePayload): Promise<ApiProfile> {
   return apiRequest<ApiProfile>(
     `/admin/users/${user_id}`,
     {
