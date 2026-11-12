@@ -12,28 +12,20 @@ const tabs = [
   { label: "Users", href: "/admin/users" },
 ];
 
-export default function AdminLayoutContent({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isEditPage = pathname.includes("/edit");
 
   return (
     <main className="mx-auto max-w-5xl p-8">
-      <h1 className="mb-8 text-3xl font-semibold text-foreground">
-        {COPY.title}
-      </h1>
+      <h1 className="mb-8 text-3xl font-semibold text-foreground">{COPY.title}</h1>
 
       <div className="rounded-lg border border-border bg-surface">
         <nav className="flex gap-6 border-b border-border px-4">
           {tabs.map((tab) => {
             const active =
               !isEditPage &&
-              (tab.href === "/admin"
-                ? pathname === tab.href
-                : pathname === tab.href);
+              (tab.href === "/admin" ? pathname === tab.href : pathname === tab.href);
 
             return (
               <Link

@@ -1,18 +1,6 @@
 import { NextResponse } from "next/server";
+import { safeNextPath } from "@/lib/auth-redirects";
 import { createClient } from "@/lib/supabase/server";
-
-function safeNextPath(next: string | null, origin: string) {
-  if (!next) return "/dashboard";
-  try {
-    const url = new URL(next, origin);
-    if (url.origin === origin) {
-      return `${url.pathname}${url.search}${url.hash}`;
-    }
-  } catch {
-    console.error("auth callback: unparseable next param", next);
-  }
-  return "/dashboard";
-}
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);

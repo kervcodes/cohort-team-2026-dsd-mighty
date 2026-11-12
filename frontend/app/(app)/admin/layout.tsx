@@ -2,11 +2,7 @@
 import { Suspense } from "react";
 import AdminLayoutContent from "./AdminLayoutContent";
 
-export default function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <Suspense fallback={<p className="p-8">Loading admin...</p>}>
       <AdminLayoutContent>{children}</AdminLayoutContent>

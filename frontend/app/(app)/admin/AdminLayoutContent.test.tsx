@@ -54,15 +54,9 @@ describe("AdminLayoutContent", () => {
         </AdminLayoutContent>,
       );
 
-      expect(screen.getByRole("link", { name: "Rules" })).toHaveAttribute(
-        "href",
-        "/admin",
-      );
+      expect(screen.getByRole("link", { name: "Rules" })).toHaveAttribute("href", "/admin");
 
-      expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute(
-        "href",
-        "/admin/users",
-      );
+      expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/admin/users");
     });
 
     it.each([
@@ -77,10 +71,7 @@ describe("AdminLayoutContent", () => {
         </AdminLayoutContent>,
       );
 
-      expect(screen.getByRole("link", { name: activeTab })).toHaveAttribute(
-        "aria-current",
-        "page",
-      );
+      expect(screen.getByRole("link", { name: activeTab })).toHaveAttribute("aria-current", "page");
     });
 
     it("does not mark inactive tabs as current", () => {
@@ -92,9 +83,7 @@ describe("AdminLayoutContent", () => {
         </AdminLayoutContent>,
       );
 
-      expect(screen.getByRole("link", { name: "Users" })).not.toHaveAttribute(
-        "aria-current",
-      );
+      expect(screen.getByRole("link", { name: "Users" })).not.toHaveAttribute("aria-current");
     });
   });
 
@@ -132,9 +121,7 @@ describe("AdminLayoutContent", () => {
         </AdminLayoutContent>,
       );
 
-      expect(
-        screen.queryByRole("link", { name: "Edit" }),
-      ).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
 
       expect(screen.getByText("Edit")).toBeInTheDocument();
     });
@@ -150,12 +137,8 @@ describe("AdminLayoutContent", () => {
 
     expect(screen.getByText("Edit")).toHaveAttribute("aria-current", "page");
 
-    expect(screen.getByRole("link", { name: "Users" })).not.toHaveAttribute(
-      "aria-current",
-    );
+    expect(screen.getByRole("link", { name: "Users" })).not.toHaveAttribute("aria-current");
 
-    expect(screen.getByRole("link", { name: "Rules" })).not.toHaveAttribute(
-      "aria-current",
-    );
+    expect(screen.getByRole("link", { name: "Rules" })).not.toHaveAttribute("aria-current");
   });
 });

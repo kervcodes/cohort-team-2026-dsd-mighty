@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/auth/AuthProvider";
+import ConfirmModal from "@/components/ConfirmModal/ConfirmModal";
 import { getUser, updateUser } from "@/lib/api/users";
 import type { ApiProfile } from "@/types/user";
-import ConfirmModal from "@/components/ConfirmModal/ConfirmModal";
 
 const COPY = {
   title: "Edit User",
@@ -55,8 +55,7 @@ export default function AdminUsersEditPage() {
 
   const { profile, loading: authLoading } = useAuth();
 
-  const canViewUsers =
-    !authLoading && profile?.role === "admin" && profile.status === "active";
+  const canViewUsers = !authLoading && profile?.role === "admin" && profile.status === "active";
 
   const [user, setUser] = useState<ApiProfile | null>(null);
   const [role, setRole] = useState<ApiProfile["role"]>("analyst");
@@ -169,8 +168,7 @@ export default function AdminUsersEditPage() {
     await saveUser();
   }
 
-  const hasChanges =
-    user !== null && (role !== user.role || status !== user.status);
+  const hasChanges = user !== null && (role !== user.role || status !== user.status);
 
   if (authLoading) {
     return <p role="status">Loading permissions...</p>;
@@ -201,9 +199,7 @@ export default function AdminUsersEditPage() {
         </Link>
 
         <div>
-          <h2 className="text-2xl font-semibold text-foreground">
-            {COPY.title}
-          </h2>
+          <h2 className="text-2xl font-semibold text-foreground">{COPY.title}</h2>
           <p className="mt-1 text-sm text-foreground-muted">
             Manage account permissions and status.
           </p>
@@ -212,38 +208,28 @@ export default function AdminUsersEditPage() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <section className="rounded-lg border border-border bg-surface p-6">
-          <h3 className="mb-5 text-lg font-semibold text-foreground">
-            {COPY.accountInfo}
-          </h3>
+          <h3 className="mb-5 text-lg font-semibold text-foreground">{COPY.accountInfo}</h3>
 
           <dl className="grid gap-5 sm:grid-cols-2">
             <div>
               <dt className="text-sm text-foreground-muted">{COPY.fullName}</dt>
-              <dd className="mt-1 font-medium text-foreground">
-                {user.full_name ?? COPY.notSet}
-              </dd>
+              <dd className="mt-1 font-medium text-foreground">{user.full_name ?? COPY.notSet}</dd>
             </div>
 
             <div>
               <dt className="text-sm text-foreground-muted">{COPY.email}</dt>
-              <dd className="mt-1 font-medium text-foreground">
-                {user.email ?? COPY.notSet}
-              </dd>
+              <dd className="mt-1 font-medium text-foreground">{user.email ?? COPY.notSet}</dd>
             </div>
 
             <div className="sm:col-span-2">
               <dt className="text-sm text-foreground-muted">{COPY.userId}</dt>
-              <dd className="mt-1 break-all font-mono text-xs text-foreground">
-                {user.user_id}
-              </dd>
+              <dd className="mt-1 break-all font-mono text-xs text-foreground">{user.user_id}</dd>
             </div>
           </dl>
         </section>
 
         <section className="rounded-lg border border-border bg-surface p-6">
-          <h3 className="mb-5 text-lg font-semibold text-foreground">
-            {COPY.permissions}
-          </h3>
+          <h3 className="mb-5 text-lg font-semibold text-foreground">{COPY.permissions}</h3>
 
           <div className="grid gap-6 sm:grid-cols-2">
             <div>
@@ -254,9 +240,7 @@ export default function AdminUsersEditPage() {
               <select
                 id="role"
                 value={role}
-                onChange={(event) =>
-                  setRole(event.target.value as ApiProfile["role"])
-                }
+                onChange={(event) => setRole(event.target.value as ApiProfile["role"])}
                 className={inputClass}
               >
                 {roles.map((item) => (
@@ -266,9 +250,7 @@ export default function AdminUsersEditPage() {
                 ))}
               </select>
 
-              <p className="mt-2 text-xs text-foreground-muted">
-                {COPY.roleHint}
-              </p>
+              <p className="mt-2 text-xs text-foreground-muted">{COPY.roleHint}</p>
             </div>
 
             <div>
@@ -279,9 +261,7 @@ export default function AdminUsersEditPage() {
               <select
                 id="status"
                 value={status}
-                onChange={(event) =>
-                  setStatus(event.target.value as ApiProfile["status"])
-                }
+                onChange={(event) => setStatus(event.target.value as ApiProfile["status"])}
                 className={inputClass}
               >
                 {statuses.map((item) => (
@@ -291,9 +271,7 @@ export default function AdminUsersEditPage() {
                 ))}
               </select>
 
-              <p className="mt-2 text-xs text-foreground-muted">
-                {COPY.statusHint}
-              </p>
+              <p className="mt-2 text-xs text-foreground-muted">{COPY.statusHint}</p>
             </div>
           </div>
         </section>
@@ -328,21 +306,15 @@ export default function AdminUsersEditPage() {
               <ul className="mt-2 list-disc pl-5 text-foreground">
                 {role !== user.role && (
                   <li>
-                    <span className="line-through text-foreground-muted">
-                      {" "}
-                      {user.role}
-                    </span>{" "}
-                    -{">"} {role}
+                    <span className="line-through text-foreground-muted"> {user.role}</span> -{">"}{" "}
+                    {role}
                   </li>
                 )}
                 {status !== user.status && (
                   <li>
                     <p>
-                      <span className="line-through text-foreground-muted">
-                        {" "}
-                        {user.status}
-                      </span>{" "}
-                      -{">"} {status}
+                      <span className="line-through text-foreground-muted"> {user.status}</span> -
+                      {">"} {status}
                     </p>
                   </li>
                 )}

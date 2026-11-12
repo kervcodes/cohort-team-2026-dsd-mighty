@@ -1,17 +1,36 @@
 """In-memory stand-in for the supabase-py client, for route tests.
 
-It applies `.eq()` / `.is_()` filters the way PostgREST does, so tests run the
-real repository queries. That is what lets a test prove that the
-`submitted_by` filters keep one analyst out of another's bills: the routes use
-the service-role client, which bypasses row-level security, so those filters
-are the only tenant guard.
+It applies `.eq()` / `.is_()` / `.or_()` filters the way PostgREST does, so
+tests run the real repository queries. That is what lets a test prove that
+the rules in `bill_access` keep one analyst out of another's drafts: the
+routes use the service-role client, which bypasses row-level security, so
+those filters are the only guard.
+
+`select()` resolves embeds such as `submitter:app_users!submitted_by(...)`
+through FOREIGN_KEYS, and an insert must satisfy those foreign keys, as in
+Postgres. Plain columns are not projected: every stored column comes back.
 
 Supports only the query shapes the repository uses. Helpers, not tests.
 """
 
+import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
+
+# (table, column) -> (referenced table, referenced column), as in the migrations.
+FOREIGN_KEYS = {("bills", "submitted_by"): ("app_users", "user_id")}
+
+# alias:table!fk_column(col,col)
+EMBED = re.compile(r"(\w+):(\w+)!(\w+)\(([\w,]+)\)")
+
+# The PostgREST operators `or_` accepts here: column.operator.value
+OPERATORS: dict[str, Callable[[Any, str], bool]] = {
+    "eq": lambda stored, value: stored is not None and str(stored) == value,
+    # SQL: NULL <> 'x' is not true, so a null never matches neq either.
+    "neq": lambda stored, value: stored is not None and str(stored) != value,
+}
 
 
 class _Result:
@@ -28,19 +47,31 @@ def _insert_defaults(table: str) -> dict[str, Any]:
 
 
 class _Query:
-    def __init__(self, rows: list[dict[str, Any]], table: str) -> None:
-        self._rows = rows
+    def __init__(self, db: "FakeSupabase", table: str) -> None:
+        self._db = db
         self._table = table
+        self._rows = db.tables.setdefault(table, [])
         self._op = "select"
         self._payload: dict[str, Any] | None = None
         self._filters: list[tuple[str, Any]] = []
+        self._any_of: list[list[tuple[str, str, str]]] = []
+        self._embeds: list[tuple[str, str, str, list[str]]] = []
+        self._columns: list[str] | None = None  # None: every column
         self._order: tuple[str, bool] | None = None
         self._limit: int | None = None
         self._single: str | None = None  # "maybe" or "one"
         self._neq_filters: list[tuple[str, Any]] = []
 
-    def select(self, *_columns: str) -> "_Query":
-        return self  # after insert/update: return the affected rows
+    def select(self, *columns: str) -> "_Query":
+        # After insert/update this names the columns of the affected rows.
+        # Like PostgREST, only the named columns come back ("*" is all), so a
+        # query that forgets a column fails in tests too.
+        joined = ",".join(columns)
+        for alias, table, fk_column, inner in EMBED.findall(joined):
+            self._embeds.append((alias, table, fk_column, inner.split(",")))
+        plain = [c.strip() for c in EMBED.sub("", joined).split(",") if c.strip()]
+        self._columns = None if "*" in plain else plain
+        return self
 
     def insert(self, payload: dict[str, Any]) -> "_Query":
         self._op, self._payload = "insert", payload
@@ -52,6 +83,15 @@ class _Query:
 
     def eq(self, column: str, value: Any) -> "_Query":
         self._filters.append((column, value))
+        return self
+
+    def or_(self, filters: str) -> "_Query":
+        conditions = []
+        for condition in filters.split(","):
+            column, operator, value = condition.split(".", 2)
+            assert operator in OPERATORS, f"or_ operator {operator!r} unsupported"
+            conditions.append((column, operator, value))
+        self._any_of.append(conditions)
         return self
 
     def is_(self, column: str, value: str) -> "_Query":
@@ -74,25 +114,43 @@ class _Query:
     def single(self) -> "_Query":
         self._single = "one"
         return self
+
     def neq(self, column: str, value: Any) -> "_Query":
         self._neq_filters.append((column, value))
         return self
 
     def _matches(self, row: dict[str, Any]) -> bool:
-        matches_equal = all(
-            row.get(column) == value
-            for column, value in self._filters
+        return all(row.get(column) == value for column, value in self._filters) and all(
+            any(OPERATORS[op](row.get(column), value) for column, op, value in group)
+            for group in self._any_of
         )
 
-        matches_not_equal = all(
-            row.get(column) != value
-            for column, value in self._neq_filters
-        )
+    def _embed(self, row: dict[str, Any]) -> dict[str, Any]:
+        for alias, table, fk_column, inner in self._embeds:
+            target, key = FOREIGN_KEYS[(self._table, fk_column)]
+            assert target == table, f"{fk_column} references {target}, not {table}"
+            match = self._db.find(table, key, row.get(fk_column))
+            row[alias] = {c: match.get(c) for c in inner} if match else None
+        return row
 
-        return matches_equal and matches_not_equal
+    def _project(self, row: dict[str, Any]) -> dict[str, Any]:
+        if self._columns is None:
+            return row
+        keep = set(self._columns) | {alias for alias, *_ in self._embeds}
+        return {column: value for column, value in row.items() if column in keep}
+
+    def _check_foreign_keys(self, row: dict[str, Any]) -> None:
+        for (table, column), (target, key) in FOREIGN_KEYS.items():
+            value = row.get(column)
+            if table == self._table and value is not None:
+                assert self._db.find(target, key, value), (
+                    f"insert violates foreign key {table}.{column} -> {target}"
+                )
+
     def execute(self) -> _Result | None:
         if self._op == "insert":
             row = {**_insert_defaults(self._table), **(self._payload or {})}
+            self._check_foreign_keys(row)
             self._rows.append(row)
             rows = [row]
         else:
@@ -106,7 +164,7 @@ class _Query:
             if self._limit is not None:
                 rows = rows[: self._limit]
 
-        copies = [dict(row) for row in rows]
+        copies = [self._project(self._embed(dict(row))) for row in rows]
         if self._single == "maybe":
             # supabase-py returns None, not an empty result, for no match.
             return _Result(copies[0]) if copies else None
@@ -147,9 +205,17 @@ class FakeSupabase:
         self.storage = _Storage()
 
     def table(self, name: str) -> _Query:
-        return _Query(self.tables.setdefault(name, []), name)
+        return _Query(self, name)
+
+    def find(self, table: str, column: str, value: Any) -> dict[str, Any] | None:
+        rows = self.tables.get(table, [])
+        return next((row for row in rows if row.get(column) == value), None)
 
     def add_bill(self, submitted_by: str, **fields: Any) -> dict[str, Any]:
+        """A bill row; its submitter's `app_users` row is added if missing, as
+        the foreign key needs it."""
+        if not self.find("app_users", "user_id", submitted_by):
+            self.add_user(submitted_by)
         row = {
             "bill_id": str(uuid4()),
             "submitted_by": submitted_by,
@@ -158,7 +224,7 @@ class FakeSupabase:
             "created_at": datetime.now(UTC).isoformat(),
             **fields,
         }
-        self.table("bills")._rows.append(row)
+        self.tables.setdefault("bills", []).append(row)
         return row
 
     def add_vendor(self, vendor_name: str, **fields: Any) -> dict[str, Any]:

@@ -2,10 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/auth/AuthProvider";
-import {
-  DataTable,
-  type DataTableColumn,
-} from "@/components/DataTable/DataTable";
+import { DataTable, type DataTableColumn } from "@/components/DataTable/DataTable";
 import { StatusBadge } from "@/components/Status-Badge/status-badge";
 import { listUsers } from "@/lib/api/users";
 import type { ApiProfile } from "@/types/user";
@@ -23,10 +20,7 @@ const columns: DataTableColumn<ApiProfile>[] = [
   {
     header: "id",
     cell: (profile) => (
-      <Link
-        className="text-blue-600 hover:underline"
-        href={`/admin/users/${profile.user_id}/edit`}
-      >
+      <Link className="text-blue-600 hover:underline" href={`/admin/users/${profile.user_id}/edit`}>
         {profile.user_id.slice(0, 8)}{" "}
       </Link>
     ),
@@ -44,8 +38,7 @@ const columns: DataTableColumn<ApiProfile>[] = [
 export default function AdminUsersPage() {
   const { profile, loading: authLoading } = useAuth();
 
-  const canViewUsers =
-    !authLoading && profile?.role === "admin" && profile.status === "active";
+  const canViewUsers = !authLoading && profile?.role === "admin" && profile.status === "active";
   const [users, setUsers] = useState<ApiProfile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);

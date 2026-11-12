@@ -1,4 +1,9 @@
-import { emptyInvoiceForm, invoiceFormSchema } from "./invoice-form-schema";
+import {
+  emptyDraftInvoiceForm,
+  emptyInvoiceForm,
+  invoiceDraftFormSchema,
+  invoiceFormSchema,
+} from "./invoice-form-schema";
 
 const validData = {
   accountNumber: "12345",
@@ -32,5 +37,28 @@ describe("dates", () => {
       dueDate: "2026-10-15",
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("invoiceDraftFormSchema", () => {
+  it("accepts a fully valid form", () => {
+    expect(invoiceDraftFormSchema.safeParse(validData).success).toBe(true);
+  });
+  it("accepts the empty default form", () => {
+    expect(invoiceDraftFormSchema.safeParse(emptyDraftInvoiceForm).success).toBe(true);
+  });
+  it("accepts a partially filled draft", () => {
+    expect(
+      invoiceDraftFormSchema.safeParse({
+        ...emptyDraftInvoiceForm,
+        accountNumber: "12345",
+        companyName: "Acme Utilities",
+      }).success,
+    ).toBe(true);
+  });
+  it.each(["issueDate", "dueDate"])("rejects an impossible calendar %s", (field) => {
+    expect(
+      invoiceDraftFormSchema.safeParse({ ...emptyDraftInvoiceForm, [field]: "2026-02-31" }).success,
+    ).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useAuth } from "@/auth/AuthProvider";
 import { useParams } from "next/navigation";
+import { useAuth } from "@/auth/AuthProvider";
 import { getUser, updateUser } from "@/lib/api/users";
 import type { ApiProfile } from "@/types/user";
 import AdminUsersEditPage from "./page";
@@ -110,36 +110,27 @@ describe("AdminUsersEditPage", () => {
 
       render(<AdminUsersEditPage />);
 
-      expect(screen.getByRole("status")).toHaveTextContent(
-        "Loading permissions...",
-      );
+      expect(screen.getByRole("status")).toHaveTextContent("Loading permissions...");
 
       expect(mockGetUser).not.toHaveBeenCalled();
     });
 
-    it.each(["analyst", "approver"] as const)(
-      "denies access to the %s role",
-      (role) => {
-        signInAs(role);
+    it.each(["analyst", "approver"] as const)("denies access to the %s role", (role) => {
+      signInAs(role);
 
-        render(<AdminUsersEditPage />);
+      render(<AdminUsersEditPage />);
 
-        expect(screen.getByRole("alert")).toHaveTextContent(
-          "Your role does not have access.",
-        );
+      expect(screen.getByRole("alert")).toHaveTextContent("Your role does not have access.");
 
-        expect(mockGetUser).not.toHaveBeenCalled();
-      },
-    );
+      expect(mockGetUser).not.toHaveBeenCalled();
+    });
 
     it("denies access without a profile", () => {
       signInAs(null);
 
       render(<AdminUsersEditPage />);
 
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "Your role does not have access.",
-      );
+      expect(screen.getByRole("alert")).toHaveTextContent("Your role does not have access.");
 
       expect(mockGetUser).not.toHaveBeenCalled();
     });
@@ -149,9 +140,7 @@ describe("AdminUsersEditPage", () => {
 
       render(<AdminUsersEditPage />);
 
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "Your role does not have access.",
-      );
+      expect(screen.getByRole("alert")).toHaveTextContent("Your role does not have access.");
 
       expect(mockGetUser).not.toHaveBeenCalled();
     });
@@ -200,9 +189,7 @@ describe("AdminUsersEditPage", () => {
 
       render(<AdminUsersEditPage />);
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Unable to reach the server.",
-      );
+      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to reach the server.");
     });
 
     it("uses the fallback error for non-Error exceptions", async () => {
@@ -210,9 +197,7 @@ describe("AdminUsersEditPage", () => {
 
       render(<AdminUsersEditPage />);
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Unable to load user.",
-      );
+      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load user.");
     });
   });
 
@@ -270,17 +255,11 @@ describe("AdminUsersEditPage", () => {
 
       expect(roleSelect).toHaveValue("analyst");
 
-      expect(
-        within(roleSelect).getByRole("option", { name: "Analyst" }),
-      ).toBeInTheDocument();
+      expect(within(roleSelect).getByRole("option", { name: "Analyst" })).toBeInTheDocument();
 
-      expect(
-        within(roleSelect).getByRole("option", { name: "Approver" }),
-      ).toBeInTheDocument();
+      expect(within(roleSelect).getByRole("option", { name: "Approver" })).toBeInTheDocument();
 
-      expect(
-        within(roleSelect).getByRole("option", { name: "Admin" }),
-      ).toBeInTheDocument();
+      expect(within(roleSelect).getByRole("option", { name: "Admin" })).toBeInTheDocument();
     });
 
     it("renders the available account statuses", () => {
@@ -290,30 +269,19 @@ describe("AdminUsersEditPage", () => {
 
       expect(statusSelect).toHaveValue("active");
 
-      expect(
-        within(statusSelect).getByRole("option", { name: "Active" }),
-      ).toBeInTheDocument();
+      expect(within(statusSelect).getByRole("option", { name: "Active" })).toBeInTheDocument();
 
-      expect(
-        within(statusSelect).getByRole("option", { name: "Inactive" }),
-      ).toBeInTheDocument();
+      expect(within(statusSelect).getByRole("option", { name: "Inactive" })).toBeInTheDocument();
     });
 
     it("disables Save Changes when there are no changes", () => {
-      expect(
-        screen.getByRole("button", { name: "Save Changes" }),
-      ).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
     });
 
     it("enables Save Changes when the role changes", async () => {
-      await userEvent.selectOptions(
-        screen.getByRole("combobox", { name: "Role" }),
-        "admin",
-      );
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Role" }), "admin");
 
-      expect(
-        screen.getByRole("button", { name: "Save Changes" }),
-      ).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeEnabled();
     });
 
     it("enables Save Changes when the status changes", async () => {
@@ -322,20 +290,13 @@ describe("AdminUsersEditPage", () => {
         "inactive",
       );
 
-      expect(
-        screen.getByRole("button", { name: "Save Changes" }),
-      ).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeEnabled();
     });
 
     it("opens the confirmation modal when saving changes", async () => {
-      await userEvent.selectOptions(
-        screen.getByRole("combobox", { name: "Role" }),
-        "admin",
-      );
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Role" }), "admin");
 
-      await userEvent.click(
-        screen.getByRole("button", { name: "Save Changes" }),
-      );
+      await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
       expect(
         screen.getByRole("dialog", {
@@ -343,25 +304,18 @@ describe("AdminUsersEditPage", () => {
         }),
       ).toBeInTheDocument();
 
-      expect(
-        screen.getByText(/This changes the user's permissions/),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/This changes the user's permissions/)).toBeInTheDocument();
 
       const confirmation = screen.getByRole("dialog");
 
-      expect(within(confirmation).getByRole("list")).toHaveTextContent(
-        "analyst",
-      );
+      expect(within(confirmation).getByRole("list")).toHaveTextContent("analyst");
 
       expect(within(confirmation).getByRole("list")).toHaveTextContent("admin");
       expect(mockUpdateUser).not.toHaveBeenCalled();
     });
 
     it("cancels changes and restores the original values", async () => {
-      await userEvent.selectOptions(
-        screen.getByRole("combobox", { name: "Role" }),
-        "admin",
-      );
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Role" }), "admin");
 
       await userEvent.selectOptions(
         screen.getByRole("combobox", { name: "Account Status" }),
@@ -370,17 +324,11 @@ describe("AdminUsersEditPage", () => {
 
       await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
-      expect(screen.getByRole("combobox", { name: "Role" })).toHaveValue(
-        "analyst",
-      );
+      expect(screen.getByRole("combobox", { name: "Role" })).toHaveValue("analyst");
 
-      expect(
-        screen.getByRole("combobox", { name: "Account Status" }),
-      ).toHaveValue("active");
+      expect(screen.getByRole("combobox", { name: "Account Status" })).toHaveValue("active");
 
-      expect(
-        screen.getByRole("button", { name: "Save Changes" }),
-      ).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
 
       expect(mockUpdateUser).not.toHaveBeenCalled();
     });
@@ -394,18 +342,11 @@ describe("AdminUsersEditPage", () => {
 
       await renderLoadedPage();
 
-      await userEvent.selectOptions(
-        screen.getByRole("combobox", { name: "Role" }),
-        "admin",
-      );
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Role" }), "admin");
 
-      await userEvent.click(
-        screen.getByRole("button", { name: "Save Changes" }),
-      );
+      await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
-      await userEvent.click(
-        screen.getByRole("button", { name: "Confirm Changes" }),
-      );
+      await userEvent.click(screen.getByRole("button", { name: "Confirm Changes" }));
 
       await waitFor(() => {
         expect(mockUpdateUser).toHaveBeenCalledWith(USER_ID, {
@@ -413,17 +354,11 @@ describe("AdminUsersEditPage", () => {
         });
       });
 
-      expect(
-        await screen.findByText("User updated successfully."),
-      ).toBeInTheDocument();
+      expect(await screen.findByText("User updated successfully.")).toBeInTheDocument();
 
-      expect(screen.getByRole("combobox", { name: "Role" })).toHaveValue(
-        "admin",
-      );
+      expect(screen.getByRole("combobox", { name: "Role" })).toHaveValue("admin");
 
-      expect(
-        screen.getByRole("button", { name: "Save Changes" }),
-      ).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
     });
 
     it("updates the user's account status", async () => {
@@ -436,13 +371,9 @@ describe("AdminUsersEditPage", () => {
         "inactive",
       );
 
-      await userEvent.click(
-        screen.getByRole("button", { name: "Save Changes" }),
-      );
+      await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
-      await userEvent.click(
-        screen.getByRole("button", { name: "Confirm Changes" }),
-      );
+      await userEvent.click(screen.getByRole("button", { name: "Confirm Changes" }));
 
       await waitFor(() => {
         expect(mockUpdateUser).toHaveBeenCalledWith(USER_ID, {
@@ -450,9 +381,7 @@ describe("AdminUsersEditPage", () => {
         });
       });
 
-      expect(
-        await screen.findByText("User updated successfully."),
-      ).toBeInTheDocument();
+      expect(await screen.findByText("User updated successfully.")).toBeInTheDocument();
     });
 
     it("updates both role and status when both change", async () => {
@@ -465,23 +394,16 @@ describe("AdminUsersEditPage", () => {
 
       await renderLoadedPage();
 
-      await userEvent.selectOptions(
-        screen.getByRole("combobox", { name: "Role" }),
-        "approver",
-      );
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Role" }), "approver");
 
       await userEvent.selectOptions(
         screen.getByRole("combobox", { name: "Account Status" }),
         "inactive",
       );
 
-      await userEvent.click(
-        screen.getByRole("button", { name: "Save Changes" }),
-      );
+      await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
-      await userEvent.click(
-        screen.getByRole("button", { name: "Confirm Changes" }),
-      );
+      await userEvent.click(screen.getByRole("button", { name: "Confirm Changes" }));
 
       await waitFor(() => {
         expect(mockUpdateUser).toHaveBeenCalledWith(USER_ID, {
@@ -496,39 +418,23 @@ describe("AdminUsersEditPage", () => {
 
       await renderLoadedPage();
 
-      await userEvent.selectOptions(
-        screen.getByRole("combobox", { name: "Role" }),
-        "admin",
-      );
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Role" }), "admin");
 
-      await userEvent.click(
-        screen.getByRole("button", { name: "Save Changes" }),
-      );
+      await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
-      await userEvent.click(
-        screen.getByRole("button", { name: "Confirm Changes" }),
-      );
+      await userEvent.click(screen.getByRole("button", { name: "Confirm Changes" }));
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Unable to update user.",
-      );
+      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to update user.");
     });
 
     it("does not update the user when confirmation is cancelled", async () => {
       await renderLoadedPage();
 
-      await userEvent.selectOptions(
-        screen.getByRole("combobox", { name: "Role" }),
-        "admin",
-      );
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Role" }), "admin");
 
-      await userEvent.click(
-        screen.getByRole("button", { name: "Save Changes" }),
-      );
+      await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
-      await userEvent.click(
-        screen.getByRole("button", { name: "Cancel confirmation" }),
-      );
+      await userEvent.click(screen.getByRole("button", { name: "Cancel confirmation" }));
 
       expect(mockUpdateUser).not.toHaveBeenCalled();
     });
@@ -536,9 +442,7 @@ describe("AdminUsersEditPage", () => {
     it("does not update the user when there are no changes", async () => {
       await renderLoadedPage();
 
-      expect(
-        screen.getByRole("button", { name: "Save Changes" }),
-      ).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
 
       expect(mockUpdateUser).not.toHaveBeenCalled();
     });
