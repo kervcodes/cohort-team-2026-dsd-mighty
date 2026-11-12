@@ -123,6 +123,15 @@ class _Query:
         return all(row.get(column) == value for column, value in self._filters) and all(
             any(OPERATORS[op](row.get(column), value) for column, op, value in group)
             for group in self._any_of
+            #     matches_equal = all(
+            #     row.get(column) == value
+            #     for column, value in self._filters
+            # )
+            # matches_not_equal = all(
+            #     row.get(column) != value
+            #     for column, value in self._neq_filters
+            # )
+            # return matches_equal and matches_not_equal
         )
 
     def _embed(self, row: dict[str, Any]) -> dict[str, Any]:

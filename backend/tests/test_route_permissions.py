@@ -62,7 +62,7 @@ REQUEST_BODY = {
     ("POST", "/bills/{bill_id}/document"): {"files": {"file": PDF}},
     ("POST", "/vendors"): {"json": {"name": "Acme Water"}},
     ("PATCH", "/vendors/{vendor_id}"): {"json": {"contact_phone": "555-0100"}},
-    "/admin/users/{user_id}": {"json": {"role": "approver"}},
+    ("PATCH", "/admin/users/{user_id}"): {"json": {"role": "approver"}},
 }
 
 CASES = [
