@@ -28,7 +28,7 @@ def extract_bill(data: bytes, media_type: str, *, model: str) -> ExtractionResul
 - Accepts `application/pdf`, `image/png`, `image/jpeg`. The declared type must be one of these, but the file's first bytes decide what it is (`%PDF-`, PNG or JPEG signature); other bytes are rejected. PDFs at most 10 MB and 5 pages, images at most 5 MB (Claude's per-image limit). Anything else returns status `failed` with a reason, without calling a model.
 - Encrypted PDFs: an owner-password-only PDF is read, and the model gets a decrypted copy (Claude takes only PDFs without passwords or encryption). A PDF that needs a password is `failed`.
 - Raises only for configuration errors: an unknown model (`ValueError`) or a missing API key. Every other error, including an unexpected one from the model call, is status `failed`.
-- Later, `POST /bills/extract` (multipart file) returns `ExtractionResult` as JSON. It stores nothing. The endpoint must cap the upload size before reading the body fully, and should run extraction in a worker thread with an overall deadline.
+- `POST /bills/extract` (DC-74, `backend/src/backend/api/bill_extraction.py`; multipart field `file`; active analysts and admins) runs `extract_bill_cascade` and returns its `result`, an `ExtractionResult`, as JSON. It stores nothing. A declared type other than PDF, PNG or JPEG is 415, an empty file 400, a body or file over 10 MB 413 (a `Content-Length` over the cap is refused unread, and a body without one is cut off as it streams in). Extraction runs in a worker thread with a 90 s deadline (504); a missing API key is 503.
 
 ## Pipeline
 
