@@ -1,12 +1,13 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from backend.schemas.approval import (
-    ApprovalDecision,
-    ApprovalRead,
-    # ApprovalStatus,
-)
+from backend.auth import CurrentUser, require_active
+from backend.schemas.approval import ApprovalDecision, ApprovalRead
+from backend.schemas.common import ApprovalStatus
+from backend.schemas.user import UserRole
+from backend.services.approval_repository import list_approvals
+from backend.supabase_client import get_admin_supabase
 
 router = APIRouter(
     prefix="/approvals",
@@ -15,20 +16,23 @@ router = APIRouter(
 
 
 @router.get("", response_model=list[ApprovalRead])
-# def list_approvals(
-#     status_filter: ApprovalStatus = Query(
-#         default="pending",
-#         alias="status",
-#     ),
-#     bill_id: UUID | None = None,
-#     skip: int = Query(default=0, ge=0),
-#     limit: int = Query(default=25, ge=1, le=100),
-# ) -> list[ApprovalRead]:
-#     items = [a for a in a if a.status == status_filter]
-#     if bill_id is not None:
-#         items = [a for a in items if a.bill_id == bill_id]
-#     items.sort(key=lambda a: a.requested_at)
-#     return items[skip : skip + limit]
+def get_approvals(
+    status_filter: ApprovalStatus = Query(
+        default="pending",
+        alias="status",
+    ),
+    bill_id: UUID | None = None,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=25, ge=1, le=100),
+    user: CurrentUser = Depends(require_active(UserRole.approver, UserRole.admin)),
+) -> list[ApprovalRead]:
+    return list_approvals(
+        client=get_admin_supabase(),
+        status_filter=status_filter,
+        bill_id=bill_id,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.post("/{approval_id}/decision")
