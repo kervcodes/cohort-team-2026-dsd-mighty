@@ -738,6 +738,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
           label="Bill Description / Explanation"
           htmlFor="description"
           error={errors.description?.message}
+          note={notes.description}
         >
           {(field) => (
             <input
@@ -799,6 +800,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
           label="Account Status"
           htmlFor="accountStatus"
           error={errors.accountStatus?.message}
+          note={notes.accountStatus}
         >
           {(field) => (
             <select
@@ -829,6 +831,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
           label="Website Name (optional)"
           htmlFor="websiteName"
           error={errors.websiteName?.message}
+          note={notes.websiteName}
         >
           {(field) => (
             <input

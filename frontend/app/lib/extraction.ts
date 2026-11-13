@@ -2,7 +2,13 @@
 // values to pre-fill, a "Check this" note per field and a banner. Pure: the
 // form decides when to apply the plan.
 
-import { type InvoiceFormValues, isMoney, isValidIsoDate } from "@/lib/invoice-form-schema";
+import {
+  accountStatuses,
+  type InvoiceFormValues,
+  isMoney,
+  isValidIsoDate,
+  isWebsite,
+} from "@/lib/invoice-form-schema";
 import type {
   BillExtraction,
   ExtractionIssue,
@@ -12,7 +18,7 @@ import type {
 
 export const READING_MESSAGE = "Reading invoice...";
 
-type ValueKind = "text" | "date" | "amount" | "amountAboveZero";
+type ValueKind = "text" | "date" | "amount" | "amountAboveZero" | "website" | "status";
 
 // Extraction field -> form field, and how its value is checked.
 const FIELD_MAP = [
@@ -24,6 +30,9 @@ const FIELD_MAP = [
   { from: "amount_due", to: "currentDue", kind: "amountAboveZero" },
   { from: "payments_received", to: "previousPayments", kind: "amount" },
   { from: "service_address", to: "propertyAddress", kind: "text" },
+  { from: "description", to: "description", kind: "text" },
+  { from: "payment_website", to: "websiteName", kind: "website" },
+  { from: "account_status", to: "accountStatus", kind: "status" },
 ] as const satisfies readonly {
   from: keyof BillExtraction;
   to: keyof InvoiceFormValues;
@@ -50,6 +59,8 @@ export type FillPlan = {
 
 const MAPPED_FIELDS = new Set<string>(FIELD_MAP.map((field) => field.from));
 const MAX_DETAILS = 5;
+// The statuses the Account Status select offers, without "Select status".
+const STATUSES = new Set<string>(accountStatuses.filter((status) => status !== ""));
 
 // `note` is set when the value was filled but changed from what was printed,
 // so the person sees what the bill said.
@@ -116,6 +127,14 @@ export function normalizeValue(kind: ValueKind, raw: string | null): Normalized 
       }
       return { ok: true, value: read.amount };
     }
+    case "website":
+      return isWebsite(value)
+        ? { ok: true, value }
+        : { ok: false, problem: `read "${value}", which isn't a valid web address` };
+    case "status":
+      return STATUSES.has(value)
+        ? { ok: true, value }
+        : { ok: false, problem: `read "${value}", which isn't paid, unpaid or outstanding` };
   }
 }
 
@@ -128,6 +147,7 @@ const ISSUE_REASONS: Record<IssueCode, string> = {
   DUE_BEFORE_INVOICE: "the due date is before the invoice date",
   DATE_OUT_OF_RANGE: "more than a year ago or over 6 months ahead",
   BAD_AMOUNT: "not a valid amount",
+  BAD_URL: "not a valid web address",
   LINE_ITEMS_MISMATCH: "the line items don't add up to it",
   BALANCE_MISMATCH: "the balance, payments and charges on the bill don't add up to it",
   EVIDENCE_NOT_FOUND: "couldn't find it in the PDF's text",
@@ -229,7 +249,7 @@ export function planFill(
     }
 
     const read = extraction[from];
-    const normalized = normalizeValue(kind, read.value);
+    const normalized = normalizeValue(kind, read?.value ?? null);
     const issues = result.issues.filter((issue) => issue.field === from);
     let reasons = issues.map(issueReason);
 
@@ -244,14 +264,18 @@ export function planFill(
           ...reasons.filter((reason) => reason !== ISSUE_REASONS.BAD_AMOUNT),
         ];
       }
-      if (read.confidence === "low" && !issues.some((i) => i.code === "LOW_CONFIDENCE")) {
+      if (read?.confidence === "low" && !issues.some((i) => i.code === "LOW_CONFIDENCE")) {
         reasons.push(ISSUE_REASONS.LOW_CONFIDENCE);
       }
     } else {
       if (replace) values[to] = "";
       if (normalized) {
         // Not filled: say what was read so the person can type it in.
-        const restated = new Set([ISSUE_REASONS.BAD_DATE, ISSUE_REASONS.BAD_AMOUNT]);
+        const restated = new Set([
+          ISSUE_REASONS.BAD_DATE,
+          ISSUE_REASONS.BAD_AMOUNT,
+          ISSUE_REASONS.BAD_URL,
+        ]);
         reasons = [normalized.problem, ...reasons.filter((reason) => !restated.has(reason))];
       }
     }

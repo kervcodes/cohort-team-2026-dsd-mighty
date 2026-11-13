@@ -1,14 +1,23 @@
 import { emptyInvoiceForm } from "@/lib/invoice-form-schema";
+import type { AccountStatus } from "@/types/bill";
 import type {
   BillExtraction,
   Confidence,
   Extracted,
+  ExtractedAccountStatus,
   ExtractionIssue,
   ExtractionResult,
 } from "@/types/extraction";
 import { fieldLabel, normalizeValue, planFill } from "./extraction";
 
 function read(value: string | null, confidence: Confidence = "high"): Extracted {
+  return { value, evidence: value ?? "", confidence };
+}
+
+function status(
+  value: AccountStatus | null,
+  confidence: Confidence = "high",
+): ExtractedAccountStatus {
   return { value, evidence: value ?? "", confidence };
 }
 
@@ -28,6 +37,9 @@ function extraction(overrides: Partial<BillExtraction> = {}): BillExtraction {
     service_address: read("  12 Elm St  "),
     service_period_start: read(null),
     service_period_end: read(null),
+    description: read("Electric service"),
+    payment_website: read(" https://citypower.example/pay "),
+    account_status: status("unpaid"),
     ...overrides,
   };
 }
@@ -66,13 +78,42 @@ describe("planFill", () => {
       currentDue: "1234.56",
       previousPayments: "50.00",
       propertyAddress: "12 Elm St",
+      description: "Electric service",
+      websiteName: "https://citypower.example/pay",
+      accountStatus: "unpaid",
     });
     expect(plan.notes).toEqual({});
     expect(plan.banner).toEqual({
       tone: "success",
-      message: "Filled 8 fields from the invoice. Check them before you create the bill.",
+      message: "Filled 11 fields from the invoice. Check them before you create the bill.",
       details: [],
     });
+  });
+
+  it("fills the other fields when the backend does not return description, website or status", () => {
+    const {
+      description: _description,
+      payment_website: _website,
+      account_status: _status,
+      ...older
+    } = extraction();
+
+    const plan = planFill(
+      result({ extraction: older as unknown as BillExtraction }),
+      emptyInvoiceForm,
+    );
+
+    expect(plan.values).toEqual({
+      companyName: "City Power",
+      accountNumber: "ACC-100",
+      statementId: "INV-2001",
+      issueDate: "2026-10-01",
+      dueDate: "2026-10-31",
+      currentDue: "1234.56",
+      previousPayments: "50.00",
+      propertyAddress: "12 Elm St",
+    });
+    expect(plan.banner.tone).not.toBe("error");
   });
 
   it("never fills a field that already has a value", () => {
@@ -88,7 +129,7 @@ describe("planFill", () => {
     // reading are not shown on it.
     expect(plan.notes.accountNumber).toBeUndefined();
     expect(plan.banner.message).toBe(
-      "Filled 6 fields from the invoice. Check them before you create the bill.",
+      "Filled 9 fields from the invoice. Check them before you create the bill.",
     );
   });
 
@@ -103,6 +144,9 @@ describe("planFill", () => {
       currentDue: "1",
       previousPayments: "1",
       propertyAddress: "a",
+      description: "a",
+      websiteName: "https://a.example",
+      accountStatus: "paid" as const,
     };
 
     const plan = planFill(result(), full);
@@ -152,7 +196,7 @@ describe("planFill", () => {
     expect(plan.banner).toEqual({
       tone: "warning",
       message:
-        "Filled 4 fields from the invoice. Some values need checking - see the marked fields.",
+        "Filled 7 fields from the invoice. Some values need checking - see the marked fields.",
       details: [],
     });
   });
@@ -184,6 +228,55 @@ describe("planFill", () => {
     expect(plan.notes.currentDue).toBe(
       'Check this: read "$0.00", but the amount must be more than 0',
     );
+  });
+
+  it.each(["www.citypower.example", "ftp://citypower.example", "pay online"])(
+    "does not fill the website %p but says what was read",
+    (website) => {
+      const plan = planFill(
+        result({
+          status: "needs_attention",
+          extraction: extraction({ payment_website: read(website) }),
+          issues: [issue("BAD_URL", "payment_website")],
+        }),
+        emptyInvoiceForm,
+      );
+
+      expect(plan.values).not.toHaveProperty("websiteName");
+      // BAD_URL says the same as the note, so it is not repeated.
+      expect(plan.notes).toEqual({
+        websiteName: `Check this: read "${website}", which isn't a valid web address`,
+      });
+    },
+  );
+
+  it("fills a website the form accepts but notes the reader's doubt about it", () => {
+    // The backend also rejects whitespace inside a URL; the form's rule does not.
+    const plan = planFill(
+      result({
+        status: "needs_attention",
+        extraction: extraction({ payment_website: read("https://citypower.example/pay now") }),
+        issues: [issue("BAD_URL", "payment_website")],
+      }),
+      emptyInvoiceForm,
+    );
+
+    expect(plan.values.websiteName).toBe("https://citypower.example/pay now");
+    expect(plan.notes).toEqual({ websiteName: "Check this: not a valid web address" });
+  });
+
+  it.each(["overdue", "Paid"])("does not fill the account status %p", (printed) => {
+    const plan = planFill(
+      result({
+        extraction: extraction({ account_status: read(printed) as ExtractedAccountStatus }),
+      }),
+      emptyInvoiceForm,
+    );
+
+    expect(plan.values).not.toHaveProperty("accountStatus");
+    expect(plan.notes).toEqual({
+      accountStatus: `Check this: read "${printed}", which isn't paid, unpaid or outstanding`,
+    });
   });
 
   it("marks a low-confidence value it filled", () => {
@@ -247,7 +340,7 @@ describe("planFill", () => {
     expect(plan.notes).toEqual({});
     expect(plan.banner).toEqual({
       tone: "warning",
-      message: "Filled 8 fields from the invoice. Some values need checking.",
+      message: "Filled 11 fields from the invoice. Some values need checking.",
       details: [
         "Current charges: the line items don't add up to it",
         "Line item 1 amount: no usable amount",
@@ -336,6 +429,9 @@ describe("planFill", () => {
       currentDue: "10.00",
       previousPayments: "5.00",
       propertyAddress: "1 Old Rd",
+      description: "Old service",
+      websiteName: "https://old.example",
+      accountStatus: "paid" as const,
     };
     const replaceable = new Set([
       "companyName",
@@ -345,6 +441,9 @@ describe("planFill", () => {
       "currentDue",
       "previousPayments",
       "propertyAddress",
+      "description",
+      "websiteName",
+      "accountStatus",
     ] as const);
 
     it("replaces what the earlier read filled, but never the person's value", () => {
@@ -358,9 +457,12 @@ describe("planFill", () => {
         currentDue: "1234.56",
         previousPayments: "50.00",
         propertyAddress: "12 Elm St",
+        description: "Electric service",
+        websiteName: "https://citypower.example/pay",
+        accountStatus: "unpaid",
       });
       expect(plan.banner.message).toBe(
-        "Filled 7 fields from the invoice. Check them before you create the bill.",
+        "Filled 10 fields from the invoice. Check them before you create the bill.",
       );
     });
 
@@ -368,8 +470,14 @@ describe("planFill", () => {
       const plan = planFill(
         result({
           status: "needs_attention",
-          extraction: extraction({ payments_received: read(null), due_date: read("31/10/2026") }),
-          issues: [issue("BAD_DATE", "due_date")],
+          extraction: extraction({
+            payments_received: read(null),
+            due_date: read("31/10/2026"),
+            description: read(null),
+            payment_website: read("citypower.example"),
+            account_status: status(null),
+          }),
+          issues: [issue("BAD_DATE", "due_date"), issue("BAD_URL", "payment_website")],
         }),
         earlier,
         replaceable,
@@ -377,7 +485,13 @@ describe("planFill", () => {
 
       expect(plan.values.previousPayments).toBe("");
       expect(plan.values.dueDate).toBe("");
+      expect(plan.values.description).toBe("");
+      expect(plan.values.websiteName).toBe("");
+      expect(plan.values.accountStatus).toBe("");
       expect(plan.notes.dueDate).toBe('Check this: read "31/10/2026", which isn\'t a valid date');
+      expect(plan.notes.websiteName).toBe(
+        'Check this: read "citypower.example", which isn\'t a valid web address',
+      );
       // Clearing a field is not filling it.
       expect(plan.banner.message).toBe(
         "Filled 5 fields from the invoice. Some values need checking - see the marked fields.",
@@ -393,6 +507,9 @@ describe("planFill", () => {
         currentDue: "",
         previousPayments: "",
         propertyAddress: "",
+        description: "",
+        websiteName: "",
+        accountStatus: "",
       };
 
       expect(planFill(result({ status: "not_an_invoice" }), earlier, replaceable).values).toEqual(
@@ -417,6 +534,9 @@ describe("planFill", () => {
           amount_due: nothing,
           payments_received: nothing,
           service_address: nothing,
+          description: nothing,
+          payment_website: nothing,
+          account_status: status(null),
         }),
       }),
       emptyInvoiceForm,
