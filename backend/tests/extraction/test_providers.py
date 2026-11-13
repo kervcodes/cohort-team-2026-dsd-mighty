@@ -125,6 +125,13 @@ def test_gemini_schema_inlines_refs_and_makes_nulls_type_arrays():
     ]
 
 
+def test_gemini_schema_keeps_null_in_a_nullable_enum():
+    schema = gemini_schema(BillExtraction.model_json_schema())
+    value = schema["properties"]["account_status"]["properties"]["value"]
+    assert value["type"] == ["string", "null"]
+    assert value["enum"] == ["unpaid", "outstanding", "paid", None]
+
+
 def test_gemini_schema_keeps_every_field_and_requirement():
     original = BillExtraction.model_json_schema()
     schema = gemini_schema(original)
@@ -202,6 +209,17 @@ def test_claude_sends_a_pdf_as_a_document_block(fake_claude: FakeClaudeMessages)
     assert block["source"]["media_type"] == "application/pdf"
     assert base64.standard_b64decode(block["source"]["data"]) == b"%PDF-bytes"
     assert "temperature" not in kwargs
+
+
+def test_claude_schema_allows_only_the_bill_create_statuses(fake_claude):
+    call_claude(b"%PDF", "application/pdf", model=CLAUDE_HAIKU)
+    schema = fake_claude.kwargs["output_config"]["format"]["schema"]
+    status = schema["$defs"]["ExtractedAccountStatus"]["properties"]["value"]
+    assert status["anyOf"] == [
+        {"$ref": "#/$defs/AccountStatus"},
+        {"type": "null"},
+    ]
+    assert schema["$defs"]["AccountStatus"]["enum"] == ["unpaid", "outstanding", "paid"]
 
 
 def test_claude_sends_an_image_as_an_image_block(fake_claude: FakeClaudeMessages):
