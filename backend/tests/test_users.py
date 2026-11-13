@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from backend.app import app
 from backend.auth import get_current_user
 from backend.schemas.user import UserRole
+from backend.services.user_repository import USER_COLUMNS
 
 
 @pytest.fixture
@@ -305,3 +306,20 @@ def test_update_rejects_invalid_payloads(db, admin, payload):
 
     assert response.status_code == 422
     assert db.tables["app_users"][0] == original
+
+
+def test_update_guard_never_matches_the_updaters_own_row(db):
+    user_id = str(uuid4())
+    db.add_user(user_id, role="admin")
+
+    response = (
+        db.table("app_users")
+        .update({"role": "analyst"})
+        .eq("user_id", user_id)
+        .neq("user_id", user_id)
+        .select(USER_COLUMNS)
+        .execute()
+    )
+
+    assert response.data == []
+    assert db.tables["app_users"][0]["role"] == "admin"
