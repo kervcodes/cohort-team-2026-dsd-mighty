@@ -25,6 +25,21 @@ export function createBill(payload: BillCreatePayload): Promise<Bill> {
   );
 }
 
+export function resubmitBill(billId: string, payload: BillCreatePayload): Promise<Bill> {
+  return apiRequest<Bill>(
+    `/bills/${billId}/resubmit`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    {
+      signedOut: "You must be signed in to resubmit an invoice.",
+      failed: "Unable to resubmit invoice",
+    },
+  );
+}
+
 // A dropped file can have an empty MIME type (the form accepts it by its
 // .pdf extension). FormData would then send it as application/octet-stream.
 // The backend still checks the %PDF- signature.
