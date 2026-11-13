@@ -46,6 +46,30 @@ def _insert_defaults(table: str) -> dict[str, Any]:
     return {"bill_id": str(uuid4()), "document_path": None, "created_at": now}
 
 
+class _Rpc:
+    def __init__(
+        self,
+        db: "FakeSupabase",
+        function: str,
+        params: dict[str, Any],
+    ) -> None:
+        self._db = db
+        self._function = function
+        self._params = params
+
+    def execute(self) -> _Result:
+        if self._function != "create_bill_with_approval":
+            raise NotImplementedError(
+                f"RPC function {self._function!r} is not supported"
+            )
+
+        bill_id = self._db.create_bill_with_approval(
+            fields=self._params["p_fields"],
+            user_id=self._params["p_user_id"],
+        )
+        return _Result(bill_id)
+
+
 class _Query:
     def __init__(self, db: "FakeSupabase", table: str) -> None:
         self._db = db
@@ -183,6 +207,21 @@ class _Bucket:
             self._storage.objects.pop(path, None)
             self._storage.removed.append(path)
 
+    def create_signed_url(
+        self,
+        path: str,
+        expires_in: int = 300,
+    ) -> dict[str, str]:
+        if path not in self._storage.objects:
+            raise FileNotFoundError(f"Storage object not found: {path}")
+
+        return {
+            "signedURL": (
+                f"https://test-storage.example/invoices/{path}"
+                f"?token=test-token&expires_in={expires_in}"
+            )
+        }
+
 
 class _Storage:
     def __init__(self) -> None:
@@ -221,6 +260,43 @@ class FakeSupabase:
         }
         self.tables.setdefault("bills", []).append(row)
         return row
+
+    def rpc(
+        self,
+        function: str,
+        params: dict[str, Any],
+    ) -> _Rpc:
+        return _Rpc(self, function, params)
+
+    def create_bill_with_approval(
+        self,
+        fields: dict[str, Any],
+        user_id: str,
+    ) -> str:
+        """Simulate the atomic bill-and-approval database function."""
+        now = datetime.now(UTC).isoformat()
+
+        bill = self.add_bill(
+            submitted_by=user_id,
+            status="pending_approval",
+            **fields,
+        )
+
+        approval = {
+            "approval_id": str(uuid4()),
+            "bill_id": bill["bill_id"],
+            "reviewer_id": None,
+            "requested_at": now,
+            "decision_at": None,
+            "comments": None,
+            "approval_status": "pending",
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        self.tables.setdefault("approvals", []).append(approval)
+
+        return bill["bill_id"]
 
     def add_vendor(self, vendor_name: str, **fields: Any) -> dict[str, Any]:
         row = {

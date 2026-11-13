@@ -34,6 +34,7 @@ ROLE_TABLE = [
     ("POST", "/bills/drafts", {ANALYST, ADMIN}, 201),
     ("GET", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
     ("PATCH", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
+    ("GET", "/bills/{bill_id}/document", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/bills/{bill_id}/document", {ANALYST, ADMIN}, 201),
     ("GET", "/vendors", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/vendors", {ADMIN}, 201),
@@ -80,6 +81,10 @@ CASES = [
 @pytest.fixture
 def db():
     fake = FakeSupabase()
+
+    # The document route needs an existing PDF to generate a signed URL.
+    fake.storage.objects["bills/test/invoice.pdf"] = PDF[1]
+
     with (
         patch("backend.api.bills.get_admin_supabase", return_value=fake),
         patch("backend.api.bill_documents.get_admin_supabase", return_value=fake),
@@ -92,12 +97,25 @@ def db():
 @pytest.mark.parametrize(("method", "path", "role", "status", "expected"), CASES)
 def test_route_allows_only_its_active_roles(db, method, path, role, status, expected):
     user = make_user(role=role, status=status)
+
     db.add_user(
         str(user.id),
         role=role.value,
         status=status,
     )
-    bill = db.add_bill(str(user.id))
+
+    document_path = (
+        "bills/test/invoice.pdf"
+        if method == "GET" and path == "/bills/{bill_id}/document"
+        else None
+    )
+
+    bill = db.add_bill(
+        str(user.id),
+        status="draft",
+        document_path=document_path,
+    )
+
     vendor = db.add_vendor("Acme Water")
     app.dependency_overrides[get_current_user] = lambda: user
 
@@ -108,6 +126,7 @@ def test_route_allows_only_its_active_roles(db, method, path, role, status, expe
     )
 
     assert response.status_code == expected, response.text
+
     if status == "inactive":
         assert response.json()["detail"] == "Your account is waiting for approval."
     elif expected == 403:

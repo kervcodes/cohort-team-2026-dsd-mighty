@@ -25,6 +25,7 @@ from backend.services.bill_repository import (
     list_dashboard_bills,
     list_readable_bills,
     save_bill,
+    submit_bill_with_approval,
     update_draft,
 )
 from backend.services.bill_storage import create_pdf_signed_url
@@ -36,16 +37,19 @@ router = APIRouter(
 )
 
 
-@router.post("", response_model=BillRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=BillRead,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_bill(
     bill: BillCreate,
     user: CurrentUser = Depends(require_active(*BILL_WRITERS)),
 ) -> BillRead:
-    return save_bill(
+    return submit_bill_with_approval(
         client=get_admin_supabase(),
         fields=bill,
         user_id=user.id,
-        status=BillStatus.pending_approval,
     )
 
 
@@ -186,8 +190,10 @@ def update_existing_draft(
     return BillDraftRead.model_validate(updated)
 
 
-# retrieves an existing one
-@router.get("/{bill_id}/draft", response_model=BillDraftDetail)
+@router.get(
+    "/{bill_id}/draft",
+    response_model=BillDraftDetail,
+)
 def get_draft(
     bill_id: UUID,
     user: CurrentUser = Depends(require_active(*BILL_WRITERS)),
