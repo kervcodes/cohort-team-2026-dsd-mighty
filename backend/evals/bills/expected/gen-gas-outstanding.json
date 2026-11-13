@@ -1,0 +1,44 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Timberline Gas Company",
+  "account_number": "TG-88-2044-1",
+  "invoice_number": "TG-2610-21107",
+  "invoice_date": "2026-10-24",
+  "due_date": "2026-11-16",
+  "amount_due": "1032.70",
+  "previous_balance": "618.44",
+  "payments_received": "0.00",
+  "current_charges": "414.26",
+  "line_items": [
+    {
+      "description": "Customer charge (30 days)",
+      "amount": "18.95"
+    },
+    {
+      "description": "Distribution charge",
+      "amount": "151.87"
+    },
+    {
+      "description": "Gas supply charge",
+      "amount": "207.06"
+    },
+    {
+      "description": "Infrastructure rider",
+      "amount": "24.31"
+    },
+    {
+      "description": "Municipal franchise fee (3.0%)",
+      "amount": "12.07"
+    }
+  ],
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
+  "service_period_start": "2026-09-24",
+  "service_period_end": "2026-10-23",
+  "description": "Commercial natural gas service",
+  "payment_website": "https://pay.timberline-gas.example",
+  "account_status": "outstanding",
+  "expected_issues": [],
+  "expected_status": "ready_for_review",
+  "case": "Clean 2-page gas statement whose previous balance was not paid: status OUTSTANDING, the balance is carried forward",
+  "notes": "No payment since the last statement (payments_received prints as 0.00), so the total due is the unpaid previous balance plus the current charges. The printed status is OUTSTANDING."
+}
