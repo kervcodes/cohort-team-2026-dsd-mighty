@@ -24,6 +24,7 @@ from backend.services.bill_repository import (
     get_readable_bill,
     list_dashboard_bills,
     list_readable_bills,
+    resubmit_bill_with_approval,
     save_bill,
     submit_bill_with_approval,
     update_draft,
@@ -48,6 +49,23 @@ def create_bill(
 ) -> BillRead:
     return submit_bill_with_approval(
         client=get_admin_supabase(),
+        fields=bill,
+        user_id=user.id,
+    )
+
+
+@router.post(
+    "/{bill_id}/resubmit",
+    response_model=BillRead,
+)
+def resubmit_bill(
+    bill_id: UUID,
+    bill: BillCreate,
+    user: CurrentUser = Depends(require_active(*BILL_WRITERS)),
+) -> BillRead:
+    return resubmit_bill_with_approval(
+        client=get_admin_supabase(),
+        bill_id=bill_id,
         fields=bill,
         user_id=user.id,
     )

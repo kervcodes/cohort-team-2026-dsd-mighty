@@ -41,6 +41,19 @@ ROLE_TABLE = [
     ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
     ("PATCH", "/vendors/{vendor_id}", {ADMIN}, 200),
     ("GET", "/admin/users", {ADMIN}, 200),
+    (
+        "GET",
+        "/approvals",
+        {APPROVER, ADMIN},
+        200,
+    ),
+    (
+        "POST",
+        "/approvals/{approval_id}/decision",
+        {APPROVER, ADMIN},
+        200,
+    ),
+    ("POST", "/bills/{bill_id}/resubmit", {ANALYST, ADMIN}, 200),
 ]
 
 # Routes that need a signed-in user but no role.
@@ -61,6 +74,20 @@ REQUEST_BODY = {
     ("POST", "/bills/{bill_id}/document"): {"files": {"file": PDF}},
     ("POST", "/vendors"): {"json": {"name": "Acme Water"}},
     ("PATCH", "/vendors/{vendor_id}"): {"json": {"contact_phone": "555-0100"}},
+    ("POST", "/approvals/{approval_id}/decision"): {
+        "json": {
+            "decision": "approve",
+        }
+    },
+    ("POST", "/bills/{bill_id}/resubmit"): {
+        "json": {
+            "account_number_raw": "ACC-1",
+            "invoice_number": "INV-1",
+            "invoice_date": "2026-11-01",
+            "due_date": "2026-12-01",
+            "amount": "10.00",
+        }
+    },
 }
 
 CASES = [
@@ -90,6 +117,7 @@ def db():
         patch("backend.api.bill_documents.get_admin_supabase", return_value=fake),
         patch("backend.api.vendors.get_admin_supabase", return_value=fake),
         patch("backend.api.users.get_admin_supabase", return_value=fake),
+        patch("backend.api.approvals.get_admin_supabase", return_value=fake),
     ):
         yield fake
 
@@ -110,18 +138,37 @@ def test_route_allows_only_its_active_roles(db, method, path, role, status, expe
         else None
     )
 
+    if path == "/bills/{bill_id}/resubmit":
+        bill_status = "rejected"
+    elif path in {
+        "/approvals",
+        "/approvals/{approval_id}/decision",
+    }:
+        bill_status = "pending_approval"
+    else:
+        bill_status = "draft"
+
     bill = db.add_bill(
         str(user.id),
-        status="draft",
+        status=bill_status,
         document_path=document_path,
     )
+
+    approval = db.add_approval(bill["bill_id"])
+
+    if path == "/bills/{bill_id}/resubmit":
+        approval["approval_status"] = "rejected"
 
     vendor = db.add_vendor("Acme Water")
     app.dependency_overrides[get_current_user] = lambda: user
 
     response = TestClient(app).request(
         method,
-        path.format(bill_id=bill["bill_id"], vendor_id=vendor["vendor_id"]),
+        path.format(
+            bill_id=bill["bill_id"],
+            vendor_id=vendor["vendor_id"],
+            approval_id=approval["approval_id"],
+        ),
         **REQUEST_BODY.get((method, path), {}),
     )
 
@@ -142,8 +189,6 @@ OPEN_ROUTES = {
     # applies (test_health.py checks it never uses the admin client).
     ("GET", "/health"),
     # In-memory stubs; DC-43 (approve and reject actions) adds the role check.
-    ("GET", "/approvals"),
-    ("POST", "/approvals/{approval_id}/decision"),
     # In-memory stubs, no Supabase; must get a role-table row before they touch
     # Supabase.
     ("POST", "/vendor-accounts"),

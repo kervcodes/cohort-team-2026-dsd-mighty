@@ -254,3 +254,46 @@ def submit_bill_with_approval(
         raise RuntimeError("Submitted bill could not be retrieved.")
 
     return _to_bill(row)
+
+
+def resubmit_bill_with_approval(
+    client: Client,
+    bill_id: UUID,
+    fields: BillCreate,
+    user_id: UUID,
+) -> BillRead:
+    """Resubmit an existing rejected bill with a new pending approval."""
+
+    payload = fields.model_dump(
+        mode="json",
+        exclude_none=True,
+    )
+
+    response = client.rpc(
+        "resubmit_bill_with_approval",
+        {
+            "p_bill_id": str(bill_id),
+            "p_fields": payload,
+            "p_user_id": str(user_id),
+        },
+    ).execute()
+
+    if response.data is None:
+        raise RuntimeError("Bill resubmission did not return a bill ID.")
+
+    resubmitted_bill_id = UUID(str(response.data))
+
+    bill_response = (
+        client.table("bills")
+        .select(BILL_COLUMNS)
+        .eq("bill_id", str(resubmitted_bill_id))
+        .single()
+        .execute()
+    )
+
+    row = bill_response.data
+
+    if not isinstance(row, dict):
+        raise RuntimeError("Resubmitted bill could not be retrieved.")
+
+    return _to_bill(row)

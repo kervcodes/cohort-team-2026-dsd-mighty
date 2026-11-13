@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from backend.schemas.approval import ApprovalRead
+from backend.schemas.approval import ApprovalDecisionType, ApprovalRead
 from backend.schemas.common import ApprovalStatus
 
 APPROVAL_COLUMNS = (
@@ -66,7 +66,35 @@ def get_approval(
         .execute()
     )
 
-    if not response.data:
+    if response is None or not response.data:
         return None
 
     return _to_approval(response.data)
+
+
+def decide_approval(
+    client,
+    approval_id: UUID,
+    reviewer_id: UUID,
+    decision: ApprovalDecisionType,
+    comments: str | None = None,
+) -> ApprovalRead:
+    client.rpc(
+        "decide_bill_approval",
+        {
+            "p_approval_id": str(approval_id),
+            "p_reviewer_id": str(reviewer_id),
+            "p_decision": decision.value,
+            "p_comments": comments,
+        },
+    ).execute()
+
+    approval = get_approval(
+        client=client,
+        approval_id=approval_id,
+    )
+
+    if approval is None:
+        raise RuntimeError("Approval was decided but could not be retrieved.")
+
+    return approval
