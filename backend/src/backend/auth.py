@@ -5,6 +5,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from supabase_auth.errors import AuthApiError
 
+from backend.audit_actor import set_actor
 from backend.schemas.user import MeRead, UserRole
 from backend.supabase_client import get_admin_supabase, get_supabase
 
@@ -115,12 +116,26 @@ def get_current_user(
     )
 
 
+async def name_audit_actor(
+    user: CurrentUser = Depends(get_current_user),
+) -> None:
+    """Dependency: name the caller as the actor of this request's database
+    writes, for the audit trail (see `backend.audit_actor`).
+
+    It is `async` on purpose: it must run in the request's own context. A sync
+    dependency runs in a worker thread whose context changes are lost, so the
+    route would never see the actor.
+    """
+    set_actor(user.id)
+
+
 def require_active(*roles: UserRole) -> Callable[..., CurrentUser]:
     """Dependency: the caller is active and has one of `roles`."""
     allowed = frozenset(roles)
 
     def active_user_with_role(
         user: CurrentUser = Depends(get_current_user),
+        _actor: None = Depends(name_audit_actor),
     ) -> CurrentUser:
         if user.status != "active":
             raise HTTPException(
