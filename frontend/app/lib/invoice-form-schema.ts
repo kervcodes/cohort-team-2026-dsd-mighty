@@ -5,12 +5,28 @@ export const accountStatuses = ["", "paid", "unpaid", "outstanding"] as const;
 const money = /^\d{1,10}(\.\d{1,2})?$/;
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
-function isValidIsoDate(value: string): boolean {
+// An amount the form accepts: up to 10 digits and at most 2 decimals, no sign.
+export function isMoney(value: string): boolean {
+  return money.test(value);
+}
+
+// A real calendar date written as YYYY-MM-DD, the format of <input type="date">.
+export function isValidIsoDate(value: string): boolean {
   if (!isoDate.test(value)) return false;
 
   const date = new Date(`${value}T00:00:00.000Z`);
 
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+// A full web address the Website Name field accepts: http or https.
+export function isWebsite(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 export const invoiceFormSchema = z
@@ -36,15 +52,7 @@ export const invoiceFormSchema = z
     websiteName: z
       .string()
       .trim()
-      .refine((v) => {
-        if (v === "") return true;
-        try {
-          const { protocol } = new URL(v);
-          return protocol === "http:" || protocol === "https:";
-        } catch {
-          return false;
-        }
-      }, "Enter a full URL like https://domainname.com"),
+      .refine((v) => v === "" || isWebsite(v), "Enter a full URL like https://domainname.com"),
   })
   .refine((v) => v.dueDate >= v.issueDate, {
     message: "Due date can't be before the issue date",
@@ -98,15 +106,7 @@ export const invoiceDraftFormSchema = z
     websiteName: z
       .string()
       .trim()
-      .refine((v) => {
-        if (v === "") return true;
-        try {
-          const { protocol } = new URL(v);
-          return protocol === "http:" || protocol === "https:";
-        } catch {
-          return false;
-        }
-      }, "Enter a full URL like https://domainname.com"),
+      .refine((v) => v === "" || isWebsite(v), "Enter a full URL like https://domainname.com"),
   })
   .refine((v) => !v.issueDate || !v.dueDate || v.dueDate >= v.issueDate, {
     message: "Due date can't be before the issue date",

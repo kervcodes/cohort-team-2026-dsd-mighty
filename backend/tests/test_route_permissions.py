@@ -18,8 +18,10 @@ from current_users import make_user
 from fake_supabase import FakeSupabase
 from fastapi.testclient import TestClient
 
+from backend.api.bill_extraction import get_bill_extractor
 from backend.app import app
 from backend.auth import get_current_user
+from backend.extraction.schema import ExtractionResult, ExtractionStatus
 from backend.schemas.user import UserRole
 
 ANALYST, APPROVER, ADMIN = UserRole.analyst, UserRole.approver, UserRole.admin
@@ -35,6 +37,7 @@ ROLE_TABLE = [
     ("GET", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
     ("PATCH", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
     ("POST", "/bills/{bill_id}/document", {ANALYST, ADMIN}, 201),
+    ("POST", "/bills/extract", {ANALYST, ADMIN}, 200),
     ("GET", "/vendors", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/vendors", {ADMIN}, 201),
     ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
@@ -60,6 +63,7 @@ REQUEST_BODY = {
     ("POST", "/bills/drafts"): {"json": {"amount": "10.00"}},
     ("PATCH", "/bills/{bill_id}/draft"): {"json": {"amount": "10.00"}},
     ("POST", "/bills/{bill_id}/document"): {"files": {"file": PDF}},
+    ("POST", "/bills/extract"): {"files": {"file": PDF}},
     ("POST", "/vendors"): {"json": {"name": "Acme Water"}},
     ("PATCH", "/vendors/{vendor_id}"): {"json": {"contact_phone": "555-0100"}},
     ("PATCH", "/admin/users/{user_id}"): {"json": {"role": "approver"}},
@@ -92,12 +96,19 @@ def db():
         yield fake
 
 
+@pytest.fixture
+def no_model_call():
+    # POST /bills/extract reads the file with a stand-in, never a model.
+    result = ExtractionResult(status=ExtractionStatus.ready_for_review)
+    app.dependency_overrides[get_bill_extractor] = lambda: lambda data, media: result
+
+
 @pytest.mark.parametrize(
     ("method", "path", "role", "status", "expected"),
     CASES,
 )
 def test_route_allows_only_its_active_roles(
-    db, monkeypatch, method, path, role, status, expected
+    db, no_model_call, monkeypatch, method, path, role, status, expected
 ):
     user = make_user(role=role, status=status)
 

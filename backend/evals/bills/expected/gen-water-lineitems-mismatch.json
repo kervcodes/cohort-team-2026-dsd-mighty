@@ -34,6 +34,9 @@
   "service_address": "125 Industrial Way, Springfield, IL 62701",
   "service_period_start": "2026-09-17",
   "service_period_end": "2026-10-16",
+  "description": "Commercial water and sewer service",
+  "payment_website": "https://pay.quarryhill-water.example",
+  "account_status": "unpaid",
   "expected_issues": [
     "LINE_ITEMS_MISMATCH"
   ],
