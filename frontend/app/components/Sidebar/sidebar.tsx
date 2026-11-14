@@ -9,7 +9,6 @@ import {
   LuLayoutDashboard,
   LuLogOut,
   LuMoon,
-  LuSettings,
   LuSun,
   LuUserRoundCog,
   LuUsers,
@@ -28,7 +27,6 @@ const COPY = {
   vendors: "Vendors",
   adminDashboard: "Admin Dashboard",
   users: "Users",
-  settings: "Settings",
   darkMode: "Dark Mode",
   lightMode: "Light Mode",
   switchToDark: "Switch to dark mode",
@@ -155,12 +153,6 @@ export default function Sidebar() {
                 {theme === "light" ? COPY.darkMode : COPY.lightMode}
               </span>
             </button>
-          </li>
-          <li>
-            <Link title={COPY.settings} href="/settings" className={FOOTER_ITEM}>
-              <LuSettings size={20} aria-hidden="true" />
-              <span className="hidden sm:block">{COPY.settings}</span>
-            </Link>
           </li>
 
           {user && (

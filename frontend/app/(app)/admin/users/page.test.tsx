@@ -225,7 +225,7 @@ describe("AdminUsersPage", () => {
         name: "user-123",
       });
 
-      expect(link).toHaveAttribute("href", "/admin/user/user-123456789/edit");
+      expect(link).toHaveAttribute("href", "/admin/users/user-123456789/edit");
     });
 
     it("displays a placeholder for missing user information", async () => {

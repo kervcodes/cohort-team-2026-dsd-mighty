@@ -13,6 +13,7 @@ type Props = {
   label: string;
   tooltip: string;
   value: string;
+  type?: string;
   onChange: (value: string) => void;
   hint?: string;
   error?: string;
@@ -30,6 +31,7 @@ export default function RuleField({
   tooltip,
   value,
   onChange,
+  type = "text",
   error,
   hint,
   prefix,
@@ -67,9 +69,10 @@ export default function RuleField({
           } ${editing ? "bg-surface" : "bg-surface-muted"}`}
         >
           {prefix && <span className="mr-1 text-foreground-muted">{prefix}</span>}
+
           <input
             id={id}
-            type="text"
+            type={type}
             inputMode={inputMode}
             value={value}
             disabled={!editing}
