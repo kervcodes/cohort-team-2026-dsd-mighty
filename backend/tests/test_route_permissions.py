@@ -43,6 +43,8 @@ ROLE_TABLE = [
     ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
     ("PATCH", "/vendors/{vendor_id}", {ADMIN}, 200),
     ("GET", "/admin/users", {ADMIN}, 200),
+    ("GET", "/admin/users/{user_id}", {ADMIN}, 200),
+    ("PATCH", "/admin/users/{user_id}", {ADMIN}, 200),
 ]
 
 # Routes that need a signed-in user but no role.
@@ -64,6 +66,7 @@ REQUEST_BODY = {
     ("POST", "/bills/extract"): {"files": {"file": PDF}},
     ("POST", "/vendors"): {"json": {"name": "Acme Water"}},
     ("PATCH", "/vendors/{vendor_id}"): {"json": {"contact_phone": "555-0100"}},
+    ("PATCH", "/admin/users/{user_id}"): {"json": {"role": "approver"}},
 }
 
 CASES = [
@@ -100,29 +103,52 @@ def no_model_call():
     app.dependency_overrides[get_bill_extractor] = lambda: lambda data, media: result
 
 
-@pytest.mark.parametrize(("method", "path", "role", "status", "expected"), CASES)
+@pytest.mark.parametrize(
+    ("method", "path", "role", "status", "expected"),
+    CASES,
+)
 def test_route_allows_only_its_active_roles(
-    db, no_model_call, method, path, role, status, expected
+    db, no_model_call, monkeypatch, method, path, role, status, expected
 ):
     user = make_user(role=role, status=status)
+
     db.add_user(
         str(user.id),
         role=role.value,
         status=status,
     )
+
     bill = db.add_bill(str(user.id))
     vendor = db.add_vendor("Acme Water")
-    app.dependency_overrides[get_current_user] = lambda: user
+
+    target_user = db.add_user(
+        "00000000-0000-0000-0000-000000000001",
+        full_name="Target User",
+        email="target@example.com",
+        role="analyst",
+        status="active",
+    )
+
+    monkeypatch.setitem(
+        app.dependency_overrides,
+        get_current_user,
+        lambda: user,
+    )
 
     response = TestClient(app).request(
         method,
-        path.format(bill_id=bill["bill_id"], vendor_id=vendor["vendor_id"]),
+        path.format(
+            bill_id=bill["bill_id"],
+            vendor_id=vendor["vendor_id"],
+            user_id=target_user["user_id"],
+        ),
         **REQUEST_BODY.get((method, path), {}),
     )
 
     assert response.status_code == expected, response.text
+
     if status == "inactive":
-        assert response.json()["detail"] == "Your account is waiting for approval."
+        assert response.json()["detail"] == ("Your account is waiting for approval.")
     elif expected == 403:
         assert response.json()["detail"] == "Your role can't do this."
 
