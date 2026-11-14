@@ -48,6 +48,8 @@ export default function ApprovalsPage() {
     let cancelled = false;
 
     async function loadApprovals() {
+      setLoading(true);
+      setError(null);
       try {
         const approvals = await getApprovals({
           status: "pending",
@@ -63,7 +65,6 @@ export default function ApprovalsPage() {
 
         if (!cancelled) {
           setItems(results);
-          setError(null);
         }
       } catch (err) {
         if (!cancelled) {
@@ -152,7 +153,7 @@ export default function ApprovalsPage() {
 
               <tbody className="divide-y divide-border">
                 {items.map(({ approval, bill }) => {
-                  const requiresAdmin = Number(bill.amount) > 5000 && profile.role !== "admin";
+                  const requiresAdmin = Number(bill.amount) > 5000 && profile?.role !== "admin";
 
                   return (
                     <tr key={approval.id} className="hover:bg-surface-secondary">
