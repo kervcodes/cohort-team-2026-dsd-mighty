@@ -58,6 +58,48 @@ jobs:
         run: supabase db start
       - name: Run pgTAP tests
         run: supabase test db
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Compare audit_events with the schemas (running database)
+        # 54322 and postgres:postgres are the local defaults in supabase/config.toml.
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            uv run pytest tests/test_audit_event_schema.py -v -rs --junitxml=audit-event-schema.xml
+      - name: Fail unless every schema comparison ran
+        # A skip passes pytest but tests nothing, e.g. if DATABASE_URL never reached
+        # it. The fixed count also catches a test that stops being collected.
+        run: |
+          python - <<'EOF'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          EXPECTED_TESTS = 4  # the tests in tests/test_audit_event_schema.py
+
+          report = Path("audit-event-schema.xml")
+          if not report.is_file():
+              raise SystemExit("pytest wrote no JUnit report (audit-event-schema.xml)")
+          root = ET.parse(report).getroot()
+          suite = root if root.tag == "testsuite" else root.find("testsuite")
+          if suite is None:
+              raise SystemExit("audit-event-schema.xml has no <testsuite>, so the tests can't be counted")
+          tests, skipped = int(suite.get("tests", 0)), int(suite.get("skipped", 0))
+          print(f"{tests} schema comparison tests, {skipped} skipped (expected {EXPECTED_TESTS}, none skipped)")
+          if tests != EXPECTED_TESTS or skipped:
+              raise SystemExit(
+                  f"Expected {EXPECTED_TESTS} schema comparison tests with no skips; "
+                  f"found {tests} tests and {skipped} skipped. "
+                  "If you added or removed a test in that file, update EXPECTED_TESTS in ci.yml."
+              )
+          EOF
 
   backend-real-login:
     name: Backend real-login (local Supabase)
