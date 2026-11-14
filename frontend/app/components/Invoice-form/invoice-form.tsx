@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FileUp, LoaderCircle } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import Button from "@/components/Button";
@@ -10,7 +10,9 @@ import { FormField, inputClass } from "@/components/Form-field/form-field";
 import {
   createBill,
   extractBill,
+  getBill,
   getBillDraft,
+  resubmitBill,
   saveBillDraft,
   updateBillDraft,
   uploadInvoicePdf,
@@ -31,7 +33,7 @@ import {
   invoiceDraftFormSchema,
   invoiceFormSchema,
 } from "@/lib/invoice-form-schema";
-import type { BillCreatePayload, BillDraftDetail, BillDraftPayload } from "@/types/bill";
+import type { Bill, BillCreatePayload, BillDraftDetail, BillDraftPayload } from "@/types/bill";
 
 type ActionStatus = "idle" | "loading" | "success" | "error";
 
@@ -71,6 +73,10 @@ function isPdf(file: File) {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 }
 
+type InvoiceFormProps = {
+  isResubmission?: boolean;
+};
+
 function mapDraftToFormValues(draft: BillDraftDetail): InvoiceFormValues {
   return {
     accountNumber: draft.account_number_raw ?? "",
@@ -88,6 +94,23 @@ function mapDraftToFormValues(draft: BillDraftDetail): InvoiceFormValues {
   };
 }
 
+function mapBillToFormValues(bill: Bill): InvoiceFormValues {
+  return {
+    accountNumber: bill.account_number_raw ?? "",
+    statementId: bill.invoice_number ?? "",
+    companyName: bill.vendor_name_raw ?? "",
+    issueDate: bill.invoice_date ?? "",
+    dueDate: bill.due_date ?? "",
+    currentDue: String(bill.amount ?? ""),
+    previousPayments: String(bill.prev_payments ?? ""),
+    description: bill.description ?? "",
+    notes: bill.processing_notes ?? "",
+    propertyAddress: bill.property_address ?? "",
+    accountStatus: bill.account_status ?? "",
+    websiteName: bill.website_name ?? "",
+  };
+}
+
 const DRAFT_PATH = /^\/invoices\/([^/]+)\/edit\/?$/;
 
 // Where a saved draft is edited. The first Save Draft on a new invoice moves
@@ -102,9 +125,9 @@ function draftIdFromPath(pathname: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-// The New Invoice and Edit Draft pages. Next keeps a page mounted (hidden by
-// <Activity>) after the person leaves it, so the form state outlives the
-// visit unless it is reset. Each visit gets its own InvoiceFormVisit:
+// The New Invoice, Edit Draft and Resubmit pages. Next keeps a page mounted
+// (hidden by <Activity>) after the person leaves it, so the form state outlives
+// the visit unless it is reset. Each visit gets its own InvoiceFormVisit:
 // - A link or router.push/replace into the page gives the segment a new
 //   bfcacheId, so it starts fresh. Back and forward keep the bfcacheId, so the
 //   form comes back as the person left it.
@@ -114,7 +137,7 @@ function draftIdFromPath(pathname: string): string | null {
 //   its bfcacheId. A pathname change the form did not make is therefore a new
 //   visit too. Layout effects only run while the page is shown, so the
 //   pathnames of other pages, seen while hidden, never count.
-export function InvoiceForm() {
+export function InvoiceForm({ isResubmission = false }: InvoiceFormProps) {
   const { bfcacheId } = useRouter();
   const pathname = usePathname();
   const [visit, setVisit] = useState(0);
@@ -143,7 +166,8 @@ export function InvoiceForm() {
   return (
     <InvoiceFormVisit
       key={`${bfcacheId}:${visit}`}
-      initialDraftId={draftIdFromPath(pathname)}
+      initialDraftId={isResubmission ? null : draftIdFromPath(pathname)}
+      isResubmission={isResubmission}
       onDraftCreated={showDraftUrl}
     />
   );
@@ -151,14 +175,23 @@ export function InvoiceForm() {
 
 type InvoiceFormVisitProps = {
   // The draft this visit opens, loaded from the server; null for a new
-  // invoice. Read once: a later change (the first save) does not reload.
+  // invoice or a resubmission. Read once: a later change (the first save)
+  // does not reload.
   initialDraftId: string | null;
+  // True on the Resubmit Rejected Invoice page, which opens a rejected bill
+  // from the route's invoiceId instead of a draft.
+  isResubmission: boolean;
   // The first Save Draft created this draft.
   onDraftCreated: (draftId: string) => void;
 };
 
-function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitProps) {
+function InvoiceFormVisit({
+  initialDraftId,
+  isResubmission,
+  onDraftCreated,
+}: InvoiceFormVisitProps) {
   const router = useRouter();
+
   const [submitError, setSubmitError] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadMessage, setUploadMessage] = useState("");
@@ -166,9 +199,15 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
   const [draftMessage, setDraftMessage] = useState("");
   const [pdfStatus, setPdfStatus] = useState<ActionStatus>("idle");
   const [draftStatus, setDraftStatus] = useState<ActionStatus>("idle");
-  const [openedDraftId] = useState(initialDraftId);
-  const [draftId, setDraftId] = useState(openedDraftId);
-  const [isLoadingDraft, setIsLoadingDraft] = useState(openedDraftId !== null);
+
+  // Only the resubmit page reads the route param; drafts use the pathname.
+  const params = useParams<{ invoiceId?: string }>();
+  const routeInvoiceId = isResubmission ? (params.invoiceId ?? null) : null;
+
+  // The invoice this visit loads: a rejected bill, or a saved draft.
+  const [openedId] = useState(isResubmission ? routeInvoiceId : initialDraftId);
+  const [draftId, setDraftId] = useState(initialDraftId);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(openedId !== null);
   const [draftLoadError, setDraftLoadError] = useState<string | null>(null);
   const draftLoaded = useRef(false);
 
@@ -226,42 +265,72 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     };
 
     try {
-      await createBill(payload);
+      if (isResubmission) {
+        if (!routeInvoiceId) {
+          throw new Error("Missing invoice ID. Unable to resubmit.");
+        }
+
+        await resubmitBill(routeInvoiceId, payload);
+      } else {
+        await createBill(payload);
+      }
 
       setCreateStatus("success");
       router.push("/dashboard");
     } catch (err) {
       setCreateStatus("error");
       setSubmitError(
-        err instanceof Error ? err.message : "Unable to create the bill. Please try again.",
+        err instanceof Error
+          ? err.message
+          : isResubmission
+            ? "Unable to resubmit the invoice. Please try again."
+            : "Unable to create the bill. Please try again.",
       );
     }
   }
 
   // Effects run again each time the page is shown, so after back or forward
-  // the draft is not reloaded over the person's unsaved edits.
+  // the invoice is not reloaded over the person's unsaved edits.
   useEffect(() => {
-    if (openedDraftId === null || draftLoaded.current) return;
-    const id = openedDraftId;
+    if (openedId === null || draftLoaded.current) return;
+    const id = openedId;
 
     let cancelled = false;
 
-    async function loadDraft() {
+    async function loadInvoice() {
       setIsLoadingDraft(true);
       setDraftLoadError(null);
 
       try {
-        const draft = await getBillDraft(id);
+        if (isResubmission) {
+          const bill = await getBill(id);
 
-        if (cancelled) return;
+          if (cancelled) return;
 
-        draftLoaded.current = true;
-        reset(mapDraftToFormValues(draft));
+          if (bill.status !== "rejected") {
+            setDraftLoadError("Only rejected invoices can be resubmitted.");
+            return;
+          }
+
+          draftLoaded.current = true;
+          reset(mapBillToFormValues(bill));
+        } else {
+          const draft = await getBillDraft(id);
+
+          if (cancelled) return;
+
+          draftLoaded.current = true;
+          reset(mapDraftToFormValues(draft));
+        }
       } catch (err) {
         if (cancelled) return;
 
         setDraftLoadError(
-          err instanceof Error ? err.message : "Unable to load the draft. Please try again.",
+          err instanceof Error
+            ? err.message
+            : isResubmission
+              ? "Unable to load the rejected invoice. Please try again."
+              : "Unable to load the draft. Please try again.",
         );
       } finally {
         if (!cancelled) {
@@ -270,12 +339,12 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
       }
     }
 
-    void loadDraft();
+    void loadInvoice();
 
     return () => {
       cancelled = true;
     };
-  }, [openedDraftId, reset]);
+  }, [openedId, isResubmission, reset]);
 
   // Leaving the page (or unmounting) stops a read in flight. Its result would
   // be dropped, so "Reading invoice..." must not be left showing for when the
@@ -322,7 +391,10 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     for (const [name, value] of entries) {
       // Re-validate only a field already showing an error, so a filled
       // value clears "required" without new errors appearing before Create.
-      setValue(name, value, { shouldDirty: true, shouldValidate: getFieldState(name).invalid });
+      setValue(name, value, {
+        shouldDirty: true,
+        shouldValidate: getFieldState(name).invalid,
+      });
       if (value === "") readerFilled.current.delete(name);
       else readerFilled.current.set(name, value);
     }
@@ -389,7 +461,10 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
 
   function handleDragLeave(event: DragEvent<HTMLLabelElement>) {
     // dragleave also fires when moving onto a child element; ignore those.
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return;
+    }
+
     setIsDragging(false);
   }
 
@@ -398,6 +473,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     setIsDragging(false);
 
     const files = event.dataTransfer.files;
+
     if (files.length > 1) {
       setSelectedFile(null);
       resetReader({ phase: "idle" });
@@ -410,6 +486,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     // The input keeps no record of dropped files; clear it so picking the
     // same file again later still fires onChange.
     if (fileInputRef.current) fileInputRef.current.value = "";
+
     selectFile(files[0] ?? null);
   }
 
@@ -485,6 +562,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
 
       setDraftStatus("success");
       setDraftMessage(`Draft saved successfully: ${saved.bill_id}`);
+
       return saved.bill_id;
     } catch (error) {
       setDraftStatus("error");
@@ -500,7 +578,9 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
 
   if (isLoadingDraft) {
     return (
-      <p className="mx-auto max-w-3xl py-16 text-center text-foreground-muted">Loading draft...</p>
+      <p className="mx-auto max-w-3xl py-16 text-center text-foreground-muted">
+        {isResubmission ? "Loading rejected invoice..." : "Loading draft..."}
+      </p>
     );
   }
 
@@ -544,6 +624,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
           {submitError}
         </p>
       )}
+
       {draftMessage && (
         <p
           role="status"
@@ -552,26 +633,30 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
           {draftMessage}
         </p>
       )}
+
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-          {draftId ? "Edit Draft" : "New Invoice"}
+          {isResubmission ? "Resubmit Rejected Invoice" : draftId ? "Edit Draft" : "New Invoice"}
         </h1>
 
         <div className="flex items-center gap-3">
-          <Button
-            label={
-              draftStatus === "loading"
-                ? "Saving..."
-                : draftStatus === "success"
-                  ? "Draft Saved ✓"
-                  : draftStatus === "error"
-                    ? "Retry Save"
-                    : "Save Draft"
-            }
-            type="button"
-            onClick={handleSaveDraft}
-            disabled={!canSaveDraft}
-          />
+          {!isResubmission && (
+            <Button
+              label={
+                draftStatus === "loading"
+                  ? "Saving..."
+                  : draftStatus === "success"
+                    ? "Draft Saved ✓"
+                    : draftStatus === "error"
+                      ? "Retry Save"
+                      : "Save Draft"
+              }
+              type="button"
+              onClick={handleSaveDraft}
+              disabled={!canSaveDraft}
+            />
+          )}
+
           <Button
             label="Cancel"
             variant="secondary"
@@ -581,84 +666,86 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
         </div>
       </div>
 
-      <section className="rounded-xl border border-border bg-surface p-6 text-center">
-        <label
-          htmlFor="invoicePdf"
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`block cursor-pointer rounded-lg border-2 border-dashed p-6 transition-colors focus-within:ring-2 focus-within:ring-ring ${
-            isDragging ? "border-blue-600 bg-blue-50" : "border-border hover:bg-surface-muted"
-          }`}
-        >
-          <FileUp className="mx-auto h-6 w-6 text-foreground-muted" />
-
-          <span className="mt-2 block text-sm font-medium">
-            {isDragging ? "Drop the PDF here" : "Upload / import invoice (PDF)"}
-          </span>
-
-          <span className="mt-1 block text-sm text-foreground-muted">
-            {selectedFile ? selectedFile.name : "Drag and drop a PDF here, or click to browse"}
-          </span>
-
-          <input
-            ref={fileInputRef}
-            id="invoicePdf"
-            type="file"
-            accept=".pdf,application/pdf"
-            className="sr-only"
-            onChange={(event) => {
-              selectFile(event.target.files?.[0] ?? null);
-              // The picked file lives in state. Clearing the input lets the
-              // same file be picked again (to retry a read), which browsers
-              // otherwise ignore.
-              event.target.value = "";
-            }}
-          />
-        </label>
-
-        {reader.phase === "reading" && (
-          <p
-            role="status"
-            className="mt-3 flex items-center justify-center gap-2 text-sm text-foreground-muted"
+      {!isResubmission && (
+        <section className="rounded-xl border border-border bg-surface p-6 text-center">
+          <label
+            htmlFor="invoicePdf"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`block cursor-pointer rounded-lg border-2 border-dashed p-6 transition-colors focus-within:ring-2 focus-within:ring-ring ${
+              isDragging ? "border-blue-600 bg-blue-50" : "border-border hover:bg-surface-muted"
+            }`}
           >
-            <LoaderCircle
-              aria-hidden="true"
-              className="h-4 w-4 animate-spin motion-reduce:animate-none"
+            <FileUp className="mx-auto h-6 w-6 text-foreground-muted" />
+
+            <span className="mt-2 block text-sm font-medium">
+              {isDragging ? "Drop the PDF here" : "Upload / import invoice (PDF)"}
+            </span>
+
+            <span className="mt-1 block text-sm text-foreground-muted">
+              {selectedFile ? selectedFile.name : "Drag and drop a PDF here, or click to browse"}
+            </span>
+
+            <input
+              ref={fileInputRef}
+              id="invoicePdf"
+              type="file"
+              accept=".pdf,application/pdf"
+              className="sr-only"
+              onChange={(event) => {
+                selectFile(event.target.files?.[0] ?? null);
+                // The picked file lives in state. Clearing the input lets the
+                // same file be picked again (to retry a read), which browsers
+                // otherwise ignore.
+                event.target.value = "";
+              }}
             />
-            {READING_MESSAGE}
-          </p>
-        )}
+          </label>
 
-        {reader.phase === "done" && <ExtractionNotice banner={reader.banner} />}
+          {reader.phase === "reading" && (
+            <p
+              role="status"
+              className="mt-3 flex items-center justify-center gap-2 text-sm text-foreground-muted"
+            >
+              <LoaderCircle
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin motion-reduce:animate-none"
+              />
+              {READING_MESSAGE}
+            </p>
+          )}
 
-        <button
-          type="button"
-          onClick={handleUploadPdf}
-          disabled={!selectedFile || pdfStatus === "loading" || pdfStatus === "success"}
-          className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
-        >
-          {pdfStatus === "loading"
-            ? "Uploading..."
-            : pdfStatus === "success"
-              ? "PDF Saved ✓"
-              : pdfStatus === "error"
-                ? "Retry Upload"
-                : "Upload PDF"}
-        </button>
+          {reader.phase === "done" && <ExtractionNotice banner={reader.banner} />}
 
-        {uploadMessage && (
-          <p role="status" className="mt-3 text-sm text-green-700">
-            {uploadMessage}
-          </p>
-        )}
+          <button
+            type="button"
+            onClick={handleUploadPdf}
+            disabled={!selectedFile || pdfStatus === "loading" || pdfStatus === "success"}
+            className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
+          >
+            {pdfStatus === "loading"
+              ? "Uploading..."
+              : pdfStatus === "success"
+                ? "PDF Saved ✓"
+                : pdfStatus === "error"
+                  ? "Retry Upload"
+                  : "Upload PDF"}
+          </button>
 
-        {uploadError && (
-          <p role="alert" className="mt-3 text-sm text-red-600">
-            {uploadError}
-          </p>
-        )}
-      </section>
+          {uploadMessage && (
+            <p role="status" className="mt-3 text-sm text-green-700">
+              {uploadMessage}
+            </p>
+          )}
+
+          {uploadError && (
+            <p role="alert" className="mt-3 text-sm text-red-600">
+              {uploadError}
+            </p>
+          )}
+        </section>
+      )}
 
       <fieldset className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm">
         <legend className="px-2 text-sm font-semibold text-foreground">General bill info</legend>
@@ -847,12 +934,18 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
       <Button
         label={
           createStatus === "loading"
-            ? "Creating..."
+            ? isResubmission
+              ? "Resubmitting..."
+              : "Creating..."
             : createStatus === "success"
-              ? "Created ✓"
+              ? isResubmission
+                ? "Resubmitted ✓"
+                : "Created ✓"
               : createStatus === "error"
-                ? "Retry Create"
-                : "Create"
+                ? "Retry"
+                : isResubmission
+                  ? "Resubmit Invoice"
+                  : "Create"
         }
         type="submit"
         disabled={createStatus === "loading" || createStatus === "success"}

@@ -242,22 +242,37 @@ def test_owner_cannot_read_their_own_non_draft(db):
     assert response.json()["detail"] == "Editable draft not found."
 
 
-def test_create_saves_the_bill_for_the_caller_pending_approval(db):
+def test_create_saves_the_bill_and_pending_approval_for_the_caller(db):
     db.add_user(USER_A, full_name="Ada Analyst")
 
     response = as_user(USER_A).post("/bills", json=NEW_BILL)
 
     assert response.status_code == 201, response.text
-    (row,) = db.tables["bills"]
-    assert row["submitted_by"] == USER_A
-    assert row["status"] == "pending_approval"
-    assert row["invoice_number"] == "INV-1"
+
+    # The bill belongs to the authenticated caller.
+    (bill,) = db.tables["bills"]
+    assert bill["submitted_by"] == USER_A
+    assert bill["status"] == "pending_approval"
+    assert bill["invoice_number"] == "INV-1"
+
+    # A pending approval is created for that same bill.
+    (approval,) = db.tables["approvals"]
+    assert approval["bill_id"] == bill["bill_id"]
+    assert approval["approval_status"] == "pending"
+    assert approval["reviewer_id"] is None
+    assert approval["decision_at"] is None
+    assert approval["comments"] is None
+
+    # The API returns the expected bill representation.
     body = response.json()
     assert set(body) == set(BillRead.model_fields)
-    assert body["id"] == row["bill_id"]
+    assert body["id"] == bill["bill_id"]
     assert body["status"] == "pending_approval"
     assert body["amount"] == "250.00"
-    assert body["submitted_by"] == {"id": USER_A, "full_name": "Ada Analyst"}
+    assert body["submitted_by"] == {
+        "id": USER_A,
+        "full_name": "Ada Analyst",
+    }
 
 
 def test_create_rejects_a_submitter_or_status_in_the_body(db):

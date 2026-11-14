@@ -20,7 +20,10 @@ from typing import Any
 from uuid import uuid4
 
 # (table, column) -> (referenced table, referenced column), as in the migrations.
-FOREIGN_KEYS = {("bills", "submitted_by"): ("app_users", "user_id")}
+FOREIGN_KEYS = {
+    ("bills", "submitted_by"): ("app_users", "user_id"),
+    ("approvals", "reviewer_id"): ("app_users", "user_id"),
+}
 
 # alias:table!fk_column(col,col)
 EMBED = re.compile(r"(\w+):(\w+)!(\w+)\(([\w,]+)\)")
@@ -46,6 +49,114 @@ def _insert_defaults(table: str) -> dict[str, Any]:
     return {"bill_id": str(uuid4()), "document_path": None, "created_at": now}
 
 
+class _Rpc:
+    def __init__(
+        self,
+        db: "FakeSupabase",
+        function: str,
+        params: dict[str, Any],
+    ) -> None:
+        self._db = db
+        self._function = function
+        self._params = params
+
+    def execute(self) -> _Result:
+        if self._function == "create_bill_with_approval":
+            bill_id = self._db.create_bill_with_approval(
+                fields=self._params["p_fields"],
+                user_id=self._params["p_user_id"],
+            )
+            return _Result(bill_id)
+
+        if self._function == "resubmit_bill_with_approval":
+            bill_id = self._params["p_bill_id"]
+            fields = self._params["p_fields"]
+            user_id = self._params["p_user_id"]
+
+            resubmitted_id = self._db.resubmit_bill_with_approval(
+                bill_id=bill_id,
+                fields=fields,
+                user_id=user_id,
+            )
+
+            return _Result(resubmitted_id)
+
+        if self._function == "decide_bill_approval":
+            approval_id = self._params["p_approval_id"]
+            reviewer_id = self._params["p_reviewer_id"]
+            decision = self._params["p_decision"]
+            comments = self._params.get("p_comments")
+
+            approval = self._db.find("approvals", "approval_id", approval_id)
+            if approval is None:
+                raise ValueError("Approval record not found.")
+
+            bill = self._db.find("bills", "bill_id", approval["bill_id"])
+            if bill is None:
+                raise ValueError("Associated bill not found.")
+
+            if approval["approval_status"] != "pending":
+                raise ValueError("This approval has already been decided.")
+
+            if bill["status"] != "pending_approval":
+                raise ValueError("This bill is not awaiting approval.")
+
+            reviewer = self._db.find("app_users", "user_id", reviewer_id)
+            if reviewer is None:
+                raise ValueError("Reviewer account not found.")
+
+            if reviewer["status"] != "active":
+                raise ValueError("Reviewer account is not active.")
+
+            if reviewer["role"] not in {"approver", "admin"}:
+                raise ValueError("User is not authorized to review approvals.")
+
+            amount = bill.get("amount")
+            if (
+                amount is not None
+                and float(amount) > 5000
+                and reviewer["role"] != "admin"
+            ):
+                raise ValueError("An admin must review bills over $5,000.")
+
+            if decision not in {"approve", "reject"}:
+                raise ValueError("Invalid approval decision.")
+
+            comments = comments.strip() if comments else None
+            if decision == "reject" and not comments:
+                raise ValueError("A comment is required when rejecting an approval.")
+
+            decision_at = datetime.now(UTC).isoformat()
+            approval_status = "approved" if decision == "approve" else "rejected"
+
+            approval.update(
+                {
+                    "approval_status": approval_status,
+                    "reviewer_id": reviewer_id,
+                    "decision_at": decision_at,
+                    "comments": comments,
+                    "updated_at": decision_at,
+                }
+            )
+
+            bill["status"] = approval_status
+            bill["updated_at"] = decision_at
+
+            return _Result(
+                {
+                    "approval_id": approval_id,
+                    "bill_id": approval["bill_id"],
+                    "approval_status": approval_status,
+                    "bill_status": approval_status,
+                    "reviewer_id": reviewer_id,
+                    "decision_at": decision_at,
+                    "comments": comments,
+                }
+            )
+
+        raise NotImplementedError(f"RPC function {self._function!r} is not supported")
+
+
 class _Query:
     def __init__(self, db: "FakeSupabase", table: str) -> None:
         self._db = db
@@ -60,6 +171,7 @@ class _Query:
         self._order: tuple[str, bool] | None = None
         self._limit: int | None = None
         self._single: str | None = None  # "maybe" or "one"
+        self._range: tuple[int, int] | None = None
         self._neq_filters: list[tuple[str, Any]] = []
 
     def select(self, *columns: str) -> "_Query":
@@ -161,23 +273,37 @@ class _Query:
             rows = [row]
         else:
             rows = [row for row in self._rows if self._matches(row)]
+
             if self._op == "update":
                 for row in rows:
                     row.update(self._payload or {})
+
             if self._order:
                 column, desc = self._order
                 rows.sort(key=lambda row: row.get(column) or "", reverse=desc)
+
             if self._limit is not None:
                 rows = rows[: self._limit]
 
+            if self._range is not None:
+                start, end = self._range
+                rows = rows[start : end + 1]
+
         copies = [self._project(self._embed(dict(row))) for row in rows]
+
         if self._single == "maybe":
             # supabase-py returns None, not an empty result, for no match.
             return _Result(copies[0]) if copies else None
+
         if self._single == "one":
             assert len(copies) == 1, f"single() matched {len(copies)} rows"
             return _Result(copies[0])
+
         return _Result(copies)
+
+    def range(self, start: int, end: int):
+        self._range = (start, end)
+        return self
 
 
 class _Bucket:
@@ -193,6 +319,21 @@ class _Bucket:
         for path in paths:
             self._storage.objects.pop(path, None)
             self._storage.removed.append(path)
+
+    def create_signed_url(
+        self,
+        path: str,
+        expires_in: int = 300,
+    ) -> dict[str, str]:
+        if path not in self._storage.objects:
+            raise FileNotFoundError(f"Storage object not found: {path}")
+
+        return {
+            "signedURL": (
+                f"https://test-storage.example/invoices/{path}"
+                f"?token=test-token&expires_in={expires_in}"
+            )
+        }
 
 
 class _Storage:
@@ -232,6 +373,127 @@ class FakeSupabase:
         }
         self.tables.setdefault("bills", []).append(row)
         return row
+
+    def add_approval(
+        self,
+        bill_id: str,
+        **fields: Any,
+    ) -> dict[str, Any]:
+        """Add an approval record for an existing bill."""
+        now = datetime.now(UTC).isoformat()
+
+        row = {
+            "approval_id": str(uuid4()),
+            "bill_id": bill_id,
+            "reviewer_id": None,
+            "requested_at": now,
+            "decision_at": None,
+            "comments": None,
+            "approval_status": "pending",
+            "created_at": now,
+            "updated_at": now,
+            **fields,
+        }
+
+        self.tables.setdefault("approvals", []).append(row)
+        return row
+
+    def rpc(
+        self,
+        function: str,
+        params: dict[str, Any],
+    ) -> _Rpc:
+        return _Rpc(self, function, params)
+
+    def create_bill_with_approval(
+        self,
+        fields: dict[str, Any],
+        user_id: str,
+    ) -> str:
+        """Simulate the atomic bill-and-approval database function."""
+        now = datetime.now(UTC).isoformat()
+
+        bill = self.add_bill(
+            submitted_by=user_id,
+            status="pending_approval",
+            **fields,
+        )
+
+        approval = {
+            "approval_id": str(uuid4()),
+            "bill_id": bill["bill_id"],
+            "reviewer_id": None,
+            "requested_at": now,
+            "decision_at": None,
+            "comments": None,
+            "approval_status": "pending",
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        self.tables.setdefault("approvals", []).append(approval)
+
+        return bill["bill_id"]
+
+    def resubmit_bill_with_approval(
+        self,
+        bill_id: str,
+        fields: dict[str, Any],
+        user_id: str,
+    ) -> str:
+        """Simulate atomic resubmission of a rejected bill."""
+
+        bill = self.find("bills", "bill_id", bill_id)
+
+        if bill is None:
+            raise ValueError("Bill not found.")
+
+        if bill["submitted_by"] != user_id:
+            raise ValueError("You are not authorized to resubmit this bill.")
+
+        if bill["status"] != "rejected":
+            raise ValueError("Only rejected bills can be resubmitted.")
+
+        # Match the database's partial unique index.
+        existing_pending = any(
+            approval["bill_id"] == bill_id and approval["approval_status"] == "pending"
+            for approval in self.tables.get("approvals", [])
+        )
+
+        if existing_pending:
+            raise ValueError("This bill already has a pending approval.")
+
+        now = datetime.now(UTC).isoformat()
+
+        # Update the existing bill. Preserve its document_path.
+        bill_fields = (
+            "account_number_raw",
+            "vendor_name_raw",
+            "invoice_number",
+            "invoice_date",
+            "due_date",
+            "amount",
+            "prev_payments",
+            "description",
+            "processing_notes",
+            "property_address",
+            "account_status",
+            "website_name",
+        )
+
+        for field in bill_fields:
+            bill[field] = fields.get(field)
+
+        bill["status"] = "pending_approval"
+        bill["updated_at"] = now
+
+        # Insert a new approval, preserving previous approval history.
+        self.add_approval(
+            bill_id=bill_id,
+            approval_status="pending",
+        )
+
+        return bill_id
 
     def add_vendor(self, vendor_name: str, **fields: Any) -> dict[str, Any]:
         row = {

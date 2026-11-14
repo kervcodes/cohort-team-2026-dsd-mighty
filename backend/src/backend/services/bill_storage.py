@@ -59,3 +59,16 @@ def delete_pdf(
     storage_path: str,
 ) -> None:
     client.storage.from_(BUCKET_NAME).remove([storage_path])
+
+
+def create_pdf_signed_url(
+    client: Client,
+    storage_path: str,
+    expires_in: int = 300,
+) -> str:
+    response = client.storage.from_(BUCKET_NAME).create_signed_url(
+        path=storage_path,
+        expires_in=expires_in,
+    )
+
+    return response["signedURL"]

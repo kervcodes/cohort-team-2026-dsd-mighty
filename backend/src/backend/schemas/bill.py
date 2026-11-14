@@ -124,3 +124,7 @@ class BillDashboardRow(BaseModel):
     status: BillStatus
     document_path: str | None = None
     created_at: datetime
+
+
+class BillDocumentUrl(BaseModel):
+    document_url: str

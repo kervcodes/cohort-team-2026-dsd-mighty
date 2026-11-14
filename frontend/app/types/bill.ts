@@ -105,3 +105,7 @@ export type DashboardBill = {
   document_path: string | null;
   created_at: string;
 };
+
+export type DocumentUrlResponse = {
+  document_url: string;
+};

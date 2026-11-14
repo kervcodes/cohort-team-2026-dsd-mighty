@@ -216,3 +216,84 @@ def update_draft(
     rows = response.data or []
 
     return rows[0] if len(rows) == 1 else None
+
+
+def submit_bill_with_approval(
+    client,
+    fields: BillCreate,
+    user_id: UUID,
+) -> BillRead:
+    payload = fields.model_dump(mode="json", exclude_none=True)
+
+    # The RPC creates the bill and its pending approval in one transaction.
+    response = client.rpc(
+        "create_bill_with_approval",
+        {
+            "p_fields": payload,
+            "p_user_id": str(user_id),
+        },
+    ).execute()
+
+    if response.data is None:
+        raise RuntimeError("Bill submission did not return a bill ID.")
+
+    bill_id = UUID(str(response.data))
+
+    # Fetch the full row using the same mapping as other bill reads.
+    bill_response = (
+        client.table("bills")
+        .select(BILL_COLUMNS)
+        .eq("bill_id", str(bill_id))
+        .single()
+        .execute()
+    )
+
+    row = bill_response.data
+
+    if not isinstance(row, dict):
+        raise RuntimeError("Submitted bill could not be retrieved.")
+
+    return _to_bill(row)
+
+
+def resubmit_bill_with_approval(
+    client: Client,
+    bill_id: UUID,
+    fields: BillCreate,
+    user_id: UUID,
+) -> BillRead:
+    """Resubmit an existing rejected bill with a new pending approval."""
+
+    payload = fields.model_dump(
+        mode="json",
+        exclude_none=True,
+    )
+
+    response = client.rpc(
+        "resubmit_bill_with_approval",
+        {
+            "p_bill_id": str(bill_id),
+            "p_fields": payload,
+            "p_user_id": str(user_id),
+        },
+    ).execute()
+
+    if response.data is None:
+        raise RuntimeError("Bill resubmission did not return a bill ID.")
+
+    resubmitted_bill_id = UUID(str(response.data))
+
+    bill_response = (
+        client.table("bills")
+        .select(BILL_COLUMNS)
+        .eq("bill_id", str(resubmitted_bill_id))
+        .single()
+        .execute()
+    )
+
+    row = bill_response.data
+
+    if not isinstance(row, dict):
+        raise RuntimeError("Resubmitted bill could not be retrieved.")
+
+    return _to_bill(row)
