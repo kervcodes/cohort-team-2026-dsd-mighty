@@ -625,6 +625,65 @@ describe("InvoiceForm", () => {
       expect(screen.queryByText("This bill has already been submitted.")).not.toBeInTheDocument();
     });
 
+    const alreadySent =
+      "This bill was already sent for approval with the earlier values, so your latest changes weren't saved.";
+
+    it("says the bill went with the earlier values when the amount changed before the retry", async () => {
+      const user = userEvent.setup();
+      // The first submit may have landed with 250.00; the retry sends 275.00.
+      mockSubmitBill
+        .mockRejectedValueOnce(new Error("Unable to reach the server."))
+        .mockRejectedValueOnce(new ApiError("This bill has already been submitted.", 409));
+      render(<InvoiceForm />);
+      fillInValidBill();
+
+      await create(user);
+      await screen.findByRole("alert");
+      fireEvent.change(screen.getByLabelText("Current Due"), { target: { value: "275.00" } });
+      await user.click(screen.getByRole("button", { name: /Create/ }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(alreadySent);
+      expect(push).not.toHaveBeenCalled();
+      expect(mockSubmitBill.mock.calls[1][1]).toEqual(
+        expect.objectContaining({ amount: "275.00" }),
+      );
+    });
+
+    it("does not count a 409 on the first try as its own success", async () => {
+      const user = userEvent.setup();
+      // Another tab submitted this draft; this Create never sent anything before.
+      mockSubmitBill.mockRejectedValueOnce(
+        new ApiError("This bill has already been submitted.", 409),
+      );
+      render(<InvoiceForm />);
+      fillInValidBill();
+
+      await create(user);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(alreadySent);
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it("says the bill may already be sent when a newly picked PDF can't be stored after a lost submit", async () => {
+      const user = userEvent.setup();
+      mockSubmitBill.mockRejectedValueOnce(new Error("Unable to reach the server."));
+      render(<InvoiceForm />);
+      fillInValidBill();
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("first.pdf")] } });
+
+      await create(user);
+      await screen.findByRole("alert");
+      // The bill is no longer a draft, so storing another PDF on it is refused.
+      mockUploadInvoicePdf.mockRejectedValueOnce(new ApiError("Editable draft not found.", 404));
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("second.pdf")] } });
+      await user.click(screen.getByRole("button", { name: /Create/ }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent(alreadySent);
+      expect(alert).not.toHaveTextContent("the bill wasn't created");
+      expect(mockSubmitBill).toHaveBeenCalledTimes(1);
+    });
+
     it("still shows other submit errors, such as a missing draft", async () => {
       const user = userEvent.setup();
       mockSubmitBill.mockRejectedValueOnce(new ApiError("Editable draft not found.", 404));

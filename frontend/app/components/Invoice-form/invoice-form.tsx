@@ -37,6 +37,12 @@ import type { BillCreatePayload, BillDraftDetail, BillDraftPayload } from "@/typ
 
 type ActionStatus = "idle" | "loading" | "success" | "error";
 
+// What a Create attempt sent: the payload as JSON and the picked PDF.
+type UnansweredSubmit = { payload: string; pdf: File | null };
+
+const ALREADY_SUBMITTED_MESSAGE =
+  "This bill was already sent for approval with the earlier values, so your latest changes weren't saved. Open it from the dashboard to check what was sent.";
+
 // The PDF stored with this visit's draft: none yet, one stored before this
 // visit opened the draft (the server keeps only its storage path, not its
 // name), or a file picked and stored during this visit.
@@ -243,6 +249,10 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
   const draftLoaded = useRef(false);
 
   const [createStatus, setCreateStatus] = useState<ActionStatus>("idle");
+  // Create attempts whose submit got no answer (network error or lost
+  // response): each may have reached the server. A later 409 counts as done
+  // only if every one of them sent exactly what the retry sends.
+  const unansweredSubmits = useRef<UnansweredSubmit[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [reader, setReader] = useState<ReaderState>({ phase: "idle" });
@@ -323,21 +333,44 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
       await storePickedPdf(id);
     } catch (error) {
       setCreateStatus("error");
+      // After an unanswered submit, the bill may no longer be a draft, so a
+      // newly picked PDF can't be stored on it (404 or 409). Saying "the bill
+      // wasn't created" would be wrong: it may already be with the approver.
+      const mayBeSubmitted =
+        unansweredSubmits.current.length > 0 &&
+        error instanceof ApiError &&
+        (error.status === 404 || error.status === 409);
       setSubmitError(
-        `The PDF couldn't be stored, so the bill wasn't created. Please try again.\n${errorMessage(error, "")}`.trim(),
+        mayBeSubmitted
+          ? ALREADY_SUBMITTED_MESSAGE
+          : `The PDF couldn't be stored, so the bill wasn't created. Please try again.\n${errorMessage(error, "")}`.trim(),
       );
       return;
     }
 
+    const payload = createPayload(values);
+    const attempt: UnansweredSubmit = { payload: JSON.stringify(payload), pdf: selectedFile };
     try {
-      await submitBill(id, createPayload(values));
+      await submitBill(id, payload);
     } catch (error) {
-      // 409 means this draft was already submitted: an earlier try reached
-      // the server but its response was lost. The bill is with the approver,
-      // so this try succeeded too. Only the caller's own bill can answer 409.
-      if (!(error instanceof ApiError && error.status === 409)) {
+      // 409 means this draft was already submitted. That is this same Create
+      // landing only when an earlier attempt got no answer and every such
+      // attempt sent exactly these values and this PDF. Otherwise (values
+      // edited before the retry, or another tab submitted it) the bill went
+      // with other values, so say so instead of reporting success.
+      const alreadySubmitted = error instanceof ApiError && error.status === 409;
+      const earlier = unansweredSubmits.current;
+      const sameAsEarlier =
+        earlier.length > 0 &&
+        earlier.every((sent) => sent.payload === attempt.payload && sent.pdf === attempt.pdf);
+      if (!(alreadySubmitted && sameAsEarlier)) {
+        if (!(error instanceof ApiError)) unansweredSubmits.current = [...earlier, attempt];
         setCreateStatus("error");
-        setSubmitError(errorMessage(error, "Unable to create the bill. Please try again."));
+        setSubmitError(
+          alreadySubmitted
+            ? ALREADY_SUBMITTED_MESSAGE
+            : errorMessage(error, "Unable to create the bill. Please try again."),
+        );
         return;
       }
     }
