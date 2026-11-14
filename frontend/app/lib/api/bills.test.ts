@@ -1,6 +1,7 @@
 import type { BillCreatePayload, BillDraftPayload } from "@/types/bill";
 import {
   createBill,
+  extractBill,
   getBillDraft,
   getDashboardBills,
   saveBillDraft,
@@ -142,6 +143,56 @@ describe("createBill", () => {
       "You must be signed in to submit an invoice.",
     );
 
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("extractBill", () => {
+  const file = new File(["%PDF-1.4"], "bill.pdf", { type: "application/pdf" });
+
+  it("POSTs the file as form data to /bills/extract and returns the result", async () => {
+    const extraction = { status: "not_an_invoice", extraction: null, issues: [] };
+    fetchMock.mockResolvedValueOnce(jsonResponse(extraction));
+    const controller = new AbortController();
+
+    const result = await extractBill(file, controller.signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/bills/extract");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({ Authorization: "Bearer test-token" });
+    expect((init.body as FormData).get("file")).toBeInstanceOf(File);
+    expect(((init.body as FormData).get("file") as File).name).toBe("bill.pdf");
+    expect(init.signal).toBe(controller.signal);
+    expect(result).toEqual(extraction);
+  });
+
+  it("sends a .pdf with an empty MIME type as application/pdf", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: "failed" }));
+
+    await extractBill(new File(["%PDF-1.4"], "scan.pdf", { type: "" }));
+
+    const sent = (fetchMock.mock.calls[0][1].body as FormData).get("file") as File;
+    expect(sent.type).toBe("application/pdf");
+  });
+
+  it("throws the server detail, such as a timeout", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        { detail: "Reading the bill took too long. Try again, or fill in the form." },
+        { ok: false, status: 504 },
+      ),
+    );
+
+    await expect(extractBill(file)).rejects.toThrow(
+      "Reading the bill took too long. Try again, or fill in the form.",
+    );
+  });
+
+  it("asks the user to sign in when there is no session", async () => {
+    signedOut();
+
+    await expect(extractBill(file)).rejects.toThrow("You must be signed in to read an invoice.");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

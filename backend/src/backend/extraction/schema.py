@@ -16,10 +16,12 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.schemas.bill import BillCreate
+from backend.schemas.common import AccountStatus
 
 
 def _bill_create_max_length(name: str) -> int:
@@ -40,6 +42,8 @@ MAX_LENGTHS = {
         "invoice_number",
         "description",
         "processing_notes",
+        "property_address",
+        "website_name",
     )
 }
 
@@ -76,6 +80,19 @@ class Extracted(BaseModel):
     confidence: Confidence
 
 
+# The status values are `BillCreate`'s. The enum is in the JSON schema, so
+# structured output cannot return any other status; output that still does not
+# fit fails like any other schema mismatch. (The docstring goes to the model as
+# the schema description.)
+class ExtractedAccountStatus(Extracted):
+    """The payment status the bill prints, with the text it came from."""
+
+    value: AccountStatus | None = Field(
+        description="unpaid, outstanding or paid, as the bill prints its status; "
+        "null when it prints none."
+    )
+
+
 class LineItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -102,6 +119,9 @@ class BillExtraction(BaseModel):
     service_address: Extracted
     service_period_start: Extracted
     service_period_end: Extracted
+    description: Extracted
+    payment_website: Extracted
+    account_status: ExtractedAccountStatus
 
     def iter_fields(self) -> Iterator[tuple[str, Extracted]]:
         """Every `Extracted` in the output, line items as `line_items[i].amount`."""
@@ -112,11 +132,11 @@ class BillExtraction(BaseModel):
             yield f"line_items[{i}].amount", item.amount
 
 
-# Top-level fields of type `Extracted`, in schema order.
+# Top-level fields of type `Extracted` (or a subclass), in schema order.
 FIELD_NAMES = tuple(
     name
     for name, info in BillExtraction.model_fields.items()
-    if info.annotation is Extracted
+    if isinstance(info.annotation, type) and issubclass(info.annotation, Extracted)
 )
 # The fields every bill needs: `BillCreate` requires all but the vendor, which
 # the reviewer needs to match the bill.
@@ -140,6 +160,9 @@ AMOUNT_FIELDS = (
     "payments_received",
     "current_charges",
 )
+# Free text copied from the bill, whose exact wording two readings may differ
+# on: not compared by the cascade, and scored separately in the eval.
+FREE_TEXT_FIELDS = ("description",)
 
 
 class IssueCode(StrEnum):
@@ -148,6 +171,7 @@ class IssueCode(StrEnum):
     DUE_BEFORE_INVOICE = "DUE_BEFORE_INVOICE"
     DATE_OUT_OF_RANGE = "DATE_OUT_OF_RANGE"
     BAD_AMOUNT = "BAD_AMOUNT"
+    BAD_URL = "BAD_URL"
     LINE_ITEMS_MISMATCH = "LINE_ITEMS_MISMATCH"
     BALANCE_MISMATCH = "BALANCE_MISMATCH"
     EVIDENCE_NOT_FOUND = "EVIDENCE_NOT_FOUND"
@@ -223,6 +247,28 @@ def parse_amount(text: str | None) -> Decimal | None:
     return Decimal(text.replace("$", "").replace(",", ""))
 
 
+def parse_url(text: str | None) -> str | None:
+    """The stripped URL when it is an absolute http(s) URL with a host, else None.
+
+    No whitespace inside. The URL is returned as written (not normalised), since
+    the form shows it exactly as the bill prints it.
+    """
+    if text is None:
+        return None
+    text = text.strip()
+    if not text or any(char.isspace() for char in text):
+        return None
+    try:
+        parts = urlsplit(text)
+        host = parts.hostname
+        _ = parts.port  # raises ValueError for a port that is not a number
+    except ValueError:  # e.g. an unclosed IPv6 bracket or a bad port
+        return None
+    if parts.scheme.lower() not in ("http", "https") or not host:
+        return None
+    return text
+
+
 def fits_money(amount: Decimal) -> bool:
     """At most 12 digits with 2 decimals, like `Money` in `schemas/bill.py`."""
     if not amount.is_finite():
@@ -279,6 +325,13 @@ def _processing_notes(issues: Sequence[Issue]) -> str | None:
     return notes[: MAX_LENGTHS["processing_notes"]]
 
 
+def _website(field: Extracted) -> str | None:
+    url = parse_url(field.value)
+    if url is None or len(url) > MAX_LENGTHS["website_name"]:
+        return None
+    return url
+
+
 def to_bill_create_dict(
     extraction: BillExtraction, issues: Sequence[Issue] = ()
 ) -> dict[str, Any]:
@@ -286,16 +339,15 @@ def to_bill_create_dict(
 
     Values that fail to parse, or that `BillCreate` would reject for that field
     (`amount` must be > 0, `prev_payments` >= 0, at most 12 digits with 2
-    decimals), become None so the reviewer fills them in; the matching issue
-    says why. Text longer than the `BillCreate` field allows (`MAX_LENGTHS`)
-    also becomes None, without an issue: no check covers it, the reviewer sees
-    an empty field and types the value. Dates are `date`, amounts are
-    `Decimal`. `description` is built here from vendor and service period;
-    `processing_notes` from the issues (cut to the limit, never None).
+    decimals, `website_name` an http(s) URL), become None so the reviewer fills
+    them in; the matching issue says why. Text longer than the `BillCreate`
+    field allows (`MAX_LENGTHS`) also becomes None, without an issue: no check
+    covers it, the reviewer sees an empty field and types the value. Dates are
+    `date`, amounts are `Decimal`, `account_status` is an `AccountStatus`.
 
-    `property_address` is in the dict although `BillCreate` on this branch does
-    not have the field yet (the submit-bill-form branch adds it), so it has no
-    length limit here.
+    `description` is the bill's own description as printed; when the bill
+    prints none it is built from vendor and service period. `processing_notes`
+    lists the issues (cut to the limit, never None).
     """
     vendor = _clean(extraction.vendor_name, MAX_LENGTHS["vendor_name_raw"])
     return {
@@ -312,11 +364,16 @@ def to_bill_create_dict(
         "prev_payments": _money(
             extraction.payments_received.value, minimum_exclusive=False
         ),
-        "property_address": _clean(extraction.service_address),
-        "description": _description(
+        "property_address": _clean(
+            extraction.service_address, MAX_LENGTHS["property_address"]
+        ),
+        "description": _clean(extraction.description, MAX_LENGTHS["description"])
+        or _description(
             vendor,
             parse_date(extraction.service_period_start.value),
             parse_date(extraction.service_period_end.value),
         ),
+        "website_name": _website(extraction.payment_website),
+        "account_status": extraction.account_status.value,
         "processing_notes": _processing_notes(issues),
     }

@@ -172,6 +172,7 @@ class _Query:
         self._limit: int | None = None
         self._single: str | None = None  # "maybe" or "one"
         self._range: tuple[int, int] | None = None
+        self._neq_filters: list[tuple[str, Any]] = []
 
     def select(self, *columns: str) -> "_Query":
         # After insert/update this names the columns of the affected rows.
@@ -226,10 +227,20 @@ class _Query:
         self._single = "one"
         return self
 
+    def neq(self, column: str, value: Any) -> "_Query":
+        self._neq_filters.append((column, value))
+        return self
+
     def _matches(self, row: dict[str, Any]) -> bool:
-        return all(row.get(column) == value for column, value in self._filters) and all(
-            any(OPERATORS[op](row.get(column), value) for column, op, value in group)
-            for group in self._any_of
+        return (
+            all(row.get(column) == value for column, value in self._filters)
+            and all(row.get(column) != value for column, value in self._neq_filters)
+            and all(
+                any(
+                    OPERATORS[op](row.get(column), value) for column, op, value in group
+                )
+                for group in self._any_of
+            )
         )
 
     def _embed(self, row: dict[str, Any]) -> dict[str, Any]:

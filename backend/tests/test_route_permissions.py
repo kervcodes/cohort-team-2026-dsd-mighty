@@ -18,8 +18,10 @@ from current_users import make_user
 from fake_supabase import FakeSupabase
 from fastapi.testclient import TestClient
 
+from backend.api.bill_extraction import get_bill_extractor
 from backend.app import app
 from backend.auth import get_current_user
+from backend.extraction.schema import ExtractionResult, ExtractionStatus
 from backend.schemas.user import UserRole
 
 ANALYST, APPROVER, ADMIN = UserRole.analyst, UserRole.approver, UserRole.admin
@@ -36,6 +38,7 @@ ROLE_TABLE = [
     ("PATCH", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
     ("GET", "/bills/{bill_id}/document", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/bills/{bill_id}/document", {ANALYST, ADMIN}, 201),
+    ("POST", "/bills/extract", {ANALYST, ADMIN}, 200),
     ("GET", "/vendors", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/vendors", {ADMIN}, 201),
     ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
@@ -54,6 +57,8 @@ ROLE_TABLE = [
         200,
     ),
     ("POST", "/bills/{bill_id}/resubmit", {ANALYST, ADMIN}, 200),
+    ("GET", "/admin/users/{user_id}", {ADMIN}, 200),
+    ("PATCH", "/admin/users/{user_id}", {ADMIN}, 200),
 ]
 
 # Routes that need a signed-in user but no role.
@@ -72,8 +77,10 @@ REQUEST_BODY = {
     ("POST", "/bills/drafts"): {"json": {"amount": "10.00"}},
     ("PATCH", "/bills/{bill_id}/draft"): {"json": {"amount": "10.00"}},
     ("POST", "/bills/{bill_id}/document"): {"files": {"file": PDF}},
+    ("POST", "/bills/extract"): {"files": {"file": PDF}},
     ("POST", "/vendors"): {"json": {"name": "Acme Water"}},
     ("PATCH", "/vendors/{vendor_id}"): {"json": {"contact_phone": "555-0100"}},
+    ("PATCH", "/admin/users/{user_id}"): {"json": {"role": "approver"}},
     ("POST", "/approvals/{approval_id}/decision"): {
         "json": {
             "decision": "approve",
@@ -122,8 +129,20 @@ def db():
         yield fake
 
 
-@pytest.mark.parametrize(("method", "path", "role", "status", "expected"), CASES)
-def test_route_allows_only_its_active_roles(db, method, path, role, status, expected):
+@pytest.fixture
+def no_model_call():
+    # POST /bills/extract reads the file with a stand-in, never a model.
+    result = ExtractionResult(status=ExtractionStatus.ready_for_review)
+    app.dependency_overrides[get_bill_extractor] = lambda: lambda data, media: result
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "role", "status", "expected"),
+    CASES,
+)
+def test_route_allows_only_its_active_roles(
+    db, no_model_call, monkeypatch, method, path, role, status, expected
+):
     user = make_user(role=role, status=status)
 
     db.add_user(
@@ -160,13 +179,27 @@ def test_route_allows_only_its_active_roles(db, method, path, role, status, expe
         approval["approval_status"] = "rejected"
 
     vendor = db.add_vendor("Acme Water")
-    app.dependency_overrides[get_current_user] = lambda: user
+
+    target_user = db.add_user(
+        "00000000-0000-0000-0000-000000000001",
+        full_name="Target User",
+        email="target@example.com",
+        role="analyst",
+        status="active",
+    )
+
+    monkeypatch.setitem(
+        app.dependency_overrides,
+        get_current_user,
+        lambda: user,
+    )
 
     response = TestClient(app).request(
         method,
         path.format(
             bill_id=bill["bill_id"],
             vendor_id=vendor["vendor_id"],
+            user_id=target_user["user_id"],
             approval_id=approval["approval_id"],
         ),
         **REQUEST_BODY.get((method, path), {}),
@@ -175,7 +208,7 @@ def test_route_allows_only_its_active_roles(db, method, path, role, status, expe
     assert response.status_code == expected, response.text
 
     if status == "inactive":
-        assert response.json()["detail"] == "Your account is waiting for approval."
+        assert response.json()["detail"] == ("Your account is waiting for approval.")
     elif expected == 403:
         assert response.json()["detail"] == "Your role can't do this."
 

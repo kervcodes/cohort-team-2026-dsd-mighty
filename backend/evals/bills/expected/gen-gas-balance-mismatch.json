@@ -34,6 +34,9 @@
   "service_address": "125 Industrial Way, Springfield, IL 62701",
   "service_period_start": "2026-09-24",
   "service_period_end": "2026-10-23",
+  "description": "Commercial natural gas service",
+  "payment_website": "https://pay.timberline-gas.example",
+  "account_status": "unpaid",
   "expected_issues": [
     "BALANCE_MISMATCH"
   ],

@@ -218,7 +218,8 @@ def gemini_schema(schema: dict[str, Any]) -> dict[str, Any]:
     Gemini structured output documents nullable types as a type array
     (`{"type": ["string", "null"]}`) and does not mention `$defs`, so this
     inlines every `$ref` and turns `anyOf: [X, {"type": "null"}]` into X with
-    a nullable type. Everything else (enum, required, additionalProperties,
+    a nullable type (and null added to X's `enum`, if it has one, so null
+    stays allowed). Everything else (enum, required, additionalProperties,
     descriptions) is kept, so the schema means the same as `BillExtraction`.
     """
     defs = schema.get("$defs", {})
@@ -240,7 +241,14 @@ def gemini_schema(schema: dict[str, Any]) -> dict[str, Any]:
             non_null = [o for o in options if o != {"type": "null"}]
             if len(non_null) == 1 and isinstance(non_null[0].get("type"), str):
                 rest = {k: v for k, v in node.items() if k != "anyOf"}
-                return {**non_null[0], **rest, "type": [non_null[0]["type"], "null"]}
+                nullable = {
+                    **non_null[0],
+                    **rest,
+                    "type": [non_null[0]["type"], "null"],
+                }
+                if "enum" in nullable:
+                    nullable["enum"] = [*nullable["enum"], None]
+                return nullable
         return node
 
     return convert(schema, ())
