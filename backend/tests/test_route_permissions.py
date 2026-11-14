@@ -37,6 +37,7 @@ ROLE_TABLE = [
     ("GET", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
     ("PATCH", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
     ("POST", "/bills/{bill_id}/document", {ANALYST, ADMIN}, 201),
+    ("POST", "/bills/{bill_id}/submit", {ANALYST, ADMIN}, 200),
     ("POST", "/bills/extract", {ANALYST, ADMIN}, 200),
     ("GET", "/vendors", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/vendors", {ADMIN}, 201),
@@ -48,16 +49,17 @@ ROLE_TABLE = [
 # Routes that need a signed-in user but no role.
 ANY_SIGNED_IN = {("GET", "/me")}
 
+NEW_BILL = {
+    "account_number_raw": "ACC-1",
+    "invoice_number": "INV-1",
+    "invoice_date": "2026-11-01",
+    "due_date": "2026-12-01",
+    "amount": "10.00",
+}
+
 REQUEST_BODY = {
-    ("POST", "/bills"): {
-        "json": {
-            "account_number_raw": "ACC-1",
-            "invoice_number": "INV-1",
-            "invoice_date": "2026-11-01",
-            "due_date": "2026-12-01",
-            "amount": "10.00",
-        }
-    },
+    ("POST", "/bills"): {"json": NEW_BILL},
+    ("POST", "/bills/{bill_id}/submit"): {"json": NEW_BILL},
     ("POST", "/bills/drafts"): {"json": {"amount": "10.00"}},
     ("PATCH", "/bills/{bill_id}/draft"): {"json": {"amount": "10.00"}},
     ("POST", "/bills/{bill_id}/document"): {"files": {"file": PDF}},

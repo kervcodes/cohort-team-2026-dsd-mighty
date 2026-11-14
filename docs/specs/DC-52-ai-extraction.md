@@ -6,10 +6,10 @@
 
 ## Goal
 
-Read an uploaded bill (PDF or image) with one model call and return checked, structured JSON that pre-fills the New Invoice form. A person always reviews the values and clicks Create, which uses the existing `POST /bills`. The extractor never saves anything, never approves anything and never talks to the database.
+Read an uploaded bill (PDF or image) with one model call and return checked, structured JSON that pre-fills the New Invoice form. A person always reviews the values and clicks Create, which saves them as a draft and submits it (`POST /bills/{bill_id}/submit`). The extractor never saves anything, never approves anything and never talks to the database.
 
 ```
-upload -> POST /bills/extract -> pre-filled form -> person edits -> Create (POST /bills)
+upload -> POST /bills/extract -> pre-filled form -> person edits -> Create (POST /bills/{bill_id}/submit)
 ```
 
 ## Out of scope

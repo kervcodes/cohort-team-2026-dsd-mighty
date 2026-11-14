@@ -5,11 +5,13 @@ import {
   extractBill,
   getBillDraft,
   saveBillDraft,
+  submitBill,
   updateBillDraft,
   uploadInvoicePdf,
 } from "@/lib/api/bills";
+import { ApiError } from "@/lib/api/http";
 import { accountStatuses } from "@/lib/invoice-form-schema";
-import type { AccountStatus } from "@/types/bill";
+import type { AccountStatus, Bill, BillDraftDetail } from "@/types/bill";
 import type {
   BillExtraction,
   Confidence,
@@ -93,11 +95,13 @@ function RoutedForm() {
 
 // The real module needs NEXT_PUBLIC_API_URL at import time and makes network
 // calls; the form is tested in isolation.
+// Only these exist on the mock: the form calling anything else (such as
+// createBill, which makes a second bill) fails the test.
 jest.mock("@/lib/api/bills", () => ({
-  createBill: jest.fn(),
   extractBill: jest.fn(),
   getBillDraft: jest.fn(),
   saveBillDraft: jest.fn(),
+  submitBill: jest.fn(),
   updateBillDraft: jest.fn(),
   uploadInvoicePdf: jest.fn(),
 }));
@@ -109,6 +113,7 @@ function pdf(name = "invoice.pdf", type = "application/pdf") {
 const mockSaveBillDraft = saveBillDraft as jest.MockedFunction<typeof saveBillDraft>;
 const mockUpdateBillDraft = updateBillDraft as jest.MockedFunction<typeof updateBillDraft>;
 const mockUploadInvoicePdf = uploadInvoicePdf as jest.MockedFunction<typeof uploadInvoicePdf>;
+const mockSubmitBill = submitBill as jest.MockedFunction<typeof submitBill>;
 
 const mockGetBillDraft = getBillDraft as jest.MockedFunction<typeof getBillDraft>;
 const mockExtractBill = extractBill as jest.MockedFunction<typeof extractBill>;
@@ -175,6 +180,28 @@ function pendingRead() {
     reject = rej;
   });
   return { promise, resolve, reject };
+}
+
+// A saved draft with every field Create requires.
+function fullDraft(overrides: Partial<BillDraftDetail> = {}): BillDraftDetail {
+  return {
+    bill_id: "bill-1",
+    status: "draft",
+    account_number_raw: "ACC-100",
+    invoice_number: "INV-2001",
+    vendor_name_raw: "City Power",
+    invoice_date: "2026-10-01",
+    due_date: "2026-10-31",
+    amount: "250.00",
+    prev_payments: null,
+    description: "Electricity",
+    processing_notes: null,
+    property_address: "12 Elm St",
+    account_status: null,
+    website_name: null,
+    document_path: null,
+    ...overrides,
+  };
 }
 
 function dropZone() {
@@ -297,107 +324,365 @@ describe("InvoiceForm", () => {
     });
   });
 
-  describe("PDF upload", () => {
+  describe("Storing the PDF with the draft", () => {
     const savedDraft = {
       bill_id: "bill-1",
       status: "draft" as const,
       document_path: null,
     };
+    const stored = { bill_id: "bill-1", document_path: "bills/bill-1/x.pdf", status: "draft" };
 
     beforeEach(() => {
-      mockSaveBillDraft.mockReset();
-      mockUploadInvoicePdf.mockReset();
+      mockSaveBillDraft.mockReset().mockResolvedValue(savedDraft);
+      mockUpdateBillDraft.mockReset().mockResolvedValue(savedDraft);
+      mockUploadInvoicePdf.mockReset().mockResolvedValue(stored);
     });
 
-    it("keeps Upload PDF disabled until a file is selected", async () => {
+    async function saveDraft(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole("button", { name: /Save Draft|Draft Saved|Retry Save/ }));
+    }
+
+    it("has no Upload PDF button", () => {
       render(<InvoiceForm />);
-
-      expect(screen.getByRole("button", { name: "Upload PDF" })).toBeDisabled();
-
       fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
 
-      expect(screen.getByRole("button", { name: "Upload PDF" })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: /Upload/ })).not.toBeInTheDocument();
     });
 
-    it("saves the draft automatically when uploading without one", async () => {
-      const user = userEvent.setup();
-      mockSaveBillDraft.mockResolvedValue(savedDraft);
-      mockUploadInvoicePdf.mockResolvedValue({
-        bill_id: "bill-1",
-        document_path: "bills/bill-1/invoice.pdf",
-        status: "draft",
-      });
+    it("says a picked PDF is stored on the next save", () => {
       render(<InvoiceForm />);
 
-      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
-      const file = pdf();
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
-
-      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
-
-      expect(await screen.findByRole("button", { name: "PDF Saved ✓" })).toBeDisabled();
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
-      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
-    });
-
-    it("does not upload the PDF when the draft cannot be saved", async () => {
-      const user = userEvent.setup();
-      mockSaveBillDraft.mockRejectedValue(new Error("Unable to save draft."));
-      render(<InvoiceForm />);
-
-      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
-
-      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("harborlight-bill.pdf")] } });
 
       expect(
-        await screen.findByText("The draft couldn't be saved, so the PDF wasn't uploaded."),
+        screen.getByText(
+          "harborlight-bill.pdf is stored when you save the draft or create the bill.",
+        ),
       ).toBeInTheDocument();
-      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
-      expect(screen.getByRole("button", { name: "Upload PDF" })).toBeEnabled();
+      expect(screen.queryByText(/Stored with this draft/)).not.toBeInTheDocument();
     });
 
-    it("uploads the selected PDF against an already saved draft", async () => {
+    it("stores the picked PDF with the draft once, then shows it as stored", async () => {
       const user = userEvent.setup();
-      mockSaveBillDraft.mockResolvedValue(savedDraft);
-      mockUploadInvoicePdf.mockResolvedValue({
-        bill_id: "bill-1",
-        document_path: "bills/bill-1/invoice.pdf",
-        status: "draft",
-      });
       render(<InvoiceForm />);
-
       await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+      const file = pdf("harborlight-bill.pdf");
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
+
+      await saveDraft(user);
       await screen.findByRole("button", { name: "Draft Saved ✓" });
 
-      const file = pdf();
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
-      await user.click(screen.getByRole("button", { name: "Upload PDF" }));
-
-      expect(await screen.findByRole("button", { name: "PDF Saved ✓" })).toBeDisabled();
-      // The existing draft is reused, not saved a second time.
       expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
       expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
+      // The values are saved first: the PDF needs the draft's id.
+      expect(mockSaveBillDraft.mock.invocationCallOrder[0]).toBeLessThan(
+        mockUploadInvoicePdf.mock.invocationCallOrder[0],
+      );
+      expect(screen.getByText("Stored with this draft: harborlight-bill.pdf")).toHaveAttribute(
+        "role",
+        "status",
+      );
+
+      await user.type(screen.getByLabelText("Bill Description / Explanation"), "Water");
+      await saveDraft(user);
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
+
+      expect(mockUpdateBillDraft).toHaveBeenCalledTimes(1);
+      // The same file is not stored again.
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
     });
 
-    it("offers a retry when the upload fails", async () => {
+    it("replaces the stored PDF when another one is picked and saved", async () => {
       const user = userEvent.setup();
-      mockSaveBillDraft.mockResolvedValue({
-        bill_id: "bill-1",
-        status: "draft",
-        document_path: null,
-      });
-      mockUploadInvoicePdf.mockRejectedValue(new Error("Unable to store the invoice PDF."));
       render(<InvoiceForm />);
-
       await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
-      await user.click(await screen.findByRole("button", { name: "Upload PDF" }));
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("first.pdf")] } });
+      await saveDraft(user);
+      await screen.findByText("Stored with this draft: first.pdf");
 
-      expect(await screen.findByRole("button", { name: "Retry Upload" })).toBeEnabled();
-      expect(screen.getByText("Unable to store the invoice PDF.")).toBeInTheDocument();
+      const second = pdf("second.pdf");
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [second] } });
+
+      // A new pick is an unsaved change.
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+      expect(
+        screen.getByText(
+          "second.pdf replaces the stored PDF when you save the draft or create the bill.",
+        ),
+      ).toBeInTheDocument();
+
+      await saveDraft(user);
+      await screen.findByText("Stored with this draft: second.pdf");
+
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(2);
+      expect(mockUploadInvoicePdf).toHaveBeenLastCalledWith(second, "bill-1");
+    });
+
+    it("keeps the draft when the PDF can't be stored, and retries on the next save", async () => {
+      const user = userEvent.setup();
+      mockUploadInvoicePdf.mockRejectedValueOnce(new Error("Unable to store the invoice PDF."));
+      render(<InvoiceForm />);
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      const file = pdf("harborlight-bill.pdf");
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
+
+      await saveDraft(user);
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent(
+        "Draft saved, but the PDF couldn't be stored. Save again to retry.",
+      );
+      expect(alert).toHaveTextContent("Unable to store the invoice PDF.");
+      expect(screen.getByRole("heading", { name: "Edit Draft" })).toBeInTheDocument();
+      expect(window.history.replaceState).toHaveBeenCalledWith(null, "", "/invoices/bill-1/edit");
+      expect(screen.queryByText(/Stored with this draft/)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Retry Save" }));
+      await screen.findByText("Stored with this draft: harborlight-bill.pdf");
+
+      // The retry updates the same draft and stores the same file.
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUpdateBillDraft).toHaveBeenCalledWith("bill-1", expect.anything());
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(2);
+      expect(mockUploadInvoicePdf).toHaveBeenLastCalledWith(file, "bill-1");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("saves only the values when no PDF is picked", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+
+      await saveDraft(user);
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
+
+      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
+      expect(screen.getByText("Draft saved successfully: bill-1")).toBeInTheDocument();
+      expect(screen.queryByText(/Stored with this draft/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Create", () => {
+    const savedDraft = {
+      bill_id: "bill-1",
+      status: "draft" as const,
+      document_path: null,
+    };
+    const submitted = { id: "bill-1", status: "pending_approval" } as Bill;
+    const stored = { bill_id: "bill-1", document_path: "bills/bill-1/x.pdf", status: "draft" };
+
+    beforeEach(() => {
+      mockSaveBillDraft.mockReset().mockResolvedValue(savedDraft);
+      mockUpdateBillDraft.mockReset().mockResolvedValue(savedDraft);
+      mockUploadInvoicePdf.mockReset().mockResolvedValue(stored);
+      mockSubmitBill.mockReset().mockResolvedValue(submitted);
+    });
+
+    // Every field Create requires, valid.
+    function fillInValidBill() {
+      const values: Record<string, string> = {
+        "Account / Customer #": "ACC-100",
+        "Statement / Bill ID": "INV-2001",
+        "Customer / Business Name": "City Power",
+        "Property Address": "12 Elm St",
+        "Issue / Record / Invoice Date": "2026-10-01",
+        "Due / Pay Date": "2026-10-31",
+        "Bill Description / Explanation": "Electricity",
+        "Current Due": "250.00",
+      };
+      for (const [label, value] of Object.entries(values)) {
+        fireEvent.change(screen.getByLabelText(label), { target: { value } });
+      }
+    }
+
+    const finalValues = {
+      account_number_raw: "ACC-100",
+      invoice_number: "INV-2001",
+      vendor_name_raw: "City Power",
+      property_address: "12 Elm St",
+      invoice_date: "2026-10-01",
+      due_date: "2026-10-31",
+      description: "Electricity",
+      amount: "250.00",
+    };
+
+    async function create(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole("button", { name: /Create/ }));
+    }
+
+    it("creates a draft, stores the PDF on it, then submits that draft", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+      fillInValidBill();
+      const file = pdf("harborlight-bill.pdf");
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
+
+      await create(user);
+
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockSaveBillDraft.mock.calls[0][0]).toMatchObject(finalValues);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
+      expect(mockSubmitBill).toHaveBeenCalledTimes(1);
+      expect(mockSubmitBill).toHaveBeenCalledWith("bill-1", expect.objectContaining(finalValues));
+      const [saveOrder] = mockSaveBillDraft.mock.invocationCallOrder;
+      const [uploadOrder] = mockUploadInvoicePdf.mock.invocationCallOrder;
+      const [submitOrder] = mockSubmitBill.mock.invocationCallOrder;
+      expect(saveOrder).toBeLessThan(uploadOrder);
+      expect(uploadOrder).toBeLessThan(submitOrder);
+      expect(screen.getByRole("button", { name: "Created ✓" })).toBeDisabled();
+    });
+
+    it("submits the draft Save Draft made, without storing its PDF again", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+      fillInValidBill();
+      const file = pdf();
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
+      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
+      fireEvent.change(screen.getByLabelText("Current Due"), { target: { value: "275.00" } });
+
+      await create(user);
+
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
+      // The final values go with the submit itself.
+      expect(mockSubmitBill).toHaveBeenCalledWith(
+        "bill-1",
+        expect.objectContaining({ amount: "275.00" }),
+      );
+    });
+
+    it("submits without storing anything when no PDF was picked", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm />);
+      fillInValidBill();
+
+      await create(user);
+
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
+      expect(mockSubmitBill).toHaveBeenCalledWith("bill-1", expect.objectContaining(finalValues));
+    });
+
+    it("submits an opened draft, keeping the PDF stored before", async () => {
+      const user = userEvent.setup();
+      mockRouter = { ...mockRouter, pathname: "/invoices/bill-7/edit" };
+      mockGetBillDraft.mockResolvedValue(fullDraft({ bill_id: "bill-7" }));
+      render(<InvoiceForm />);
+      await screen.findByDisplayValue("ACC-100");
+
+      await create(user);
+
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+      expect(mockSaveBillDraft).not.toHaveBeenCalled();
+      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
+      expect(mockSubmitBill).toHaveBeenCalledWith("bill-7", expect.objectContaining(finalValues));
+    });
+
+    it("stays on the form when the submit fails, and a retry submits the same draft", async () => {
+      const user = userEvent.setup();
+      mockSubmitBill.mockRejectedValueOnce(new Error("Unable to reach the server."));
+      render(<InvoiceForm />);
+      fillInValidBill();
+      const file = pdf();
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
+
+      await create(user);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to reach the server.");
+      expect(push).not.toHaveBeenCalled();
+      expect(screen.getByRole("heading", { name: "Edit Draft" })).toBeInTheDocument();
+      expect(window.history.replaceState).toHaveBeenCalledWith(null, "", "/invoices/bill-1/edit");
+
+      await user.click(screen.getByRole("button", { name: "Retry Create" }));
+
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+      // One draft, one stored PDF, and both submits for that draft.
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
+      expect(mockSubmitBill.mock.calls.map(([id]) => id)).toEqual(["bill-1", "bill-1"]);
+    });
+
+    it("goes to the dashboard when a retry finds the draft already submitted", async () => {
+      const user = userEvent.setup();
+      // The first submit reached the server but its answer was lost.
+      mockSubmitBill
+        .mockRejectedValueOnce(new Error("Unable to reach the server."))
+        .mockRejectedValueOnce(new ApiError("This bill has already been submitted.", 409));
+      render(<InvoiceForm />);
+      fillInValidBill();
+
+      await create(user);
+      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to reach the server.");
+
+      await user.click(screen.getByRole("button", { name: "Retry Create" }));
+
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+      expect(screen.queryByText("This bill has already been submitted.")).not.toBeInTheDocument();
+    });
+
+    it("still shows other submit errors, such as a missing draft", async () => {
+      const user = userEvent.setup();
+      mockSubmitBill.mockRejectedValueOnce(new ApiError("Editable draft not found.", 404));
+      render(<InvoiceForm />);
+      fillInValidBill();
+
+      await create(user);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Editable draft not found.");
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it("does not submit when the PDF can't be stored, and a retry continues", async () => {
+      const user = userEvent.setup();
+      mockUploadInvoicePdf.mockRejectedValueOnce(new Error("Unable to store the invoice PDF."));
+      render(<InvoiceForm />);
+      fillInValidBill();
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
+
+      await create(user);
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("The PDF couldn't be stored, so the bill wasn't created.");
+      expect(alert).toHaveTextContent("Unable to store the invoice PDF.");
+      expect(mockSubmitBill).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: "Retry Create" }));
+
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(2);
+      expect(mockSubmitBill).toHaveBeenCalledTimes(1);
+    });
+
+    it("stays on the form when the draft can't be created", async () => {
+      const user = userEvent.setup();
+      mockSaveBillDraft.mockRejectedValueOnce(new Error("Unable to save draft"));
+      render(<InvoiceForm />);
+      fillInValidBill();
+
+      await create(user);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to save draft");
+      expect(mockSubmitBill).not.toHaveBeenCalled();
+      expect(push).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Retry Create" })).toBeEnabled();
+    });
+
+    it("shows one loading state and blocks Save Draft while creating", async () => {
+      const user = userEvent.setup();
+      mockSubmitBill.mockReturnValue(new Promise<never>(() => {}));
+      render(<InvoiceForm />);
+      fillInValidBill();
+
+      await create(user);
+
+      expect(await screen.findByRole("button", { name: "Creating..." })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
     });
   });
 
@@ -454,7 +739,7 @@ describe("InvoiceForm", () => {
       expect(payload.prev_payments).toBeNull();
     });
 
-    it("marks the draft unsaved when a field changes, but not when a PDF is picked", async () => {
+    it("marks the draft unsaved when a field changes", async () => {
       const user = userEvent.setup();
       render(<InvoiceForm />);
 
@@ -462,12 +747,43 @@ describe("InvoiceForm", () => {
       await user.click(screen.getByRole("button", { name: "Save Draft" }));
       await screen.findByRole("button", { name: "Draft Saved ✓" });
 
-      await user.upload(document.querySelector("#invoicePdf") as HTMLInputElement, pdf());
-      expect(screen.getByRole("button", { name: "Draft Saved ✓" })).toBeInTheDocument();
-
       await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
       expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
     });
+
+    it("marks the draft unsaved when a PDF is picked, as Save Draft stores it", async () => {
+      const user = userEvent.setup();
+      mockUploadInvoicePdf.mockReset();
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Account / Customer #"), "ACC-100");
+      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
+
+      await user.upload(document.querySelector("#invoicePdf") as HTMLInputElement, pdf());
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+    });
+    it("saves a draft holding only a picked PDF and stores the PDF with it", async () => {
+      const user = userEvent.setup();
+      mockUploadInvoicePdf.mockReset().mockResolvedValue({
+        bill_id: "bill-1",
+        document_path: "bills/bill-1/x.pdf",
+        status: "draft",
+      });
+      const file = pdf();
+      render(<InvoiceForm />);
+
+      await user.upload(document.querySelector("#invoicePdf") as HTMLInputElement, file);
+      const saveDraft = screen.getByRole("button", { name: "Save Draft" });
+      expect(saveDraft).toBeEnabled();
+
+      await user.click(saveDraft);
+      await screen.findByRole("button", { name: "Draft Saved ✓" });
+
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
+    });
+
     it("disables Save Draft until the user enters something", async () => {
       const user = userEvent.setup();
       render(<InvoiceForm />);
@@ -551,6 +867,35 @@ describe("InvoiceForm", () => {
       expect(screen.getByDisplayValue("2026-11-01")).toBeInTheDocument();
       expect(screen.getByLabelText("Account Status")).toHaveValue("unpaid");
       expect(screen.getByDisplayValue("electric.example.com")).toBeInTheDocument();
+    });
+
+    it("shows that the opened draft already has a stored PDF", async () => {
+      mockGetBillDraft.mockResolvedValue(fullDraft({ document_path: "bills/bill-1/abc.pdf" }));
+
+      render(<InvoiceForm />);
+
+      expect(await screen.findByText("A PDF is stored with this draft.")).toHaveAttribute(
+        "role",
+        "status",
+      );
+
+      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("newer.pdf")] } });
+
+      expect(screen.queryByText("A PDF is stored with this draft.")).not.toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "newer.pdf replaces the stored PDF when you save the draft or create the bill.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("shows no stored PDF for a draft without one", async () => {
+      mockGetBillDraft.mockResolvedValue(fullDraft());
+
+      render(<InvoiceForm />);
+      await screen.findByDisplayValue("ACC-100");
+
+      expect(screen.queryByText(/stored/)).not.toBeInTheDocument();
     });
 
     it("enables Save Draft once an existing draft has loaded", async () => {
@@ -1013,7 +1358,7 @@ describe("InvoiceForm", () => {
       ).toBeInTheDocument();
       expect(screen.getByRole("status")).toHaveTextContent("This file doesn't look like a bill.");
       expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("");
-      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
     });
 
     it("shows why a failed read failed and fills nothing", async () => {
@@ -1048,7 +1393,6 @@ describe("InvoiceForm", () => {
       );
       await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-1");
       expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
-      expect(screen.getByRole("button", { name: "Upload PDF" })).toBeEnabled();
     });
 
     it("ignores the result of a file that was replaced while it was read", async () => {

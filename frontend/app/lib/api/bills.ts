@@ -10,9 +10,11 @@ import type {
 import type { ExtractionResult } from "@/types/extraction";
 import { apiRequest } from "./http";
 
-export function createBill(payload: BillCreatePayload): Promise<Bill> {
+// Create: sends the saved draft `billId`, with the PDF stored on it, for
+// approval with the form's final values. The same bill, never a second one.
+export function submitBill(billId: string, payload: BillCreatePayload): Promise<Bill> {
   return apiRequest<Bill>(
-    "/bills",
+    `/bills/${billId}/submit`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -20,7 +22,7 @@ export function createBill(payload: BillCreatePayload): Promise<Bill> {
     },
     {
       signedOut: "You must be signed in to submit an invoice.",
-      failed: "Request failed",
+      failed: "Unable to submit the invoice",
     },
   );
 }
@@ -32,6 +34,7 @@ export function withPdfType(file: File): File {
   return file.type ? file : new File([file], file.name, { type: "application/pdf" });
 }
 
+// Stores the PDF on the draft `billId`, replacing any PDF stored there before.
 export function uploadInvoicePdf(file: File, billId: string): Promise<DocumentUploadResponse> {
   const formData = new FormData();
   formData.append("file", withPdfType(file));
