@@ -27,7 +27,7 @@ The checker runs by `node` from the repo root because the root has no `package.j
 | Staged frontend and backend files are Biome- and Ruff-fixed before commit | hook | `.husky/pre-commit`, `lint-staged.config.mjs` | - |
 | No literal user-visible text in components | convention | - | 2026-12-31 Biome `noJsxLiterals` runs at warn, not error: literals not yet extracted (45 in 13 files) |
 | Required status checks and squash-only merges on `main` | audit | - | 2026-12-31 repository admin settings, not changeable from a PR |
-| The demo seed has a vendor account for every DSD demo bill, with the bill's account number, vendor name, portal and service address | test | `backend/supabase/seed.sql`, `backend/tests/test_seed.py` | - |
+| The demo seed has a vendor account for every DSD demo bill, with the bill's account number, vendor name, portal and service address | test | `backend/supabase/seed.sql`, `backend/tests/test_seed.py`, `backend/supabase/tests/seed.test.sql` | - |
 | The extractor never imports Supabase | test | `backend/tests/extraction/test_extraction_rules.py` | - |
 | Tests never call a model: API keys are removed for every backend test, and the extractor raises without them | test | `backend/tests/conftest.py`, `backend/tests/test_model_keys.py`, `backend/tests/extraction/test_extraction_rules.py`, `backend/tests/extraction/test_extract.py`, `backend/tests/test_extract_route.py` | - |
 | Extraction log lines carry metadata only, never bill content or extracted values | test | `backend/tests/extraction/test_extract.py` | - |

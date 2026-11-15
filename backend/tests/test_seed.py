@@ -55,12 +55,6 @@ def by_id(table: str, key: str) -> dict[str | None, Row]:
     return {row[key]: row for row in SEED[table]}
 
 
-def test_every_insert_is_parsed_and_idempotent():
-    sql = SEED_SQL.read_text()
-    assert sql.count("insert into") == len(INSERT.findall(sql))
-    assert set(SEED) == {"properties", "vendors", "vendor_accounts"}
-
-
 @pytest.mark.parametrize("path", DSD_BILLS, ids=lambda p: p.stem)
 def test_dsd_bill_has_a_seeded_vendor_account(path: Path):
     bill: dict[str, Any] = json.loads(path.read_text())
