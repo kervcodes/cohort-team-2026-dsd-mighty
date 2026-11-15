@@ -37,7 +37,7 @@ def _require_readable_bill(client: Client, bill_id: UUID, user: CurrentUser) -> 
         raise _bill_not_found()
 
 
-def _not_approved_detail(bill_status: BillStatus) -> str:
+def not_approved_detail(bill_status: BillStatus) -> str:
     if bill_status is BillStatus.paid:
         return "This bill has already been paid."
     label = bill_status.replace("_", " ")
@@ -67,7 +67,7 @@ def record_bill_payment(
     except BillNotApproved as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=_not_approved_detail(exc.status),
+            detail=not_approved_detail(exc.status),
         ) from exc
     except AmountMismatch as exc:
         raise HTTPException(

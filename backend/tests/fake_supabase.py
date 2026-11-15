@@ -22,7 +22,7 @@ Supports only the query shapes the repository uses. Helpers, not tests.
 
 import re
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
@@ -34,11 +34,59 @@ FOREIGN_KEYS = {
     ("bills", "submitted_by"): ("app_users", "user_id"),
     ("vendor_accounts", "property_id"): ("properties", "property_id"),
     ("vendor_accounts", "vendor_id"): ("vendors", "vendor_id"),
+    ("payment_runs", "bill_id"): ("bills", "bill_id"),
+    ("payment_runs", "started_by"): ("app_users", "user_id"),
 }
 
 # table -> column sets that must be unique together, as in the migrations.
 UNIQUE_KEYS = {
     "vendor_accounts": [("property_id", "vendor_id", "account_number")],
+}
+
+# table -> (columns, row predicate): unique among the rows the predicate
+# holds for, like a partial unique index.
+PARTIAL_UNIQUE_KEYS: dict[str, list[tuple[tuple[str, ...], Callable[..., bool]]]] = {
+    # payment_runs_one_active_per_bill
+    "payment_runs": [
+        (("bill_id",), lambda row: row.get("status") in ("queued", "running"))
+    ],
+}
+
+FINAL_RUN_STATUSES = ("paid", "flagged", "failed")
+
+# table -> (constraint name, predicate every row must satisfy), as in the
+# migrations' check constraints.
+CHECKS: dict[str, list[tuple[str, Callable[[dict[str, Any]], bool]]]] = {
+    "payment_runs": [
+        (
+            "payment_runs_status_check",
+            lambda r: r["status"] in ("queued", "running", *FINAL_RUN_STATUSES),
+        ),
+        (
+            "payment_runs_steps_check",
+            lambda r: isinstance(r["steps"], list),
+        ),
+        (
+            "payment_runs_flag_reason_only_when_flagged",
+            lambda r: (r["status"] == "flagged") == (r["flag_reason"] is not None),
+        ),
+        (
+            "payment_runs_started_unless_queued",
+            lambda r: (r["status"] == "queued") == (r["started_at"] is None),
+        ),
+        (
+            "payment_runs_finished_when_done",
+            lambda r: (
+                (r["status"] in FINAL_RUN_STATUSES) == (r["finished_at"] is not None)
+            ),
+        ),
+        (
+            "payment_runs_payment_when_recorded",
+            lambda r: (
+                r["status"] not in ("paid", "failed") or r["payment_id"] is not None
+            ),
+        ),
+    ],
 }
 
 # alias:table!fk_column(col,col)
@@ -70,6 +118,19 @@ def _insert_defaults(table: str) -> dict[str, Any]:
             "portal_password_secret_id": None,
             "status": "active",
             "created_at": now,
+        }
+    if table == "payment_runs":
+        return {
+            "run_id": str(uuid4()),
+            "status": "queued",
+            "steps": [],
+            "flag_reason": None,
+            "receipt": None,
+            "payment_id": None,
+            "created_at": now,
+            "started_at": None,
+            "finished_at": None,
+            "updated_at": now,
         }
     return {"bill_id": str(uuid4()), "document_path": None, "created_at": now}
 
@@ -188,6 +249,21 @@ class _Query:
                             "message": f"{table}.{column} violates foreign key",
                         }
                     )
+        for name, holds in CHECKS.get(self._table, []):
+            if not holds(row):
+                raise APIError({"code": "23514", "message": f"violates {name}"})
+        for columns, applies in PARTIAL_UNIQUE_KEYS.get(self._table, []):
+            key = tuple(row.get(column) for column in columns)
+            if applies(row) and any(
+                applies(other) and tuple(other.get(c) for c in columns) == key
+                for other in others
+            ):
+                raise APIError(
+                    {
+                        "code": "23505",
+                        "message": f"duplicate key on {self._table} {columns}",
+                    }
+                )
         for columns in UNIQUE_KEYS.get(self._table, []):
             key = tuple(row.get(column) for column in columns)
             if any(tuple(other.get(c) for c in columns) == key for other in others):
@@ -352,6 +428,52 @@ class FakeSupabase:
     def _rpc_record_payment(self, **params: Any) -> dict[str, Any]:
         return _record_payment(self, params)
 
+    def _rpc_claim_next_payment_run(self) -> list[dict[str, Any]]:
+        """Migration 20261115140000_payment_runs, without the row locks: the
+        fake runs one call at a time."""
+        now = datetime.now(UTC)
+        runs = self.tables.setdefault("payment_runs", [])
+        for run in runs:
+            started = run["started_at"]
+            if run["status"] == "running" and datetime.fromisoformat(
+                started
+            ) < now - timedelta(minutes=15):
+                run.update(
+                    status="flagged",
+                    flag_reason="The worker stopped before this run finished. "
+                    "Check the vendor portal before paying this bill again.",
+                    finished_at=now.isoformat(),
+                    steps=[
+                        *run["steps"],
+                        {
+                            "at": now.isoformat(),
+                            "step": "flagged",
+                            "detail": "Run was still running after 15 minutes; "
+                            "the worker probably stopped.",
+                        },
+                    ],
+                )
+        queued = sorted(
+            (run for run in runs if run["status"] == "queued"),
+            key=lambda run: (run["created_at"], run["run_id"]),
+        )
+        if not queued:
+            return []
+        run = queued[0]
+        run.update(
+            status="running",
+            started_at=now.isoformat(),
+            steps=[
+                *run["steps"],
+                {
+                    "at": now.isoformat(),
+                    "step": "claimed",
+                    "detail": "A payment worker picked up this run.",
+                },
+            ],
+        )
+        return [dict(run)]
+
     # Python twins of the SQL functions in
     # 20261115100000_vendor_portal_login.sql. Keep them in step.
 
@@ -462,6 +584,19 @@ class FakeSupabase:
             **fields,
         }
         self.table("vendor_accounts")._rows.append(row)
+        return row
+
+    def add_payment_run(
+        self, bill_id: str, started_by: str, **fields: Any
+    ) -> dict[str, Any]:
+        """A payment run row, queued unless `fields` say otherwise."""
+        row = {
+            **_insert_defaults("payment_runs"),
+            "bill_id": bill_id,
+            "started_by": started_by,
+            **fields,
+        }
+        self.table("payment_runs")._rows.append(row)
         return row
 
     def add_user(

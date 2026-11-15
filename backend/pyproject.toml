@@ -12,6 +12,7 @@ dependencies = [
     "google-genai>=2.34.0",
     "httpx>=0.28.1",
     "httpx2>=2.14.0",
+    "playwright>=1.65.2",
     "pydantic>=2.14.1",
     "pypdf>=6.21.4",
     "python-dotenv>=1.2.4",

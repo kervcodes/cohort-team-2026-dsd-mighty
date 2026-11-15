@@ -1,4 +1,5 @@
-"""Every bill, vendor and vendor account route enforces the role table.
+"""Every bill, payment, payment run, vendor and vendor account route enforces
+the role table.
 
 Who may call each route, active users only.
 
@@ -43,6 +44,9 @@ ROLE_TABLE = [
     ("POST", "/bills/extract", {ANALYST, ADMIN}, 200),
     ("POST", "/bills/{bill_id}/payments", {APPROVER, ADMIN}, 201),
     ("GET", "/bills/{bill_id}/payments", {ANALYST, APPROVER, ADMIN}, 200),
+    ("POST", "/bills/{bill_id}/payment-runs", {APPROVER, ADMIN}, 201),
+    ("GET", "/bills/{bill_id}/payment-runs", {ANALYST, APPROVER, ADMIN}, 200),
+    ("GET", "/payment-runs/{run_id}", {ANALYST, APPROVER, ADMIN}, 200),
     ("GET", "/vendors", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/vendors", {ADMIN}, 201),
     ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
@@ -102,8 +106,14 @@ REQUEST_BODY = {
 }
 
 # The caller's bill is a draft unless the route needs another state.
+# {placeholders} are filled with the ids of the rows the test creates.
 BILL_FIELDS = {
     ("POST", "/bills/{bill_id}/payments"): {"status": "approved", "amount": "10.00"},
+    ("POST", "/bills/{bill_id}/payment-runs"): {
+        "status": "approved",
+        "amount": "10.00",
+        "vendor_account_id": "{account_id}",
+    },
 }
 
 CASES = [
@@ -131,6 +141,7 @@ def db():
         patch("backend.api.vendor_accounts.get_admin_supabase", return_value=fake),
         patch("backend.api.users.get_admin_supabase", return_value=fake),
         patch("backend.api.payments.get_admin_supabase", return_value=fake),
+        patch("backend.api.payment_runs.get_admin_supabase", return_value=fake),
     ):
         yield fake
 
@@ -157,16 +168,32 @@ def test_route_allows_only_its_active_roles(
         status=status,
     )
 
-    bill = db.add_bill(str(user.id), **BILL_FIELDS.get((method, path), {}))
     vendor = db.add_vendor("Acme Water")
     prop = db.add_property()
-    account = db.add_vendor_account(prop["property_id"], vendor["vendor_id"])
+    # With a portal login, so the account can be paid by a payment run.
+    account = db.add_vendor_account(
+        prop["property_id"],
+        vendor["vendor_id"],
+        portal_url="https://acme-water.example.com",
+        portal_login_email="ap@example.com",
+    )
+    db.rpc(
+        "set_vendor_account_portal_password",
+        {"p_account_id": account["account_id"], "p_password": "hunter2-portal"},
+    ).execute()
     ids = {
-        "bill_id": bill["bill_id"],
         "vendor_id": vendor["vendor_id"],
         "property_id": prop["property_id"],
         "account_id": account["account_id"],
     }
+    bill_fields = {
+        key: value.format(**ids) if isinstance(value, str) else value
+        for key, value in BILL_FIELDS.get((method, path), {}).items()
+    }
+    bill = db.add_bill(str(user.id), **bill_fields)
+    ids["bill_id"] = bill["bill_id"]
+    if "{run_id}" in path:
+        ids["run_id"] = db.add_payment_run(bill["bill_id"], str(user.id))["run_id"]
 
     target_user = db.add_user(
         "00000000-0000-0000-0000-000000000001",
