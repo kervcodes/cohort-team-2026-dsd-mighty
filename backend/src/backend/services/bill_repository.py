@@ -22,7 +22,6 @@ BILL_COLUMNS = (
     "invoice_date,due_date,amount,prev_payments,description,"
     "processing_notes,property_address,account_status,website_name,"
     "vendor_account_id,status,exception_reason,document_path,created_at,"
-    # The submitter's name, embedded through the bills.submitted_by foreign key.
     "submitter:app_users!submitted_by(user_id,full_name)"
 )
 
@@ -37,8 +36,15 @@ DRAFT_COLUMNS = "bill_id,status,document_path"
 LIST_LIMIT = 100
 
 
+# ---------------------------------------------------------
+# Serialization helpers
+# ---------------------------------------------------------
+
+
 def _to_bill(row: dict[str, Any]) -> BillRead:
+    """Convert a database bill row into the BillRead schema."""
     submitter = row["submitter"]
+
     return BillRead.model_validate(
         {
             **row,
@@ -51,32 +57,126 @@ def _to_bill(row: dict[str, Any]) -> BillRead:
     )
 
 
+def _get_bill_by_id(
+    client: Client,
+    bill_id: UUID,
+) -> BillRead:
+    """Fetch a bill after a successful database submission."""
+    response = (
+        client.table("bills")
+        .select(BILL_COLUMNS)
+        .eq("bill_id", str(bill_id))
+        .single()
+        .execute()
+    )
+
+    row = response.data
+
+    if not isinstance(row, dict):
+        raise RuntimeError("Expected one bill row after submission.")
+
+    return _to_bill(row)
+
+
+# ---------------------------------------------------------
+# Bill creation
+# ---------------------------------------------------------
+
+
 def save_bill(
     client: Client,
     fields: BillCreate | BillDraftCreate,
     user_id: UUID,
     status: BillStatus,
 ) -> BillRead:
-    """Insert a new bill submitted by `user_id`: the one save path for both
-    Create (`pending_approval`) and Save draft (`draft`)."""
+    """Insert a new bill.
+
+    Used for saving a new draft. For a new invoice submission,
+    use submit_bill_with_approval instead.
+    """
     payload = fields.model_dump(
         mode="json",
         exclude_none=True,
     )
 
     payload["submitted_by"] = str(user_id)
-    payload["status"] = status
+    payload["status"] = status.value
 
     response = (
         client.table("bills").insert(payload).select(BILL_COLUMNS).single().execute()
     )
 
     row = response.data
+
     if not isinstance(row, dict):
-        kind = type(row).__name__
-        raise RuntimeError(f"Expected one bill row from insert, got {kind}")
+        raise RuntimeError("Expected one bill row from insert.")
 
     return _to_bill(row)
+
+
+def submit_bill_with_approval(
+    client: Client,
+    fields: BillCreate,
+    user_id: UUID,
+) -> BillRead:
+    """Create a brand-new invoice and its pending approval transactionally."""
+    payload = fields.model_dump(mode="json")
+
+    response = client.rpc(
+        "create_bill_with_approval",
+        {
+            "p_fields": payload,
+            "p_user_id": str(user_id),
+        },
+    ).execute()
+
+    if response.data is None:
+        raise RuntimeError("Bill submission did not return a bill ID.")
+
+    bill_id = UUID(str(response.data))
+
+    return _get_bill_by_id(client, bill_id)
+
+
+# ---------------------------------------------------------
+# Bill resubmission
+# ---------------------------------------------------------
+
+
+def resubmit_bill_with_approval(
+    client: Client,
+    bill_id: UUID,
+    fields: BillCreate,
+    user_id: UUID,
+) -> BillRead:
+    """Resubmit a previously rejected invoice.
+
+    The database function updates the existing bill, preserves
+    its document_path and rejected approval history, and creates
+    a new pending approval record.
+    """
+    payload = fields.model_dump(mode="json")
+
+    response = client.rpc(
+        "resubmit_bill_with_approval",
+        {
+            "p_bill_id": str(bill_id),
+            "p_fields": payload,
+            "p_user_id": str(user_id),
+        },
+    ).execute()
+
+    if response.data is None:
+        raise RuntimeError("Bill resubmission did not return a bill ID.")
+
+    resubmitted_bill_id = UUID(str(response.data))
+
+    return _get_bill_by_id(client, resubmitted_bill_id)
+
+
+# ---------------------------------------------------------
+# Bill access and listing
+# ---------------------------------------------------------
 
 
 def _readable(
@@ -108,16 +208,25 @@ def get_readable_bill(
     bill_id: UUID,
     user_id: UUID,
 ) -> BillRead | None:
-    """The bill, or None when it does not exist or `user_id` may not read it,
-    so a caller cannot tell the two apart."""
+    """Return a readable bill, or None if missing or inaccessible."""
     response = (
-        _readable(client, BILL_COLUMNS, user_id, BillScope.all)
+        _readable(
+            client,
+            BILL_COLUMNS,
+            user_id,
+            BillScope.all,
+        )
         .eq("bill_id", str(bill_id))
         .maybe_single()
         .execute()
     )
 
-    return _to_bill(response.data) if response else None
+    row = response.data
+
+    if not isinstance(row, dict):
+        return None
+
+    return _to_bill(row)
 
 
 def list_dashboard_bills(
@@ -135,12 +244,18 @@ def list_dashboard_bills(
     return response.data or []
 
 
+# ---------------------------------------------------------
+# Draft filtering and retrieval
+# ---------------------------------------------------------
+
+
 def _filtered(
     query: SyncSelectRequestBuilder,
     filters: dict[str, str],
 ) -> SyncSelectRequestBuilder:
     for column, value in filters.items():
         query = query.eq(column, value)
+
     return query
 
 
@@ -148,7 +263,11 @@ def _editable(
     query: SyncSelectRequestBuilder,
     user_id: str,
 ) -> SyncSelectRequestBuilder:
-    return _filtered(query, editable_bills(user_id))
+    """Restrict a query to the caller's editable drafts."""
+    return _filtered(
+        query,
+        editable_bills(user_id),
+    )
 
 
 def get_editable_draft(
@@ -156,9 +275,9 @@ def get_editable_draft(
     bill_id: UUID,
     user_id: str,
 ) -> dict | None:
+    """Return the caller's own editable draft."""
     response = (
         _editable(
-            # Every column: GET /bills/{id}/draft fills the form from this row.
             client.table("bills").select("*").eq("bill_id", str(bill_id)),
             user_id,
         )
@@ -166,10 +285,12 @@ def get_editable_draft(
         .execute()
     )
 
-    if response is None:
-        return None
-
     return response.data
+
+
+# ---------------------------------------------------------
+# PDF attachment
+# ---------------------------------------------------------
 
 
 def attach_document(
@@ -179,25 +300,35 @@ def attach_document(
     storage_path: str,
     replacing: str | None,
 ) -> dict | None:
-    """Point the caller's draft at `storage_path`, but only while it still
-    points at `replacing` (None: no document yet), so a concurrent upload or
-    submit makes this return None instead of being overwritten."""
+    """Attach or replace a PDF on the caller's editable draft.
+
+    Only updates the row if its current document_path matches
+    the expected value. This protects against concurrent uploads
+    or a submission occurring during an upload.
+    """
     query = _editable(
         client.table("bills")
         .update({"document_path": storage_path})
         .eq("bill_id", str(bill_id)),
         user_id,
     )
+
     query = (
         query.is_("document_path", "null")
         if replacing is None
         else query.eq("document_path", replacing)
     )
+
     response = query.select(DRAFT_COLUMNS).execute()
 
     rows = response.data or []
 
     return rows[0] if len(rows) == 1 else None
+
+
+# ---------------------------------------------------------
+# Draft creation and updates
+# ---------------------------------------------------------
 
 
 def update_draft(
@@ -206,16 +337,21 @@ def update_draft(
     user_id: str,
     draft: BillDraftCreate,
 ) -> dict | None:
-    """Update the caller's own draft; return None if no such draft exists.
+    """Update the caller's own draft.
 
-    `exclude_unset` keeps explicit nulls, so a field cleared in the form is
-    cleared in the database, while fields the client did not send are left
-    untouched.
+    Explicit nulls clear fields. Unspecified fields remain unchanged.
     """
-    payload = draft.model_dump(mode="json", exclude_unset=True)
+    payload = draft.model_dump(
+        mode="json",
+        exclude_unset=True,
+    )
 
     if not payload:
-        return get_editable_draft(client, bill_id, user_id)
+        return get_editable_draft(
+            client,
+            bill_id,
+            user_id,
+        )
 
     response = (
         _editable(
@@ -231,34 +367,56 @@ def update_draft(
     return rows[0] if len(rows) == 1 else None
 
 
-def submit_draft(
+# ---------------------------------------------------------
+# Draft submission
+# ---------------------------------------------------------
+
+
+def submit_draft_with_approval(
     client: Client,
     bill_id: UUID,
-    user_id: str,
+    user_id: UUID,
     fields: BillCreate,
 ) -> BillRead | None:
-    """Write the final values to the caller's draft and send it for approval,
-    in one update; None if it is not (or no longer) the caller's draft.
+    """Submit an existing draft and create its pending approval.
 
-    Every field is written, so a value cleared in the form is cleared here.
-    The update matches drafts only, so a second submit changes nothing. The
-    stored document, submitter and creation time stay as they are.
+    The database RPC must:
+    - Verify the bill belongs to the submitting user.
+    - Verify the bill is still a draft.
+    - Lock the bill row.
+    - Update the invoice fields.
+    - Change the bill status to pending_approval.
+    - Preserve the existing document_path.
+    - Insert one pending approval record.
+    - Return the existing bill UUID.
+
+    Returns None if the RPC returns no bill ID.
     """
     payload = fields.model_dump(mode="json")
-    payload["status"] = BillStatus.pending_approval
 
-    response = (
-        _editable(
-            client.table("bills").update(payload).eq("bill_id", str(bill_id)),
-            user_id,
-        )
-        .select(BILL_COLUMNS)
-        .execute()
+    response = client.rpc(
+        "submit_draft_bill_with_approval",
+        {
+            "p_bill_id": str(bill_id),
+            "p_fields": payload,
+            "p_user_id": str(user_id),
+        },
+    ).execute()
+
+    if response.data is None:
+        return None
+
+    submitted_bill_id = UUID(str(response.data))
+
+    return _get_bill_by_id(
+        client,
+        submitted_bill_id,
     )
 
-    rows = response.data or []
 
-    return _to_bill(rows[0]) if len(rows) == 1 else None
+# ---------------------------------------------------------
+# Bill ownership and status
+# ---------------------------------------------------------
 
 
 def get_own_bill_status(
@@ -266,8 +424,10 @@ def get_own_bill_status(
     bill_id: UUID,
     user_id: str,
 ) -> BillStatus | None:
-    """The status of a bill `user_id` submitted, or None when there is no
-    such bill of theirs (another user's bill counts as missing)."""
+    """Return the status of a bill submitted by this user.
+
+    Another user's bill is treated as missing.
+    """
     response = (
         _filtered(
             client.table("bills").select("status").eq("bill_id", str(bill_id)),
@@ -277,4 +437,9 @@ def get_own_bill_status(
         .execute()
     )
 
-    return BillStatus(response.data["status"]) if response else None
+    row = response.data
+
+    if not isinstance(row, dict):
+        return None
+
+    return BillStatus(row["status"])
