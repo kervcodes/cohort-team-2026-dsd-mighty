@@ -13,6 +13,7 @@ from backend.api.bill_extraction import router as bill_extraction_router
 from backend.api.bills import router as bills_router
 from backend.api.health import router as health_router
 from backend.api.me import router as me_router
+from backend.api.payments import router as payments_router
 from backend.api.users import router as users_router
 from backend.api.vendor_accounts import router as vendor_accounts_router
 from backend.api.vendors import router as vendors_router
@@ -71,6 +72,7 @@ async def validation_error_without_input(
 # /bills/{bill_id} route.
 app.include_router(bill_extraction_router)
 app.include_router(bills_router)
+app.include_router(payments_router)
 app.include_router(approvals_router)
 app.include_router(vendors_router)
 app.include_router(vendor_accounts_router)

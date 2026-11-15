@@ -19,6 +19,9 @@ BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 VENDOR_READERS = (UserRole.analyst, UserRole.approver, UserRole.admin)
 VENDOR_WRITERS = (UserRole.admin,)
 
+# Who may record a payment against an approved bill.
+PAYMENT_WRITERS = (UserRole.approver, UserRole.admin)
+
 USER_READERS = (UserRole.admin,)
 USER_EDITORS = (UserRole.admin,)
 

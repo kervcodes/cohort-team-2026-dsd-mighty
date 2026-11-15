@@ -41,6 +41,8 @@ ROLE_TABLE = [
     ("POST", "/bills/{bill_id}/document", {ANALYST, ADMIN}, 201),
     ("POST", "/bills/{bill_id}/submit", {ANALYST, ADMIN}, 200),
     ("POST", "/bills/extract", {ANALYST, ADMIN}, 200),
+    ("POST", "/bills/{bill_id}/payments", {APPROVER, ADMIN}, 201),
+    ("GET", "/bills/{bill_id}/payments", {ANALYST, APPROVER, ADMIN}, 200),
     ("GET", "/vendors", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/vendors", {ADMIN}, 201),
     ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
@@ -72,6 +74,14 @@ REQUEST_BODY = {
     ("PATCH", "/bills/{bill_id}/draft"): {"json": {"amount": "10.00"}},
     ("POST", "/bills/{bill_id}/document"): {"files": {"file": PDF}},
     ("POST", "/bills/extract"): {"files": {"file": PDF}},
+    ("POST", "/bills/{bill_id}/payments"): {
+        "json": {
+            "amount": "10.00",
+            "payment_method": "ach",
+            "paid_on": "2026-11-01",
+            "outcome": "completed",
+        }
+    },
     ("POST", "/vendors"): {"json": {"name": "Acme Water"}},
     ("PATCH", "/vendors/{vendor_id}"): {"json": {"contact_phone": "555-0100"}},
     # {placeholders} are filled with the ids of the rows the test creates.
@@ -89,6 +99,11 @@ REQUEST_BODY = {
         "json": {"account_type": "sewer", "portal_password": "hunter2-portal"}
     },
     ("PATCH", "/admin/users/{user_id}"): {"json": {"role": "approver"}},
+}
+
+# The caller's bill is a draft unless the route needs another state.
+BILL_FIELDS = {
+    ("POST", "/bills/{bill_id}/payments"): {"status": "approved", "amount": "10.00"},
 }
 
 CASES = [
@@ -115,6 +130,7 @@ def db():
         patch("backend.api.vendors.get_admin_supabase", return_value=fake),
         patch("backend.api.vendor_accounts.get_admin_supabase", return_value=fake),
         patch("backend.api.users.get_admin_supabase", return_value=fake),
+        patch("backend.api.payments.get_admin_supabase", return_value=fake),
     ):
         yield fake
 
@@ -141,7 +157,7 @@ def test_route_allows_only_its_active_roles(
         status=status,
     )
 
-    bill = db.add_bill(str(user.id))
+    bill = db.add_bill(str(user.id), **BILL_FIELDS.get((method, path), {}))
     vendor = db.add_vendor("Acme Water")
     prop = db.add_property()
     account = db.add_vendor_account(prop["property_id"], vendor["vendor_id"])
