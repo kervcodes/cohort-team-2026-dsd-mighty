@@ -17,6 +17,7 @@ from backend.services.bill_access import (
     BillScope,
     default_scope,
     editable_bills,
+    own_bills,
     readable_bills,
 )
 
@@ -39,11 +40,15 @@ def readable(db: FakeSupabase, scope: BillScope) -> set[tuple[str, str]]:
     return {(row["submitted_by"], row["status"]) for row in query.execute().data}
 
 
-def editable(db: FakeSupabase) -> set[tuple[str, str]]:
+def matching(db: FakeSupabase, filters: dict[str, str]) -> set[tuple[str, str]]:
     query = db.table("bills").select("*")
-    for column, value in editable_bills(str(ME)).items():
+    for column, value in filters.items():
         query = query.eq(column, value)
     return {(row["submitted_by"], row["status"]) for row in query.execute().data}
+
+
+def editable(db: FakeSupabase) -> set[tuple[str, str]]:
+    return matching(db, editable_bills(str(ME)))
 
 
 def test_analysts_default_to_their_own_bills():
@@ -73,3 +78,7 @@ def test_all_keeps_your_own_drafts(db):
 
 def test_only_your_own_drafts_are_editable(db):
     assert editable(db) == {(str(ME), BillStatus.draft)}
+
+
+def test_own_bills_are_every_bill_you_submitted_and_nothing_else(db):
+    assert matching(db, own_bills(str(ME))) == {(str(ME), s) for s in BillStatus}

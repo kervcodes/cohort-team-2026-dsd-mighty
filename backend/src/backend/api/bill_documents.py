@@ -69,11 +69,8 @@ async def upload_bill_document(
             detail="Editable draft not found.",
         )
 
-    if bill["document_path"] is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="This bill already has a document.",
-        )
+    # A draft keeps one PDF: a new upload replaces the stored one.
+    replacing = bill["document_path"]
 
     # 2. Validate file contents.
     contents = await validate_pdf(file)
@@ -99,6 +96,7 @@ async def upload_bill_document(
             bill_id,
             user_id,
             storage_path,
+            replacing,
         )
     except Exception as exc:
         logger.exception("Failed to associate invoice document")
@@ -127,6 +125,16 @@ async def upload_bill_document(
             status_code=409,
             detail="Draft changed during upload. Please refresh.",
         )
+
+    # 7. The draft no longer points at the replaced file.
+    if replacing is not None:
+        try:
+            await run_in_threadpool(delete_pdf, client, replacing)
+        except Exception:
+            logger.exception(
+                "Orphaned invoice object requires cleanup: %s",
+                replacing,
+            )
 
     return DocumentUploadResponse(
         bill_id=bill_id,

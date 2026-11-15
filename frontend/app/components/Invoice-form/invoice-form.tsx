@@ -1,22 +1,23 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { FileUp, LoaderCircle } from "lucide-react";
+import { FileCheck, FileUp, LoaderCircle } from "lucide-react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import Button from "@/components/Button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
 import {
-  createBill,
   extractBill,
   getBill,
   getBillDraft,
   resubmitBill,
   saveBillDraft,
+  submitBill,
   updateBillDraft,
   uploadInvoicePdf,
 } from "@/lib/api/bills";
+import { ApiError } from "@/lib/api/http";
 import {
   clearedValues,
   type ExtractedFormField,
@@ -29,6 +30,7 @@ import {
 import {
   accountStatuses,
   emptyInvoiceForm,
+  type InvoiceDraftFormValues,
   type InvoiceFormValues,
   invoiceDraftFormSchema,
   invoiceFormSchema,
@@ -36,6 +38,17 @@ import {
 import type { Bill, BillCreatePayload, BillDraftDetail, BillDraftPayload } from "@/types/bill";
 
 type ActionStatus = "idle" | "loading" | "success" | "error";
+
+// What a Create attempt sent: the payload as JSON and the picked PDF.
+type UnansweredSubmit = { payload: string; pdf: File | null };
+
+const ALREADY_SUBMITTED_MESSAGE =
+  "This bill was already sent for approval with the earlier values, so your latest changes weren't saved. Open it from the dashboard to check what was sent.";
+
+// The PDF stored with this visit's draft: none yet, one stored before this
+// visit opened the draft (the server keeps only its storage path, not its
+// name), or a file picked and stored during this visit.
+type StoredPdf = { kind: "none" } | { kind: "earlier" } | { kind: "file"; file: File };
 
 // Reading the picked PDF with POST /bills/extract.
 type ReaderState =
@@ -65,6 +78,36 @@ function ExtractionNotice({ banner }: { banner: ExtractionBanner }) {
       )}
     </div>
   );
+}
+
+// What the line under the drop zone says about the bill's PDF: what is stored
+// with the draft, or that the picked file is stored on the next save or
+// Create. Null when there is nothing to say.
+function pdfStorageNote(
+  stored: StoredPdf,
+  picked: File | null,
+): { tone: "stored" | "pending"; message: string } | null {
+  if (picked && !(stored.kind === "file" && stored.file === picked)) {
+    const action = stored.kind === "none" ? "is stored" : "replaces the stored PDF";
+    return {
+      tone: "pending",
+      message: `${picked.name} ${action} when you save the draft or create the bill.`,
+    };
+  }
+  if (stored.kind === "file") {
+    return {
+      tone: "stored",
+      message: `Stored with this draft: ${stored.file.name}`,
+    };
+  }
+  if (stored.kind === "earlier") {
+    return { tone: "stored", message: "A PDF is stored with this draft." };
+  }
+  return null;
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 // Browsers sometimes report an empty MIME type for dropped files, so the
@@ -108,6 +151,43 @@ function mapBillToFormValues(bill: Bill): InvoiceFormValues {
     propertyAddress: bill.property_address ?? "",
     accountStatus: bill.account_status ?? "",
     websiteName: bill.website_name ?? "",
+  };
+}
+
+// Save Draft sends every field, blank ones as null, so that clearing a field
+// on an existing draft clears it in the database too.
+function draftPayload(values: InvoiceDraftFormValues): BillDraftPayload {
+  return {
+    account_number_raw: values.accountNumber || null,
+    invoice_number: values.statementId || null,
+    vendor_name_raw: values.companyName || null,
+    invoice_date: values.issueDate || null,
+    due_date: values.dueDate || null,
+    amount: values.currentDue || null,
+    prev_payments: values.previousPayments || null,
+    description: values.description || null,
+    processing_notes: values.notes || null,
+    property_address: values.propertyAddress || null,
+    account_status: values.accountStatus || null,
+    website_name: values.websiteName || null,
+  };
+}
+
+// The final values Create (and Resubmit) submits, from a fully validated form.
+function createPayload(values: InvoiceFormValues): BillCreatePayload {
+  return {
+    account_number_raw: values.accountNumber.trim(),
+    invoice_number: values.statementId.trim(),
+    vendor_name_raw: values.companyName.trim() || undefined,
+    invoice_date: values.issueDate,
+    due_date: values.dueDate,
+    amount: values.currentDue.trim(),
+    prev_payments: values.previousPayments.trim() || undefined,
+    description: values.description.trim() || undefined,
+    processing_notes: values.notes.trim() || undefined,
+    property_address: values.propertyAddress,
+    account_status: values.accountStatus || undefined,
+    website_name: values.websiteName || undefined,
   };
 }
 
@@ -181,7 +261,7 @@ type InvoiceFormVisitProps = {
   // True on the Resubmit Rejected Invoice page, which opens a rejected bill
   // from the route's invoiceId instead of a draft.
   isResubmission: boolean;
-  // The first Save Draft created this draft.
+  // The first Save Draft, or a Create with no draft yet, created this draft.
   onDraftCreated: (draftId: string) => void;
 };
 
@@ -194,10 +274,9 @@ function InvoiceFormVisit({
 
   const [submitError, setSubmitError] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadMessage, setUploadMessage] = useState("");
-  const [uploadError, setUploadError] = useState("");
+  const [storedPdf, setStoredPdf] = useState<StoredPdf>({ kind: "none" });
+  const [fileError, setFileError] = useState("");
   const [draftMessage, setDraftMessage] = useState("");
-  const [pdfStatus, setPdfStatus] = useState<ActionStatus>("idle");
   const [draftStatus, setDraftStatus] = useState<ActionStatus>("idle");
 
   // Only the resubmit page reads the route param; drafts use the pathname.
@@ -212,6 +291,10 @@ function InvoiceFormVisit({
   const draftLoaded = useRef(false);
 
   const [createStatus, setCreateStatus] = useState<ActionStatus>("idle");
+  // Create attempts whose submit got no answer (network error or lost
+  // response): each may have reached the server. A later 409 counts as done
+  // only if every one of them sent exactly what the retry sends.
+  const unansweredSubmits = useRef<UnansweredSubmit[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [reader, setReader] = useState<ReaderState>({ phase: "idle" });
@@ -239,54 +322,126 @@ function InvoiceFormVisit({
 
   const watchedValues = useWatch({ control });
 
-  const hasAnyInput = Object.values(watchedValues).some(
-    (value) => typeof value === "string" && value.trim() !== "",
-  );
+  const hasAnyInput =
+    selectedFile !== null ||
+    Object.values(watchedValues).some((value) => typeof value === "string" && value.trim() !== "");
 
-  const canSaveDraft = hasAnyInput && draftStatus !== "loading";
+  // Save Draft and Create both may create the draft, so one waits for the
+  // other: running both at once could make two bills.
+  const saving = draftStatus === "loading" || createStatus === "loading";
+  const created = createStatus === "success";
+  const canSaveDraft = hasAnyInput && !saving && !created;
 
+  // Saves the values to the draft, creating it on the first save, and returns
+  // its id. Throws if the save fails.
+  async function saveDraftValues(payload: BillDraftPayload): Promise<string> {
+    if (draftId) {
+      await updateBillDraft(draftId, payload);
+      return draftId;
+    }
+    const saved = await saveBillDraft(payload);
+    setDraftId(saved.bill_id);
+    onDraftCreated(saved.bill_id);
+    return saved.bill_id;
+  }
+
+  // Stores the picked PDF with draft `id`, replacing the one stored before,
+  // unless the picked file is already the stored one. Throws if it fails.
+  async function storePickedPdf(id: string) {
+    const file = selectedFile;
+    if (!file || (storedPdf.kind === "file" && storedPdf.file === file)) return;
+    await uploadInvoicePdf(file, id);
+    setStoredPdf({ kind: "file", file });
+  }
+
+  // Create, after the full validation passed: the bill is the draft, so its
+  // PDF goes with it. Each step is skipped once done, so a retry after a
+  // failure continues with the same draft and never makes a second bill.
+  // Resubmitting a rejected bill has no draft or PDF step: it sends the
+  // edited values straight to the existing bill.
   async function onSubmit(values: InvoiceFormValues) {
     setCreateStatus("loading");
     setSubmitError("");
+    setDraftMessage("");
 
-    const payload: BillCreatePayload = {
-      account_number_raw: values.accountNumber.trim(),
-      invoice_number: values.statementId.trim(),
-      vendor_name_raw: values.companyName.trim() || undefined,
-      invoice_date: values.issueDate,
-      due_date: values.dueDate,
-      amount: values.currentDue.trim(),
-      prev_payments: values.previousPayments.trim() || undefined,
-      description: values.description.trim() || undefined,
-      processing_notes: values.notes.trim() || undefined,
-      property_address: values.propertyAddress,
-      account_status: values.accountStatus || undefined,
-      website_name: values.websiteName || undefined,
-    };
-
-    try {
-      if (isResubmission) {
+    if (isResubmission) {
+      try {
         if (!routeInvoiceId) {
           throw new Error("Missing invoice ID. Unable to resubmit.");
         }
 
-        await resubmitBill(routeInvoiceId, payload);
-      } else {
-        await createBill(payload);
+        await resubmitBill(routeInvoiceId, createPayload(values));
+      } catch (error) {
+        setCreateStatus("error");
+        setSubmitError(errorMessage(error, "Unable to resubmit the invoice. Please try again."));
+        return;
       }
 
       setCreateStatus("success");
       router.push("/dashboard");
-    } catch (err) {
-      setCreateStatus("error");
-      setSubmitError(
-        err instanceof Error
-          ? err.message
-          : isResubmission
-            ? "Unable to resubmit the invoice. Please try again."
-            : "Unable to create the bill. Please try again.",
-      );
+      return;
     }
+
+    let id = draftId;
+    try {
+      id ??= await saveDraftValues(draftPayload(values));
+    } catch (error) {
+      setCreateStatus("error");
+      setSubmitError(errorMessage(error, "Unable to create the bill. Please try again."));
+      return;
+    }
+
+    try {
+      await storePickedPdf(id);
+    } catch (error) {
+      setCreateStatus("error");
+      // After an unanswered submit, the bill may no longer be a draft, so a
+      // newly picked PDF can't be stored on it (404 or 409). Saying "the bill
+      // wasn't created" would be wrong: it may already be with the approver.
+      const mayBeSubmitted =
+        unansweredSubmits.current.length > 0 &&
+        error instanceof ApiError &&
+        (error.status === 404 || error.status === 409);
+      setSubmitError(
+        mayBeSubmitted
+          ? ALREADY_SUBMITTED_MESSAGE
+          : `The PDF couldn't be stored, so the bill wasn't created. Please try again.\n${errorMessage(error, "")}`.trim(),
+      );
+      return;
+    }
+
+    const payload = createPayload(values);
+    const attempt: UnansweredSubmit = {
+      payload: JSON.stringify(payload),
+      pdf: selectedFile,
+    };
+    try {
+      await submitBill(id, payload);
+    } catch (error) {
+      // 409 means this draft was already submitted. That is this same Create
+      // landing only when an earlier attempt got no answer and every such
+      // attempt sent exactly these values and this PDF. Otherwise (values
+      // edited before the retry, or another tab submitted it) the bill went
+      // with other values, so say so instead of reporting success.
+      const alreadySubmitted = error instanceof ApiError && error.status === 409;
+      const earlier = unansweredSubmits.current;
+      const sameAsEarlier =
+        earlier.length > 0 &&
+        earlier.every((sent) => sent.payload === attempt.payload && sent.pdf === attempt.pdf);
+      if (!(alreadySubmitted && sameAsEarlier)) {
+        if (!(error instanceof ApiError)) unansweredSubmits.current = [...earlier, attempt];
+        setCreateStatus("error");
+        setSubmitError(
+          alreadySubmitted
+            ? ALREADY_SUBMITTED_MESSAGE
+            : errorMessage(error, "Unable to create the bill. Please try again."),
+        );
+        return;
+      }
+    }
+
+    setCreateStatus("success");
+    router.push("/dashboard");
   }
 
   // Effects run again each time the page is shown, so after back or forward
@@ -321,6 +476,7 @@ function InvoiceFormVisit({
 
           draftLoaded.current = true;
           reset(mapDraftToFormValues(draft));
+          if (draft.document_path) setStoredPdf({ kind: "earlier" });
         }
       } catch (err) {
         if (cancelled) return;
@@ -430,23 +586,21 @@ function InvoiceFormVisit({
     setReader({ phase: "done", banner });
   }
 
-  // Shared by the file picker and drag-and-drop: a new file always resets
-  // validation so a previous success never carries over to it.
+  // Shared by the file picker and drag-and-drop. A new PDF is an unsaved
+  // change: the next Save Draft or Create stores it with the bill.
   function selectFile(file: File | null) {
-    setPdfStatus("idle");
-    setUploadMessage("");
-
     if (file && !isPdf(file)) {
       setSelectedFile(null);
       resetReader({ phase: "idle" });
-      setUploadError("Only PDF files can be uploaded.");
+      setFileError("Only PDF files can be uploaded.");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
     setSelectedFile(file);
-    setUploadError("");
+    setFileError("");
     if (file) {
+      markEdited();
       void readInvoice(file);
     } else {
       resetReader({ phase: "idle" });
@@ -477,9 +631,7 @@ function InvoiceFormVisit({
     if (files.length > 1) {
       setSelectedFile(null);
       resetReader({ phase: "idle" });
-      setPdfStatus("idle");
-      setUploadMessage("");
-      setUploadError("Drop one PDF at a time.");
+      setFileError("Drop one PDF at a time.");
       return;
     }
 
@@ -490,91 +642,46 @@ function InvoiceFormVisit({
     selectFile(files[0] ?? null);
   }
 
-  async function handleUploadPdf() {
-    if (!selectedFile) return;
+  // Saves the values, then stores the picked PDF with the draft. A PDF that
+  // fails to store leaves the draft saved; the next save retries it.
+  async function handleSaveDraft() {
+    if (!canSaveDraft) return;
 
-    setPdfStatus("loading");
-    setUploadError("");
-    setUploadMessage("");
-
-    const id = draftId ?? (await persistDraft());
-
-    if (!id) {
-      setPdfStatus("idle");
-      setUploadError("The draft couldn't be saved, so the PDF wasn't uploaded.");
-      return;
-    }
-
-    try {
-      const result = await uploadInvoicePdf(selectedFile, id);
-
-      setPdfStatus("success");
-      setUploadMessage(`PDF saved successfully: ${result.document_path}`);
-    } catch (error) {
-      setPdfStatus("error");
-      setUploadError(error instanceof Error ? error.message : "Unable to upload PDF.");
-    }
-  }
-
-  // Saves (or updates) the draft and returns its id, or null if it failed.
-  async function persistDraft(): Promise<string | null> {
     setDraftStatus("loading");
     setSubmitError("");
     setDraftMessage("");
 
+    const validation = invoiceDraftFormSchema.safeParse(getValues());
+    if (!validation.success) {
+      setDraftStatus("error");
+      setSubmitError(validation.error.issues[0]?.message ?? "Please check your draft.");
+      return;
+    }
+
+    let id: string;
     try {
-      const validation = invoiceDraftFormSchema.safeParse(getValues());
-
-      if (!validation.success) {
-        setDraftStatus("error");
-        setSubmitError(validation.error.issues[0]?.message ?? "Please check your draft.");
-        return null;
-      }
-
-      const draftValues = validation.data;
-
-      // Blank fields are sent as null so that clearing a field on an
-      // existing draft clears it in the database too.
-      const payload: BillDraftPayload = {
-        account_number_raw: draftValues.accountNumber || null,
-        invoice_number: draftValues.statementId || null,
-        vendor_name_raw: draftValues.companyName || null,
-        invoice_date: draftValues.issueDate || null,
-        due_date: draftValues.dueDate || null,
-        amount: draftValues.currentDue || null,
-        prev_payments: draftValues.previousPayments || null,
-        description: draftValues.description || null,
-        processing_notes: draftValues.notes || null,
-        property_address: draftValues.propertyAddress || null,
-        account_status: draftValues.accountStatus || null,
-        website_name: draftValues.websiteName || null,
-      };
-
-      // The first save creates the draft; later saves update the same bill.
-      const saved = draftId
-        ? await updateBillDraft(draftId, payload)
-        : await saveBillDraft(payload);
-
-      if (!draftId) {
-        setDraftId(saved.bill_id);
-        onDraftCreated(saved.bill_id);
-      }
-
-      setDraftStatus("success");
-      setDraftMessage(`Draft saved successfully: ${saved.bill_id}`);
-
-      return saved.bill_id;
+      id = await saveDraftValues(draftPayload(validation.data));
     } catch (error) {
       setDraftStatus("error");
-      setSubmitError(error instanceof Error ? error.message : "Unable to save draft.");
-      return null;
+      setSubmitError(errorMessage(error, "Unable to save draft."));
+      return;
     }
+
+    try {
+      await storePickedPdf(id);
+    } catch (error) {
+      setDraftStatus("error");
+      setSubmitError(
+        `Draft saved, but the PDF couldn't be stored. Save again to retry.\n${errorMessage(error, "")}`.trim(),
+      );
+      return;
+    }
+
+    setDraftStatus("success");
+    setDraftMessage(`Draft saved successfully: ${id}`);
   }
 
-  async function handleSaveDraft() {
-    if (!hasAnyInput) return;
-    await persistDraft();
-  }
+  const storageNote = pdfStorageNote(storedPdf, selectedFile);
 
   if (isLoadingDraft) {
     return (
@@ -619,7 +726,7 @@ function InvoiceFormVisit({
       {submitError && (
         <p
           role="alert"
-          className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800"
+          className="whitespace-pre-line rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800"
         >
           {submitError}
         </p>
@@ -718,30 +825,23 @@ function InvoiceFormVisit({
 
           {reader.phase === "done" && <ExtractionNotice banner={reader.banner} />}
 
-          <button
-            type="button"
-            onClick={handleUploadPdf}
-            disabled={!selectedFile || pdfStatus === "loading" || pdfStatus === "success"}
-            className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
-          >
-            {pdfStatus === "loading"
-              ? "Uploading..."
-              : pdfStatus === "success"
-                ? "PDF Saved ✓"
-                : pdfStatus === "error"
-                  ? "Retry Upload"
-                  : "Upload PDF"}
-          </button>
-
-          {uploadMessage && (
-            <p role="status" className="mt-3 text-sm text-green-700">
-              {uploadMessage}
+          {storageNote?.tone === "stored" && (
+            <p
+              role="status"
+              className="mt-3 flex items-center justify-center gap-2 text-sm text-paid"
+            >
+              <FileCheck aria-hidden="true" className="h-4 w-4 shrink-0" />
+              {storageNote.message}
             </p>
           )}
 
-          {uploadError && (
+          {storageNote?.tone === "pending" && (
+            <p className="mt-3 text-sm text-foreground-muted">{storageNote.message}</p>
+          )}
+
+          {fileError && (
             <p role="alert" className="mt-3 text-sm text-red-600">
-              {uploadError}
+              {fileError}
             </p>
           )}
         </section>
@@ -948,7 +1048,7 @@ function InvoiceFormVisit({
                   : "Create"
         }
         type="submit"
-        disabled={createStatus === "loading" || createStatus === "success"}
+        disabled={saving || created}
         className="w-full border-2"
       />
     </form>

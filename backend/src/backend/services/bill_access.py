@@ -40,7 +40,13 @@ def readable_bills(user_id: UUID, scope: BillScope) -> str:
     return f"{own},status.neq.{BillStatus.draft}"
 
 
+def own_bills(user_id: str) -> dict[str, str]:
+    """Column -> value filters (all must match) for the bills `user_id`
+    submitted, whatever their status."""
+    return {"submitted_by": user_id}
+
+
 def editable_bills(user_id: str) -> dict[str, str]:
     """Column -> value filters (all must match) for the bills `user_id` may
     change: only their own drafts."""
-    return {"submitted_by": user_id, "status": BillStatus.draft}
+    return {**own_bills(user_id), "status": BillStatus.draft}

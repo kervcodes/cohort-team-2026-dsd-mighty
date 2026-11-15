@@ -1,10 +1,10 @@
 import type { BillCreatePayload, BillDraftPayload } from "@/types/bill";
 import {
-  createBill,
   extractBill,
   getBillDraft,
   getDashboardBills,
   saveBillDraft,
+  submitBill,
   updateBillDraft,
   uploadInvoicePdf,
   withPdfType,
@@ -106,40 +106,39 @@ afterEach(() => {
   }
 });
 
-describe("createBill", () => {
-  it("POSTs the payload to /bills with the bearer token and returns the saved bill", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 201,
-      json: async () => savedBill,
-    });
+describe("submitBill", () => {
+  it("POSTs the final values to /bills/:id/submit with the bearer token", async () => {
+    const submitted = { ...savedBill, id: "bill-1", status: "pending_approval" };
+    fetchMock.mockResolvedValueOnce(jsonResponse(submitted));
 
-    const result = await createBill(payload);
+    const result = await submitBill("bill-1", payload);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/bills");
-    expect(fetchMock.mock.calls[0][1].headers).toEqual({
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/bills/bill-1/submit");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({
       "Content-Type": "application/json",
       Authorization: "Bearer test-token",
     });
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(payload);
-    expect(result).toEqual(savedBill);
+    expect(JSON.parse(init.body)).toEqual(payload);
+    expect(result).toEqual(submitted);
   });
 
-  it("throws the server detail message on an HTTP error", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: false,
-      status: 404,
-      json: async () => ({ detail: "Bill not found." }),
-    });
+  it("throws the server detail, such as an already submitted bill", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ detail: "This bill has already been submitted." }, { ok: false, status: 409 }),
+    );
 
-    await expect(createBill(payload)).rejects.toThrow("Bill not found.");
+    await expect(submitBill("bill-1", payload)).rejects.toThrow(
+      "This bill has already been submitted.",
+    );
   });
 
   it("asks the user to sign in when there is no session", async () => {
     signedOut();
 
-    await expect(createBill(payload)).rejects.toThrow(
+    await expect(submitBill("bill-1", payload)).rejects.toThrow(
       "You must be signed in to submit an invoice.",
     );
 
