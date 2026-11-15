@@ -10,14 +10,20 @@ those filters are the only guard.
 through FOREIGN_KEYS, and an insert must satisfy those foreign keys, as in
 Postgres. Plain columns are not projected: every stored column comes back.
 
+`rpc()` runs Python twins of the Postgres functions in RPCS; each mirrors its
+migration, including the SQLSTATE and DETAIL of every refusal.
+
 Supports only the query shapes the repository uses. Helpers, not tests.
 """
 
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import uuid4
+
+from postgrest.exceptions import APIError
 
 # (table, column) -> (referenced table, referenced column), as in the migrations.
 FOREIGN_KEYS = {("bills", "submitted_by"): ("app_users", "user_id")}
@@ -180,6 +186,76 @@ class _Query:
         return _Result(copies)
 
 
+def _refuse(code: str, message: str, details: str | None = None) -> APIError:
+    return APIError({"code": code, "message": message, "details": details})
+
+
+def _record_payment(db: "FakeSupabase", params: dict[str, Any]) -> dict[str, Any]:
+    """Migration 20261115120000_record_payment, without the row lock: the fake
+    runs one call at a time, which is what the lock gives Postgres."""
+    bill_id = params["p_bill_id"]
+    payment_status = params["p_payment_status"]
+    if payment_status not in ("completed", "failed"):
+        raise _refuse("22023", f"payment_status {payment_status!r} not allowed")
+
+    bill = db.find("bills", "bill_id", bill_id)
+    if bill is None:
+        raise _refuse("PT404", f"Bill {bill_id} not found")
+    if bill["status"] != "approved":
+        raise _refuse("PT409", f"Bill {bill_id} is not approved", bill["status"])
+
+    bill_amount = Decimal(str(bill["amount"]))
+    if payment_status == "completed" and Decimal(params["p_amount"]) != bill_amount:
+        raise _refuse("PT422", "Amount does not match", f"{bill_amount:.2f}")
+
+    # payments_failure_reason_only_when_failed
+    if (payment_status == "failed") != (params["p_failure_reason"] is not None):
+        raise _refuse("23514", "payments_failure_reason_only_when_failed")
+
+    # payments.recorded_by references app_users
+    if db.find("app_users", "user_id", params["p_recorded_by"]) is None:
+        raise _refuse("23503", "payments_recorded_by_fkey")
+
+    payments = db.tables.setdefault("payments", [])
+    attempts = [p["attempt_number"] for p in payments if p["bill_id"] == bill_id]
+    now = datetime.now(UTC).isoformat()
+    row = {
+        "payment_id": str(uuid4()),
+        "bill_id": bill_id,
+        "payment_method": params["p_payment_method"],
+        "amount": params["p_amount"],
+        "paid_on": params["p_paid_on"],
+        "attempt_number": max(attempts, default=0) + 1,
+        "payment_status": payment_status,
+        "gateway_status": None,
+        "provider_reference": params["p_provider_reference"],
+        "failure_reason": params["p_failure_reason"],
+        "recorded_by": params["p_recorded_by"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    payments.append(row)
+
+    if payment_status == "completed":
+        bill["status"] = "paid"
+
+    return dict(row)
+
+
+RPCS: dict[str, Callable[["FakeSupabase", dict[str, Any]], Any]] = {
+    "record_payment": _record_payment,
+}
+
+
+class _Rpc:
+    def __init__(self, db: "FakeSupabase", name: str, params: dict[str, Any]):
+        self._db, self._name, self._params = db, name, params
+
+    def execute(self) -> _Result:
+        # PostgREST answers a function returning one row with that row.
+        return _Result(RPCS[self._name](self._db, self._params))
+
+
 class _Bucket:
     def __init__(self, storage: "_Storage") -> None:
         self._storage = storage
@@ -212,6 +288,10 @@ class FakeSupabase:
 
     def table(self, name: str) -> _Query:
         return _Query(self, name)
+
+    def rpc(self, name: str, params: dict[str, Any]) -> _Rpc:
+        assert name in RPCS, f"no fake for function {name!r}"
+        return _Rpc(self, name, params)
 
     def find(self, table: str, column: str, value: Any) -> dict[str, Any] | None:
         rows = self.tables.get(table, [])
