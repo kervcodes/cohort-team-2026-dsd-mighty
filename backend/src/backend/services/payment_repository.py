@@ -24,15 +24,28 @@ class BillNotFound(Exception):
 
 
 class BillNotApproved(Exception):
-    def __init__(self, status: BillStatus) -> None:
+    """`status` is None when the bill's status is not a BillStatus; the
+    function sends an empty DETAIL for a null status."""
+
+    def __init__(self, status: BillStatus | None) -> None:
         super().__init__(status)
         self.status = status
 
 
 class AmountMismatch(Exception):
-    def __init__(self, bill_amount: Decimal) -> None:
+    """`bill_amount` is None when the bill has no amount; the function sends
+    an empty DETAIL for a null amount."""
+
+    def __init__(self, bill_amount: Decimal | None) -> None:
         super().__init__(bill_amount)
         self.bill_amount = bill_amount
+
+
+def _bill_status(detail: str | None) -> BillStatus | None:
+    try:
+        return BillStatus(detail)
+    except ValueError:
+        return None
 
 
 def _to_payment(row: dict[str, Any]) -> PaymentRead:
@@ -73,9 +86,10 @@ def record_payment(
         if exc.code == "PT404":
             raise BillNotFound from exc
         if exc.code == "PT409":
-            raise BillNotApproved(BillStatus(exc.details)) from exc
+            raise BillNotApproved(_bill_status(exc.details)) from exc
         if exc.code == "PT422":
-            raise AmountMismatch(Decimal(str(exc.details))) from exc
+            amount = Decimal(exc.details) if exc.details else None
+            raise AmountMismatch(amount) from exc
         raise
 
     row = response.data
