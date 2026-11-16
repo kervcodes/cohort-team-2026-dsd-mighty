@@ -57,6 +57,7 @@ def list_properties(
         response = (
             query(COLUMNS)
             .order("property_name")
+            .order("property_id")
             .range(skip, skip + limit - 1)
             .execute()
         )

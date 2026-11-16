@@ -100,7 +100,7 @@ class _Query:
         self._any_of: list[list[tuple[str, str, str]]] = []
         self._embeds: list[tuple[str, str, str, list[str]]] = []
         self._columns: list[str] | None = None  # None: every column
-        self._order: tuple[str, bool] | None = None
+        self._order: list[tuple[str, bool]] = []
         self._limit: int | None = None
         self._offset = 0
         self._count = False
@@ -152,7 +152,7 @@ class _Query:
         return self
 
     def order(self, column: str, desc: bool = False) -> "_Query":
-        self._order = (column, desc)
+        self._order.append((column, desc))
         return self
 
     def limit(self, count: int) -> "_Query":
@@ -252,8 +252,7 @@ class _Query:
                 for row in rows:
                     self._rows.remove(row)
                     self._db.after_delete(self._table, row)
-            if self._order:
-                column, desc = self._order
+            for column, desc in reversed(self._order):
                 rows.sort(key=lambda row: row.get(column) or "", reverse=desc)
             if self._count and self._offset > len(rows):
                 # PostgREST answers 416 when a counted page starts past the end.

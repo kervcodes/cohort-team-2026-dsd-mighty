@@ -5,6 +5,7 @@ what it returns for a caller who is allowed.
 """
 
 from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 from current_users import make_user
@@ -87,6 +88,21 @@ def test_list_pages_with_skip_and_limit_and_counts_every_property(db, analyst):
     assert response.status_code == 200
     assert names(response) == ["B", "C"]
     assert response.json()["total"] == 5
+
+
+def test_paging_across_a_shared_name_returns_each_property_once(db, analyst):
+    second = db.add_property("Elm Court", property_id=str(UUID(int=2)))
+    first = db.add_property("Elm Court", property_id=str(UUID(int=1)))
+
+    pages = [
+        analyst.get("/properties", params={"skip": skip, "limit": 1}).json()["items"]
+        for skip in (0, 1)
+    ]
+
+    assert [item["id"] for page in pages for item in page] == [
+        first["property_id"],
+        second["property_id"],
+    ]
 
 
 def test_a_page_past_the_end_is_empty_not_an_error(db, analyst):
