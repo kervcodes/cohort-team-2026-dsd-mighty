@@ -25,7 +25,9 @@ structural reads (table headers, `dl` pairs) done in one `evaluate`.
 Errors: every public method converts Playwright errors into `PortalError` /
 `PortalTimeout` with a message written here, raised outside the `except`
 block so no Playwright message (which could quote a typed value) rides along
-as the exception's context.
+as the exception's context. `submit_payment` raises `PaymentNotSubmitted` for
+anything that goes wrong before its final Submit / Pay click, and a plain
+`PortalError` / `PortalTimeout` from the click on.
 """
 
 import re
@@ -42,6 +44,7 @@ from pydantic import SecretStr
 from backend.payment_agent.portal import (
     AccountNotOnPortal,
     PaymentForm,
+    PaymentNotSubmitted,
     PaymentOutcome,
     PortalBill,
     PortalBillStatus,
@@ -381,11 +384,25 @@ class PlaywrightPortal:
         )
 
     def submit_payment(self, expected: PaymentForm) -> PaymentOutcome:
+        submit = self._before_submitting(lambda: self._prepare_payment(expected))
         return self._attempt(
-            "submitting the payment", lambda: self._submit_payment(expected)
+            "submitting the payment", lambda: self._submit_and_read(submit)
         )
 
-    def _submit_payment(self, expected: PaymentForm) -> PaymentOutcome:
+    def _before_submitting(self, action: Callable[[], T]) -> T:
+        """Run a step that comes before the final Submit / Pay click. Any
+        failure there, a refusal or a timeout, is PaymentNotSubmitted."""
+        failure: PaymentNotSubmitted
+        try:
+            return self._attempt("getting the payment ready", action)
+        except PortalError as error:
+            failure = PaymentNotSubmitted(str(error))
+        raise failure
+
+    def _prepare_payment(self, expected: PaymentForm) -> Locator:
+        """Fill and check the payment up to its final click, and return the
+        button that submits it: "Pay $x", or "Submit payment" on a review
+        screen. Nothing is paid yet."""
         page = self._page
         if self._read_payment_form() != expected:
             raise PortalError("The payment page changed before paying.")
@@ -411,19 +428,21 @@ class PlaywrightPortal:
                     f"The Pay button says {format_money(shown)}, "
                     f"not {format_money(expected.amount)}."
                 )
-            button.click()
-        else:
-            button.click()
-            review = page.locator("#payment-review")
-            review.get_by_role("heading", name="Review your payment").wait_for()
-            text = " ".join(review.inner_text().split())
-            wanted = f"{format_money(expected.amount)} for {expected.bill_number}"
-            if not re.search(re.escape(wanted) + r"(?![\w-])", text):
-                raise PortalError(
-                    f"The review screen does not say {wanted}; nothing was paid."
-                )
-            review.get_by_role("button", name="Submit payment").click()
+            return button
 
+        button.click()  # only opens the review screen
+        review = page.locator("#payment-review")
+        review.get_by_role("heading", name="Review your payment").wait_for()
+        text = " ".join(review.inner_text().split())
+        wanted = f"{format_money(expected.amount)} for {expected.bill_number}"
+        if not re.search(re.escape(wanted) + r"(?![\w-])", text):
+            raise PortalError(f"The review screen does not say {wanted}.")
+        submit = review.get_by_role("button", name="Submit payment")
+        submit.wait_for()  # exactly one, before the click that pays
+        return submit
+
+    def _submit_and_read(self, submit: Locator) -> PaymentOutcome:
+        submit.click()
         result = self._heading(RESULT_HEADING)
         result.or_(self._error_notice()).first.wait_for()
         if not result.is_visible():

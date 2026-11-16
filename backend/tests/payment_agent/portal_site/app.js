@@ -87,7 +87,7 @@ function paymentPage(id) {
     + `<label class="check-field"><input name="authorized" type="checkbox" required><span>I authorize this simulated one-time ACH payment for the total shown.</span></label></fieldset>`
     + `<fieldset id="card-fields" hidden disabled><legend>Card details</legend><label class="field">Card number<input name="cardNumber" required></label></fieldset>`
     + `<label class="field">Simulated result<select name="scenario"><option value="success">Successful payment</option><option value="decline">Declined payment</option></select></label>`
-    + `<button type="submit" class="button full">${company.review ? 'Review payment' : `Pay ${money(company.payButtonCents ?? b.amountCents)}`}</button></form></section>`
+    + `<button type="submit" class="button full">${company.payButtonLabel ?? (company.review ? 'Review payment' : `Pay ${money(company.payButtonCents ?? b.amountCents)}`)}</button></form></section>`
     + `<section class="panel bill-summary"><h2>Bill summary</h2><dl><dt>Bill number</dt><dd>${esc(b.id)}</dd><dt>Due date</dt><dd>${day(b.dueDate)}</dd></dl>`
     + `<div class="total-line"><span>Total payment</span><strong>${money(b.amountCents)}</strong></div></section>`;
 }
@@ -159,7 +159,7 @@ function bind() {
     const review = document.createElement('section');
     review.id = 'payment-review';
     review.innerHTML = `<h2>Review your payment</h2><p><strong>${money(company.reviewCents ?? b.amountCents)}</strong> for ${esc(company.reviewBillId ?? b.id)}</p><p>One-time ACH ending in ${esc(data.accountNumber.slice(-4))}</p>`
-      + `<button type="button" id="confirm-payment">Submit payment</button><button type="button" id="edit-payment">Edit details</button>`;
+      + `<button type="button" id="confirm-payment">${esc(company.submitButtonLabel ?? 'Submit payment')}</button><button type="button" id="edit-payment">Edit details</button>`;
     form.after(review);
     document.querySelector('#confirm-payment').addEventListener('click', () => complete(payload));
   });
