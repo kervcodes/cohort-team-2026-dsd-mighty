@@ -4,7 +4,7 @@
 
 begin;
 
-select plan(32);
+select plan(40);
 
 -- 1. FIXTURES
 
@@ -404,6 +404,136 @@ select is_empty(
         where bill_id = '00000000-0000-4000-8000-0000000000a2'
     $$,
     'a refused payment leaves no row behind'
+);
+
+-- 8. NULLS NEVER READ AS A MATCH
+
+select throws_ok(
+    $$
+        select public.record_payment(
+            '00000000-0000-4000-8000-0000000000a3', null, 'ach',
+            '2026-11-14', null, 'completed', null,
+            '00000000-0000-4000-8000-000000000101'
+        )
+    $$,
+    'PT422',
+    null,
+    'a completed payment with no amount is PT422'
+);
+
+-- Today bills.status is not null and an approved bill must
+-- have an amount (bills_required_unless_draft). The function
+-- must not lean on either, so this rolled-back transaction
+-- drops both to build bills that break them.
+alter table public.bills alter column status drop not null;
+alter table public.bills drop constraint bills_required_unless_draft;
+
+insert into public.bills (
+    bill_id, property_address, account_status, website_name, submitted_by,
+    invoice_number, invoice_date, due_date, amount, account_number_raw, status
+)
+values
+    (
+        '00000000-0000-4000-8000-0000000000a4', '1 Main St', 'unpaid',
+        'example.com', '00000000-0000-4000-8000-000000000101',
+        'INV-4', '2026-11-01', '2026-11-30', 60.00, 'ACCT-1', null
+    ),
+    (
+        '00000000-0000-4000-8000-0000000000a5', '1 Main St', 'unpaid',
+        'example.com', '00000000-0000-4000-8000-000000000101',
+        'INV-5', '2026-11-01', '2026-11-30', null, 'ACCT-1', 'approved'
+    );
+
+select throws_ok(
+    $$
+        select public.record_payment(
+            '00000000-0000-4000-8000-0000000000a4', 60.00, 'ach',
+            '2026-11-14', null, 'failed', 'Card declined',
+            '00000000-0000-4000-8000-000000000101'
+        )
+    $$,
+    'PT409',
+    null,
+    'a failed attempt on a bill with no status is PT409'
+);
+
+select throws_ok(
+    $$
+        select public.record_payment(
+            '00000000-0000-4000-8000-0000000000a4', 60.00, 'ach',
+            '2026-11-14', null, 'completed', null,
+            '00000000-0000-4000-8000-000000000101'
+        )
+    $$,
+    'PT409',
+    null,
+    'a bill with no status is PT409'
+);
+
+select throws_ok(
+    $$
+        select public.record_payment(
+            '00000000-0000-4000-8000-0000000000a5', 60.00, 'ach',
+            '2026-11-14', null, 'completed', null,
+            '00000000-0000-4000-8000-000000000101'
+        )
+    $$,
+    'PT422',
+    null,
+    'a completed payment on a bill with no amount is PT422'
+);
+
+select is(
+    pg_temp.refusal_detail($$
+        select public.record_payment(
+            '00000000-0000-4000-8000-0000000000a4', 60.00, 'ach',
+            '2026-11-14', null, 'completed', null,
+            '00000000-0000-4000-8000-000000000101'
+        )
+    $$),
+    '',
+    'PT409 for a bill with no status has an empty DETAIL'
+);
+
+select is(
+    pg_temp.refusal_detail($$
+        select public.record_payment(
+            '00000000-0000-4000-8000-0000000000a5', 60.00, 'ach',
+            '2026-11-14', null, 'completed', null,
+            '00000000-0000-4000-8000-000000000101'
+        )
+    $$),
+    '',
+    'PT422 for a bill with no amount has an empty DETAIL'
+);
+
+select results_eq(
+    $$
+        select bill_id, status from public.bills
+        where bill_id in (
+            '00000000-0000-4000-8000-0000000000a4',
+            '00000000-0000-4000-8000-0000000000a5'
+        )
+        order by bill_id
+    $$,
+    $$
+        values
+            ('00000000-0000-4000-8000-0000000000a4'::uuid, null::text),
+            ('00000000-0000-4000-8000-0000000000a5'::uuid, 'approved'::text)
+    $$,
+    'a bill with no status or no amount is never marked paid'
+);
+
+select is_empty(
+    $$
+        select 1 from public.payments
+        where bill_id in (
+            '00000000-0000-4000-8000-0000000000a3',
+            '00000000-0000-4000-8000-0000000000a4',
+            '00000000-0000-4000-8000-0000000000a5'
+        )
+    $$,
+    'a null status or amount records no payment'
 );
 
 select * from finish();

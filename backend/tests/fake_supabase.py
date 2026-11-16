@@ -315,6 +315,10 @@ def _refuse(code: str, message: str, details: str | None = None) -> APIError:
     return APIError({"code": code, "message": message, "details": details})
 
 
+def _decimal_or_none(value: Any) -> Decimal | None:
+    return None if value is None else Decimal(str(value))
+
+
 def _record_payment(db: "FakeSupabase", params: dict[str, Any]) -> dict[str, Any]:
     """Migration 20261115120000_record_payment, without the row lock: the fake
     runs one call at a time, which is what the lock gives Postgres."""
@@ -326,12 +330,19 @@ def _record_payment(db: "FakeSupabase", params: dict[str, Any]) -> dict[str, Any
     bill = db.find("bills", "bill_id", bill_id)
     if bill is None:
         raise _refuse("PT404", f"Bill {bill_id} not found")
-    if bill["status"] != "approved":
-        raise _refuse("PT409", f"Bill {bill_id} is not approved", bill["status"])
 
-    bill_amount = Decimal(str(bill["amount"]))
-    if payment_status == "completed" and Decimal(params["p_amount"]) != bill_amount:
-        raise _refuse("PT422", "Amount does not match", f"{bill_amount:.2f}")
+    # `is distinct from`: None never equals a value but does equal None, and
+    # a null DETAIL comes back empty.
+    bill_status = bill["status"]
+    if bill_status != "approved":
+        detail = "" if bill_status is None else bill_status
+        raise _refuse("PT409", f"Bill {bill_id} is not approved", detail)
+
+    bill_amount = _decimal_or_none(bill["amount"])
+    amount = _decimal_or_none(params["p_amount"])
+    if payment_status == "completed" and amount != bill_amount:
+        detail = "" if bill_amount is None else f"{bill_amount:.2f}"
+        raise _refuse("PT422", "Amount does not match", detail)
 
     # payments_failure_reason_only_when_failed
     if (payment_status == "failed") != (params["p_failure_reason"] is not None):
@@ -399,6 +410,7 @@ class _Rpc:
         self._params = params
 
     def execute(self) -> _Result:
+        self._db.rpc_calls.append(self._name)
         function = getattr(self._db, f"_rpc_{self._name}")
         with self._db.transaction():
             return _Result(function(**self._params))
@@ -434,6 +446,8 @@ class FakeSupabase:
         self.vault: dict[str, str] = {}
         # Vault writes raise, as when Vault is unavailable mid-transaction.
         self.fail_vault_writes = False
+        # Names of the functions called through rpc(), in order.
+        self.rpc_calls: list[str] = []
 
     def table(self, name: str) -> _Query:
         return _Query(self, name)

@@ -50,8 +50,13 @@ def account(db: FakeSupabase, *, password: str | None = PASSWORD, **fields) -> d
     row = db.add_vendor_account(prop["property_id"], vendor["vendor_id"], **login)
     if password:
         db.rpc(
-            "set_vendor_account_portal_password",
-            {"p_account_id": row["account_id"], "p_password": password},
+            "update_vendor_account",
+            {
+                "p_account_id": row["account_id"],
+                "p_changes": {},
+                "p_password_action": "set",
+                "p_password": password,
+            },
         ).execute()
     return row
 

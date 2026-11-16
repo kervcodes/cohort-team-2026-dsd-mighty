@@ -351,8 +351,13 @@ def test_plain_http_portal_is_refused():
 def test_missing_password_is_flagged():
     setup = make_setup(PORTAL_URL)
     setup.db.rpc(
-        "clear_vendor_account_portal_password",
-        {"p_account_id": setup.account["account_id"]},
+        "update_vendor_account",
+        {
+            "p_account_id": setup.account["account_id"],
+            "p_changes": {},
+            "p_password_action": "clear",
+            "p_password": None,
+        },
     ).execute()
     setup, stub, status, _model = go(HAPPY_PATH, setup=setup)
 

@@ -14,6 +14,7 @@ import pytest
 from current_users import make_user
 from fake_supabase import FakeSupabase
 from fastapi.testclient import TestClient
+from postgrest.exceptions import APIError
 
 from backend.app import app
 from backend.auth import get_current_user
@@ -254,6 +255,111 @@ def test_paying_a_paid_bill_again_is_409_and_records_nothing(db):
     assert response.status_code == 409
     assert response.json()["detail"] == "This bill has already been paid."
     assert [p["payment_status"] for p in payments_of(db, bill)] == ["completed"]
+
+
+# Nulls never read as a match. The bills constraints keep these bills out of
+# a real database, so the route cannot reach them; this calls the
+# record_payment twin directly, as record_payment.test.sql section 8 calls
+# the function.
+
+
+def record_payment_params(bill: dict, **overrides) -> dict:
+    return {
+        "p_bill_id": bill["bill_id"],
+        "p_amount": "60.00",
+        "p_payment_method": "ach",
+        "p_paid_on": "2026-11-14",
+        "p_provider_reference": None,
+        "p_payment_status": "completed",
+        "p_failure_reason": None,
+        "p_recorded_by": APPROVER,
+        **overrides,
+    }
+
+
+@pytest.mark.parametrize(
+    ("bill_fields", "overrides", "code", "details"),
+    [
+        pytest.param(
+            {"status": None, "amount": "60.00"},
+            {},
+            "PT409",
+            "",
+            id="bill with no status",
+        ),
+        pytest.param(
+            {"status": None, "amount": "60.00"},
+            {"p_payment_status": "failed", "p_failure_reason": "Card declined"},
+            "PT409",
+            "",
+            id="failed attempt on a bill with no status",
+        ),
+        pytest.param(
+            {"status": "approved", "amount": None},
+            {},
+            "PT422",
+            "",
+            id="bill with no amount",
+        ),
+        pytest.param(
+            {"status": "approved", "amount": "60.00"},
+            {"p_amount": None},
+            "PT422",
+            "60.00",
+            id="payment with no amount",
+        ),
+    ],
+)
+def test_null_status_or_amount_is_refused_and_records_nothing(
+    db, bill_fields, overrides, code, details
+):
+    db.add_user(APPROVER, role="approver")
+    bill = db.add_bill(ANALYST, **bill_fields)
+
+    with pytest.raises(APIError) as refused:
+        db.rpc("record_payment", record_payment_params(bill, **overrides)).execute()
+
+    assert (refused.value.code, refused.value.details) == (code, details)
+    assert bill["status"] == bill_fields["status"]
+    assert payments_of(db, bill) == []
+
+
+def test_bill_with_no_amount_is_422_and_records_nothing(db):
+    bill = db.add_bill(ANALYST, status="approved", amount=None)
+
+    response = pay(approver(db), bill, COMPLETED)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "This bill has no amount, so it can't be marked paid."
+    )
+    assert bill["status"] == "approved"
+    assert payments_of(db, bill) == []
+
+
+@pytest.mark.parametrize(
+    "details",
+    [
+        pytest.param("", id="null status"),
+        pytest.param("scheduled", id="status the API does not know"),
+    ],
+)
+def test_bill_in_a_status_the_api_does_not_know_is_409(db, details):
+    # The bill read before the payment cannot hold such a status, so the
+    # function's refusal is patched in.
+    bill = approved_bill(db)
+
+    def refuse(_db: FakeSupabase, **_params: object) -> None:
+        raise APIError({"code": "PT409", "message": "Not approved", "details": details})
+
+    with patch.object(FakeSupabase, "_rpc_record_payment", refuse):
+        response = pay(approver(db), bill, COMPLETED)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "This bill can't be paid in its current state."
+    )
+    assert payments_of(db, bill) == []
 
 
 # Request validation
