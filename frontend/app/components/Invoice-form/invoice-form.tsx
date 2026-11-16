@@ -5,12 +5,14 @@ import { FileCheck, FileUp, LoaderCircle } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { type DragEvent, useLayoutEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
+
 import Button from "@/components/Button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
-import { draftPayload, type StoredPdf, useInvoiceDraft } from "@/hooks/invoices/useInvoiceDraft";
+
+import { type StoredPdf, useInvoiceDraft } from "@/hooks/invoices/useInvoiceDraft";
 import { useInvoiceExtraction } from "@/hooks/invoices/useInvoiceExtraction";
-import { submitBill } from "@/lib/api/bills";
-import { ApiError } from "@/lib/api/http";
+import { useInvoiceSubmission } from "@/hooks/invoices/useInvoiceSubmission";
+
 import type { ExtractionBanner } from "@/lib/extraction";
 import {
   accountStatuses,
@@ -18,17 +20,6 @@ import {
   type InvoiceFormValues,
   invoiceFormSchema,
 } from "@/lib/invoice-form-schema";
-import type { BillCreatePayload } from "@/types/bill";
-
-type ActionStatus = "idle" | "loading" | "success" | "error";
-
-type UnansweredSubmit = {
-  payload: string;
-  pdf: File | null;
-};
-
-const ALREADY_SUBMITTED_MESSAGE =
-  "This bill was already sent for approval with the earlier values, so your latest changes weren't saved. Open it from the dashboard to check what was sent.";
 
 const bannerTones: Record<ExtractionBanner["tone"], string> = {
   success: "border-paid/30 bg-paid-bg text-paid",
@@ -43,6 +34,7 @@ function ExtractionNotice({ banner }: { banner: ExtractionBanner }) {
       className={`mt-4 rounded-lg border p-3 text-left text-sm ${bannerTones[banner.tone]}`}
     >
       <p>{banner.message}</p>
+
       {banner.details.length > 0 && (
         <ul className="mt-1 list-disc space-y-0.5 pl-5">
           {banner.details.map((detail) => (
@@ -84,29 +76,8 @@ function pdfStorageNote(
   return null;
 }
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
-
 function isPdf(file: File) {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-}
-
-function createPayload(values: InvoiceFormValues): BillCreatePayload {
-  return {
-    account_number_raw: values.accountNumber.trim(),
-    invoice_number: values.statementId.trim(),
-    vendor_name_raw: values.companyName.trim() || undefined,
-    invoice_date: values.issueDate,
-    due_date: values.dueDate,
-    amount: values.currentDue.trim(),
-    prev_payments: values.previousPayments.trim() || undefined,
-    description: values.description.trim() || undefined,
-    processing_notes: values.notes.trim() || undefined,
-    property_address: values.propertyAddress,
-    account_status: values.accountStatus || undefined,
-    website_name: values.websiteName || undefined,
-  };
 }
 
 const DRAFT_PATH = /^\/invoices\/([^/]+)\/edit\/?$/;
@@ -123,7 +94,9 @@ function draftIdFromPath(pathname: string): string | null {
 export function InvoiceForm() {
   const { bfcacheId } = useRouter();
   const pathname = usePathname();
+
   const [visit, setVisit] = useState(0);
+
   const shown = useRef({ bfcacheId, pathname });
   const ownPath = useRef<string | null>(null);
 
@@ -131,7 +104,9 @@ export function InvoiceForm() {
     const last = shown.current;
     shown.current = { bfcacheId, pathname };
 
-    if (pathname === last.pathname || bfcacheId !== last.bfcacheId) return;
+    if (pathname === last.pathname || bfcacheId !== last.bfcacheId) {
+      return;
+    }
 
     if (pathname === ownPath.current) {
       ownPath.current = null;
@@ -143,6 +118,7 @@ export function InvoiceForm() {
 
   function showDraftUrl(draftId: string) {
     const path = draftPath(draftId);
+
     ownPath.current = path;
     window.history.replaceState(null, "", path);
   }
@@ -166,13 +142,12 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
 
   const [submitError, setSubmitError] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [storedPdf, setStoredPdf] = useState<StoredPdf>({ kind: "none" });
+  const [storedPdf, setStoredPdf] = useState<StoredPdf>({
+    kind: "none",
+  });
   const [fileError, setFileError] = useState("");
-
-  const [createStatus, setCreateStatus] = useState<ActionStatus>("idle");
-
-  const unansweredSubmits = useRef<UnansweredSubmit[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -213,6 +188,16 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     setSubmitError,
   });
 
+  // Bill creation and submission are managed by useInvoiceSubmission.
+  const { createStatus, handleCreate } = useInvoiceSubmission({
+    draftId,
+    selectedFile,
+    ensureDraftSaved,
+    storePickedPdf,
+    onSuccess: () => router.push("/dashboard"),
+    setSubmitError,
+  });
+
   // PDF extraction lifecycle is managed by useInvoiceExtraction.
   const { reader, notes, readInvoice, resetReader, clearFieldNote, readingMessage } =
     useInvoiceExtraction({
@@ -227,77 +212,10 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     Object.values(watchedValues).some((value) => typeof value === "string" && value.trim() !== "");
 
   const saving = draftStatus === "loading" || createStatus === "loading";
+
   const created = createStatus === "success";
+
   const canSaveDraft = hasAnyInput && !saving && !created;
-
-  async function onSubmit(values: InvoiceFormValues) {
-    setCreateStatus("loading");
-    setSubmitError("");
-
-    let id = draftId;
-
-    try {
-      id ??= await ensureDraftSaved(draftPayload(values));
-    } catch (error) {
-      setCreateStatus("error");
-      setSubmitError(errorMessage(error, "Unable to create the bill. Please try again."));
-      return;
-    }
-
-    try {
-      await storePickedPdf(id);
-    } catch (error) {
-      setCreateStatus("error");
-
-      const mayBeSubmitted =
-        unansweredSubmits.current.length > 0 &&
-        error instanceof ApiError &&
-        (error.status === 404 || error.status === 409);
-
-      setSubmitError(
-        mayBeSubmitted
-          ? ALREADY_SUBMITTED_MESSAGE
-          : `The PDF couldn't be stored, so the bill wasn't created. Please try again.\n${errorMessage(error, "")}`.trim(),
-      );
-      return;
-    }
-
-    const payload = createPayload(values);
-
-    const attempt: UnansweredSubmit = {
-      payload: JSON.stringify(payload),
-      pdf: selectedFile,
-    };
-
-    try {
-      await submitBill(id, payload);
-    } catch (error) {
-      const alreadySubmitted = error instanceof ApiError && error.status === 409;
-
-      const earlier = unansweredSubmits.current;
-
-      const sameAsEarlier =
-        earlier.length > 0 &&
-        earlier.every((sent) => sent.payload === attempt.payload && sent.pdf === attempt.pdf);
-
-      if (!(alreadySubmitted && sameAsEarlier)) {
-        if (!(error instanceof ApiError)) {
-          unansweredSubmits.current = [...earlier, attempt];
-        }
-
-        setCreateStatus("error");
-        setSubmitError(
-          alreadySubmitted
-            ? ALREADY_SUBMITTED_MESSAGE
-            : errorMessage(error, "Unable to create the bill. Please try again."),
-        );
-        return;
-      }
-    }
-
-    setCreateStatus("success");
-    router.push("/dashboard");
-  }
 
   function selectFile(file: File | null) {
     if (file && !isPdf(file)) {
@@ -375,7 +293,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
 
   return (
     <form
-      onSubmit={handleSubmit(onSubmit)}
+      onSubmit={handleSubmit(handleCreate)}
       onChange={(event) => {
         const target = event.target;
 
@@ -613,6 +531,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-muted">
                   $
                 </span>
+
                 <input
                   {...field}
                   {...register("previousPayments")}
@@ -635,6 +554,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-muted">
                   $
                 </span>
+
                 <input
                   {...field}
                   {...register("currentDue")}
