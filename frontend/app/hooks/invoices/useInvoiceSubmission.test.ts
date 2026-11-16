@@ -10,6 +10,7 @@ jest.mock("@/lib/api/bills", () => ({
 }));
 
 const mockSubmitBill = submitBill as jest.MockedFunction<typeof submitBill>;
+const mockSubmittedBill = {} as unknown as Awaited<ReturnType<typeof submitBill>>;
 
 const defaultValues: InvoiceFormValues = {
   accountNumber: " ACC-100 ",
@@ -69,7 +70,7 @@ function createHook(options?: { draftId?: string | null; selectedFile?: File | n
   ensureDraftSaved.mockResolvedValue(draftId);
   storePickedPdf.mockResolvedValue(undefined);
 
-  mockSubmitBill.mockResolvedValue(undefined as Awaited<ReturnType<typeof submitBill>>);
+  mockSubmitBill.mockResolvedValue(mockSubmittedBill);
 
   const hook = renderHook(() =>
     useInvoiceSubmission({
@@ -93,7 +94,7 @@ function createHook(options?: { draftId?: string | null; selectedFile?: File | n
 describe("useInvoiceSubmission", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockSubmitBill.mockResolvedValue(undefined as Awaited<ReturnType<typeof submitBill>>);
+    mockSubmitBill.mockResolvedValue(mockSubmittedBill);
   });
 
   describe("initial state", () => {
@@ -175,7 +176,7 @@ describe("useInvoiceSubmission", () => {
       expect(onSuccess).not.toHaveBeenCalled();
 
       await act(async () => {
-        resolveSubmission(undefined as Awaited<ReturnType<typeof submitBill>>);
+        resolveSubmission(mockSubmittedBill);
         await submission;
       });
 

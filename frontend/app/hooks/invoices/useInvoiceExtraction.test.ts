@@ -248,7 +248,7 @@ describe("useInvoiceExtraction", () => {
           banner: extractionBanner(),
         } as ReturnType<typeof planFill>)
         .mockImplementationOnce((_result, _current, replaceableFields) => ({
-          values: replaceableFields.has("statementId") ? { statementId: "INV-3001" } : {},
+          values: replaceableFields?.has("statementId") ? { statementId: "INV-3001" } : {},
           notes: {},
           banner: extractionBanner(),
         }));
@@ -576,7 +576,7 @@ describe("useInvoiceExtraction", () => {
       let capturedSignal!: AbortSignal;
 
       mockExtractBill.mockImplementation((_file, signal) => {
-        capturedSignal = signal;
+        capturedSignal = signal!;
 
         return new Promise(() => {});
       });
@@ -603,7 +603,7 @@ describe("useInvoiceExtraction", () => {
       const signals: AbortSignal[] = [];
 
       mockExtractBill.mockImplementation((_file, signal) => {
-        signals.push(signal);
+        signals.push(signal!);
 
         return new Promise(() => {});
       });
@@ -630,7 +630,7 @@ describe("useInvoiceExtraction", () => {
       let capturedSignal!: AbortSignal;
 
       mockExtractBill.mockImplementation((_file, signal) => {
-        capturedSignal = signal;
+        capturedSignal = signal!;
 
         return new Promise(() => {});
       });
@@ -653,7 +653,7 @@ describe("useInvoiceExtraction", () => {
       let capturedSignal!: AbortSignal;
 
       mockExtractBill.mockImplementation((_file, signal) => {
-        capturedSignal = signal;
+        capturedSignal = signal!;
 
         return new Promise((_resolve, reject) => {
           rejectExtraction = reject;

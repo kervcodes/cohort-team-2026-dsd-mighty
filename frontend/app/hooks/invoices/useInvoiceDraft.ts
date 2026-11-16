@@ -90,6 +90,7 @@ export function useInvoiceDraft({
   // edits made since the draft was first loaded.
   useEffect(() => {
     if (initialDraftId === null || draftLoaded.current) return;
+    const draftIdToLoad = initialDraftId;
 
     let cancelled = false;
 
@@ -98,7 +99,7 @@ export function useInvoiceDraft({
       setDraftLoadError(null);
 
       try {
-        const draft = await getBillDraft(initialDraftId);
+        const draft = await getBillDraft(draftIdToLoad);
 
         if (cancelled) return;
 
