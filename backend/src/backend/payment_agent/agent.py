@@ -4,7 +4,9 @@ flagged.
 The loop is a manual Claude tool-use loop (adaptive thinking, one tool call
 per turn) with limits in code: at most `max_model_turns` model calls and
 `time_limit_seconds` of wall clock, checked before every model call and every
-tool call. The run always ends with a status:
+tool call. The worker can pull that deadline in (`must_end_by`) when it is
+told to stop, so a deploy ends a run the same way the time limit does. The
+run always ends with a status:
 
 - the model calls save_receipt (paid or failed) or flag_for_person, or a
   tool's check flags the run;
@@ -50,6 +52,19 @@ logger = logging.getLogger(__name__)
 
 Clock = Callable[[], float]
 
+# Why a run must stop now, checked before every model and tool call; None
+# while it may go on.
+StopCheck = Callable[[], str | None]
+
+TIME_LIMIT = "The run hit its time limit."
+WORKER_STOPPING = (
+    "The worker was stopped (a deploy or restart) before the run finished."
+)
+
+
+def _no_shutdown() -> float | None:
+    return None
+
 
 class _Stop(Exception):
     """The loop ended without a tool ending the run; the message says why."""
@@ -82,13 +97,13 @@ def _loop(
     client: ModelClient,
     config: AgentConfig,
     redactor: Redactor,
-    out_of_time: Callable[[], bool],
+    must_stop: StopCheck,
 ) -> None:
     """Drive the model until a tool ends the run. Raises _Stop otherwise."""
     messages: list[dict[str, Any]] = [{"role": "user", "content": KICKOFF}]
     for _turn in range(config.max_model_turns):
-        if out_of_time():
-            raise _Stop("The run hit its time limit.")
+        if (why := must_stop()) is not None:
+            raise _Stop(why)
         try:
             response = _ask(client, config, messages)
         except anthropic.APIError as error:
@@ -107,8 +122,8 @@ def _loop(
         for block in response.content:
             if block.type != "tool_use":
                 continue
-            if out_of_time():
-                raise _Stop("The run hit its time limit.")
+            if (why := must_stop()) is not None:
+                raise _Stop(why)
             arguments = block.input if isinstance(block.input, dict) else {}
             result = tools.call(block.name, arguments)
             results.append(tool_result_block(block.id, result, redactor))
@@ -138,10 +153,16 @@ def run_payment(
     open_portal: OpenPortal | None = None,
     config: AgentConfig | None = None,
     clock: Clock = time.monotonic,
+    must_end_by: Callable[[], float | None] = _no_shutdown,
 ) -> PaymentRunStatus | None:
     """Run the claimed (running) payment run `run_id` to its end and return
     its final status, or None when the run is not running (another worker or
-    the stale-run check ended it)."""
+    the stale-run check ended it).
+
+    `must_end_by` returns a `clock` time by which the run must stop, or None;
+    the worker sets one when it gets SIGTERM. Past it, the run ends like at
+    its time limit: a portal result already given is saved, else it is
+    flagged."""
     supabase = supabase or get_admin_supabase()
     config = config or agent_config()
     run = get_run(supabase, run_id)
@@ -160,11 +181,20 @@ def run_payment(
     )
     deadline = clock() + config.time_limit_seconds
 
+    def must_stop() -> str | None:
+        now = clock()
+        if now > deadline:
+            return TIME_LIMIT
+        end_by = must_end_by()
+        if end_by is not None and now > end_by:
+            return WORKER_STOPPING
+        return None
+
     try:
         log.add("started", f"Payment agent started ({config.model}).")
         try:
             client = model_client or create_model_client()
-            _loop(tools, client, config, redactor, lambda: clock() > deadline)
+            _loop(tools, client, config, redactor, must_stop)
         except _Stop as stop:
             _finish_unended(tools, str(stop))
         except RunTaken:

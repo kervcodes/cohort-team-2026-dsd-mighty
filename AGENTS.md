@@ -15,6 +15,7 @@ Backend, from `backend/`:
 - `uv run ruff format --check .` - format check (`uv run ruff format .` to fix)
 - `uv run uvicorn backend.app:app --reload` - dev server
 - `uv run python -m backend.payment_agent.worker [--once]` - payment agent worker (pays queued payment runs)
+- `uv run python -m backend.payment_agent.worker --check-browser` - start Chromium the way a run does and exit; `payment-worker.Dockerfile` is its Render image (`docs/payment-worker.md`)
 
 Frontend, from `frontend/`:
 

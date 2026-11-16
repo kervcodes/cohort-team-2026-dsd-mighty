@@ -209,6 +209,58 @@ def test_time_limit_flags_the_run():
     assert not stub.submitted()
 
 
+class Shutdown:
+    """The worker's SIGTERM handler, as a run sees it: `request()` sets a
+    deadline that has already passed (no time left to wrap up)."""
+
+    def __init__(self) -> None:
+        self.end_by: float | None = None
+
+    def request(self) -> None:
+        self.end_by = 0.0  # before any time.monotonic() reading
+
+    def __call__(self) -> float | None:
+        return self.end_by
+
+
+def test_stopping_the_worker_before_paying_flags_the_run_with_nothing_paid():
+    shutdown = Shutdown()
+    stub = StubPortal(on_list=shutdown.request)  # SIGTERM while reading bills
+    setup, stub, status, model = go(HAPPY_PATH, stub=stub, must_end_by=shutdown)
+
+    assert status is PaymentRunStatus.flagged
+    assert "worker was stopped" in reason(setup)
+    assert len(model.requests) == 3  # no model call after the stop
+    assert not stub.submitted() and setup.payments() == []
+    assert stub.closed
+
+
+def test_stopping_the_worker_after_the_portal_answered_saves_the_payment():
+    shutdown = Shutdown()
+
+    class StopAfterPaying(StubPortal):
+        def submit_payment(self, expected: PaymentForm) -> PaymentOutcome:
+            outcome = super().submit_payment(expected)
+            shutdown.request()  # SIGTERM while the portal answers
+            return outcome
+
+    setup, stub, status, model = go(
+        HAPPY_PATH, stub=StopAfterPaying(), must_end_by=shutdown
+    )
+
+    assert status is PaymentRunStatus.paid
+    assert len(model.requests) == 4  # save_receipt was never asked for
+    assert len(setup.payments()) == 1
+    assert "worker was stopped" in str(setup.run["steps"])
+
+
+def test_a_run_ending_before_the_shutdown_deadline_is_not_affected():
+    setup, stub, status, model = go(HAPPY_PATH, must_end_by=lambda: 1e12)
+
+    assert status is PaymentRunStatus.paid
+    assert len(model.requests) == 5
+
+
 def test_turn_limit_flags_the_run():
     script = [tool("load_approved_bill")] * 20
     setup, stub, status, model = go(script, config=AgentConfig(max_model_turns=4))

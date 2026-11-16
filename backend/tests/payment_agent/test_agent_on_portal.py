@@ -18,6 +18,8 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from backend.payment_agent.model import AgentConfig
+from backend.payment_agent.playwright_portal import PlaywrightPortal
+from backend.payment_agent.portal import PortalError
 from backend.schemas.payment_run import PaymentRunStatus
 
 CENTS = 18642
@@ -323,3 +325,28 @@ def test_password_never_leaves_vault_and_the_browser(case, caplog):
     ]
     for text in seen:
         assert stored not in text
+
+
+# One browser at a time (the worker runs in 512 MB)
+
+
+def test_a_second_browser_is_refused_while_one_is_open():
+    with portal_with_our_bill() as portal:
+        first = PlaywrightPortal(portal.url)
+        try:
+            with pytest.raises(PortalError, match="only one runs at a time"):
+                PlaywrightPortal(portal.url)
+        finally:
+            first.close()
+
+        with PlaywrightPortal(portal.url) as again:  # the slot is free again
+            assert again.check()
+
+
+def test_every_run_closes_its_browser():
+    with portal_with_our_bill() as portal:
+        _setup, first, _model = run(portal)
+        with PlaywrightPortal(portal.url) as after:  # would be refused if left open
+            assert after.check()
+
+    assert first is PaymentRunStatus.paid
