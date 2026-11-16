@@ -158,7 +158,7 @@ function bind() {
     form.hidden = true;
     const review = document.createElement('section');
     review.id = 'payment-review';
-    review.innerHTML = `<h2>Review your payment</h2><p><strong>${money(company.reviewCents ?? b.amountCents)}</strong> for ${esc(b.id)}</p><p>One-time ACH ending in ${esc(data.accountNumber.slice(-4))}</p>`
+    review.innerHTML = `<h2>Review your payment</h2><p><strong>${money(company.reviewCents ?? b.amountCents)}</strong> for ${esc(company.reviewBillId ?? b.id)}</p><p>One-time ACH ending in ${esc(data.accountNumber.slice(-4))}</p>`
       + `<button type="button" id="confirm-payment">Submit payment</button><button type="button" id="edit-payment">Edit details</button>`;
     form.after(review);
     document.querySelector('#confirm-payment').addEventListener('click', () => complete(payload));

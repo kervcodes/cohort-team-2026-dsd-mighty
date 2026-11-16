@@ -11,11 +11,10 @@ through FOREIGN_KEYS. Inserts and updates must satisfy FOREIGN_KEYS and
 UNIQUE_KEYS; a violation raises the `APIError` PostgREST sends, with the
 Postgres error code, so the repositories' error handling runs in tests.
 
-`rpc()` runs Python twins of the SQL functions the repositories call (see
-FakeRpc), with Vault as a dict of plaintext secrets.
-
-`rpc()` runs Python twins of the Postgres functions in RPCS; each mirrors its
-migration, including the SQLSTATE and DETAIL of every refusal.
+`rpc()` runs Python twins of the Postgres functions, the `FakeSupabase._rpc_*`
+methods (`_record_payment` for record_payment), with Vault as a dict of
+plaintext secrets; each mirrors its migration, including the SQLSTATE and
+DETAIL of every refusal.
 
 Supports only the query shapes the repository uses. Helpers, not tests.
 """

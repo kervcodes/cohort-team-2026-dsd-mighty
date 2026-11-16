@@ -418,7 +418,7 @@ class PlaywrightPortal:
             review.get_by_role("heading", name="Review your payment").wait_for()
             text = " ".join(review.inner_text().split())
             wanted = f"{format_money(expected.amount)} for {expected.bill_number}"
-            if wanted not in text:
+            if not re.search(re.escape(wanted) + r"(?![\w-])", text):
                 raise PortalError(
                     f"The review screen does not say {wanted}; nothing was paid."
                 )
