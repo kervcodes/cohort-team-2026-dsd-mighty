@@ -96,7 +96,7 @@ On SIGTERM the worker claims nothing more. A run in progress gets the shutdown d
 - if the portal already answered a payment, the receipt and payment are saved (the run ends paid or failed);
 - otherwise the run is flagged "The worker was stopped (a deploy or restart) before the run finished." with nothing paid, and an approver starts it again.
 
-The run's deadline is checked before every model call and every portal step. The reserve covers the one call that may already be in flight at the deadline: a model call with its timeout on every retry (3 x 60 seconds) plus saving the result. So the worker exits before SIGKILL.
+The run's deadline is checked before every model call and every tool call. The reserve covers the one call that may already be in flight at the deadline: a model call with its timeout on every retry (3 x 60 seconds) plus saving the result. So the worker exits before SIGKILL.
 
 With the default 30-second delay there is no time left after the reserve: SIGTERM ends a run in progress at its next step, and the worker logs a warning at start.
 
