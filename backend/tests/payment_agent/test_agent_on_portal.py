@@ -260,6 +260,14 @@ def test_review_screen_for_another_amount_is_not_confirmed():
     assert_flagged(setup, status, portal, "review screen")
 
 
+def test_review_screen_for_a_longer_bill_number_is_not_confirmed():
+    extra = {"reviewBillId": f"{BILL_NUMBER}0"}
+    with portal_with_our_bill(review=True, company_extra=extra) as portal:
+        setup, status, _model = run(portal)
+
+    assert_flagged(setup, status, portal, "review screen")
+
+
 # Failures
 
 
