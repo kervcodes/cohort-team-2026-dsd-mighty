@@ -74,10 +74,11 @@ export function useInvoiceDraft({
   setSubmitError,
 }: UseInvoiceDraftOptions) {
   const { getValues, reset } = form;
-  const [draftId, setDraftId] = useState(initialDraftId);
+  const [openedDraftId] = useState(initialDraftId);
+  const [draftId, setDraftId] = useState(openedDraftId);
   const [draftStatus, setDraftStatus] = useState<DraftActionStatus>("idle");
   const [draftMessage, setDraftMessage] = useState("");
-  const [isLoadingDraft, setIsLoadingDraft] = useState(initialDraftId !== null);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(openedDraftId !== null);
   const [draftLoadError, setDraftLoadError] = useState<string | null>(null);
 
   const draftLoaded = useRef(false);
@@ -89,8 +90,8 @@ export function useInvoiceDraft({
   // Load an existing draft once. Returning to the page should not overwrite
   // edits made since the draft was first loaded.
   useEffect(() => {
-    if (initialDraftId === null || draftLoaded.current) return;
-    const draftIdToLoad = initialDraftId;
+    if (openedDraftId === null || draftLoaded.current) return;
+    const draftIdToLoad = openedDraftId;
 
     let cancelled = false;
 
@@ -125,7 +126,7 @@ export function useInvoiceDraft({
     return () => {
       cancelled = true;
     };
-  }, [initialDraftId, reset, setStoredPdf]);
+  }, [openedDraftId, reset, setStoredPdf]);
 
   // Save the draft, creating it if this is the first save.
   async function ensureDraftSaved(payload: BillDraftPayload): Promise<string> {
@@ -151,6 +152,15 @@ export function useInvoiceDraft({
 
     await uploadInvoicePdf(file, id);
     setStoredPdf({ kind: "file", file });
+  }
+
+  function markUnsaved() {
+    setDraftStatus((status) => (status === "success" ? "idle" : status));
+    setDraftMessage("");
+  }
+
+  function clearDraftMessage() {
+    setDraftMessage("");
   }
 
   async function handleSaveDraft(canSaveDraft: boolean): Promise<void> {
@@ -201,5 +211,7 @@ export function useInvoiceDraft({
     ensureDraftSaved,
     storePickedPdf,
     handleSaveDraft,
+    markUnsaved,
+    clearDraftMessage,
   };
 }

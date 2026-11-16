@@ -66,6 +66,8 @@ function configureHooks({
     ensureDraftSaved: mockEnsureDraftSaved,
     storePickedPdf: mockStorePickedPdf,
     handleSaveDraft: mockHandleSaveDraft,
+    markUnsaved: jest.fn(),
+    clearDraftMessage: jest.fn(),
     ...draft,
   } as ReturnType<typeof useInvoiceDraft>);
 
@@ -371,6 +373,8 @@ describe("PDF storage feedback", () => {
       ensureDraftSaved: mockEnsureDraftSaved,
       storePickedPdf: mockStorePickedPdf,
       handleSaveDraft: mockHandleSaveDraft,
+      markUnsaved: jest.fn(),
+      clearDraftMessage: jest.fn(),
     } as ReturnType<typeof useInvoiceDraft>);
 
     renderInvoiceForm();

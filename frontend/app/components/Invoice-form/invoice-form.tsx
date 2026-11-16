@@ -164,10 +164,6 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     defaultValues: emptyInvoiceForm,
   });
 
-  function markEdited() {
-    setSubmitError("");
-  }
-
   // Draft lifecycle is managed by useInvoiceDraft.
   const {
     draftId,
@@ -178,6 +174,8 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     ensureDraftSaved,
     storePickedPdf,
     handleSaveDraft,
+    markUnsaved,
+    clearDraftMessage,
   } = useInvoiceDraft({
     initialDraftId,
     onDraftCreated,
@@ -197,6 +195,16 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     onSuccess: () => router.push("/dashboard"),
     setSubmitError,
   });
+
+  function markEdited() {
+    setSubmitError("");
+    markUnsaved();
+  }
+
+  function createBill(values: InvoiceFormValues) {
+    clearDraftMessage();
+    return handleCreate(values);
+  }
 
   // PDF extraction lifecycle is managed by useInvoiceExtraction.
   const { reader, notes, readInvoice, resetReader, clearFieldNote, readingMessage } =
@@ -293,7 +301,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
 
   return (
     <form
-      onSubmit={handleSubmit(handleCreate)}
+      onSubmit={handleSubmit(createBill)}
       onChange={(event) => {
         const target = event.target;
 
