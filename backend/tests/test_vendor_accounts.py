@@ -84,10 +84,14 @@ def new_account(prop, vendor, **fields):
 def account_with_password(db, prop, vendor, password=PASSWORD, **fields):
     row = db.add_vendor_account(prop["property_id"], vendor["vendor_id"], **fields)
     db.rpc(
-        "set_vendor_account_portal_password",
-        {"p_account_id": row["account_id"], "p_password": password},
+        "update_vendor_account",
+        {
+            "p_account_id": row["account_id"],
+            "p_changes": {},
+            "p_password_action": "set",
+            "p_password": password,
+        },
     ).execute()
-    db.rpc_calls.clear()
     return row
 
 
@@ -129,8 +133,8 @@ def test_create_without_a_password_leaves_vault_alone(db, admin, prop, vendor):
 
     assert response.status_code == 201
     assert response.json()["portal_password_set"] is False
+    assert db.tables["vendor_accounts"][0]["portal_password_secret_id"] is None
     assert db.vault == {}
-    assert db.rpc_calls == []
 
 
 def test_create_duplicate_account_is_409_and_stores_nothing(db, admin, prop, vendor):
@@ -182,7 +186,7 @@ def test_create_for_unknown_property_or_vendor_is_422(
 
 def test_create_rolls_back_the_account_when_vault_fails(db, prop, vendor):
     app.dependency_overrides[get_current_user] = lambda: make_user(role=UserRole.admin)
-    db.fail_rpcs = True
+    db.fail_vault_writes = True
 
     response = TestClient(app, raise_server_exceptions=False).post(
         "/vendor-accounts", json=new_account(prop, vendor, portal_password=PASSWORD)
@@ -348,8 +352,8 @@ def test_patch_without_password_keeps_it(db, admin, prop, vendor):
     assert body["account_type"] == "sewer"
     assert body["portal_login_email"] == "new@elmcourt.example"
     assert body["portal_password_set"] is True
+    assert account["portal_password_secret_id"] == secret_id
     assert db.vault == {secret_id: PASSWORD}
-    assert db.rpc_calls == []
 
 
 def test_patch_null_password_deletes_it_from_vault(db, admin, prop, vendor):
@@ -435,6 +439,47 @@ def test_patch_to_a_taken_account_number_is_409(db, admin, prop, vendor):
     assert response.status_code == 409
     assert account["account_number"] == "B"
     assert db.vault == {account["portal_password_secret_id"]: PASSWORD}
+
+
+@pytest.mark.parametrize(
+    "has_password", [True, False], ids=["replace password", "first password"]
+)
+def test_patch_changes_nothing_when_the_password_step_fails(
+    db, prop, vendor, has_password
+):
+    # Columns and password change in one transaction: a new email must never
+    # be saved next to the old password.
+    app.dependency_overrides[get_current_user] = lambda: make_user(role=UserRole.admin)
+    if has_password:
+        account = account_with_password(
+            db, prop, vendor, portal_login_email="old@elmcourt.example"
+        )
+    else:
+        account = db.add_vendor_account(
+            prop["property_id"],
+            vendor["vendor_id"],
+            portal_login_email="old@elmcourt.example",
+        )
+    row_before = dict(account)
+    vault_before = dict(db.vault)
+    db.fail_vault_writes = True
+
+    response = TestClient(app, raise_server_exceptions=False).patch(
+        f"/vendor-accounts/{account['account_id']}",
+        json={
+            "account_type": "sewer",
+            "portal_login_email": "new@elmcourt.example",
+            "portal_password": NEW_PASSWORD,
+        },
+    )
+
+    assert response.status_code == 500
+    assert NEW_PASSWORD not in response.text
+    assert account == row_before
+    assert db.vault == vault_before
+    login = get_portal_login(db, account["account_id"])
+    assert login is not None
+    assert login.email == "old@elmcourt.example"
 
 
 # SERVER-ONLY PORTAL LOGIN (for the payment agent)

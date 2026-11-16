@@ -13,13 +13,14 @@ from decimal import Decimal
 import pytest
 from agent_setup import AMOUNT, APPROVER, BILL_NUMBER, Setup, agent, make_setup
 from fake_model import HAPPY_PATH, tool
-from fake_portal import OUR_ACCOUNT, PASSWORD, Account, FakePortal
+from fake_portal import EMAIL, OUR_ACCOUNT, PASSWORD, Account, FakePortal
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
+from pydantic import SecretStr
 
 from backend.payment_agent.model import AgentConfig
 from backend.payment_agent.playwright_portal import PlaywrightPortal
-from backend.payment_agent.portal import PortalError
+from backend.payment_agent.portal import PaymentForm, PaymentNotSubmitted, PortalError
 from backend.schemas.payment_run import PaymentRunStatus
 
 CENTS = 18642
@@ -63,11 +64,14 @@ def details(setup: Setup) -> str:
 
 
 def assert_flagged(setup: Setup, status, portal: FakePortal, *words: str) -> None:
+    """Flagged with nothing paid: no payment reached the portal, and the
+    reason never says one might have."""
     assert status is PaymentRunStatus.flagged
     run = setup.run
     assert run["status"] == "flagged"
     for word in words:
         assert word in run["flag_reason"], run["flag_reason"]
+    assert "check the portal" not in run["flag_reason"], run["flag_reason"]
     assert run["payment_id"] is None and run["finished_at"]
     assert setup.payments() == []
     assert setup.bill["status"] == "approved"
@@ -251,7 +255,25 @@ def test_pay_button_for_another_amount_is_not_pressed():
     with portal_with_our_bill(company_extra=extra) as portal:
         setup, status, _model = run(portal)
 
-    assert_flagged(setup, status, portal, "Pay button", "$199.99")
+    assert_flagged(
+        setup,
+        status,
+        portal,
+        "The Pay button says $199.99, not $186.42. Nothing was paid.",
+    )
+
+
+def test_missing_pay_button_is_flagged_with_nothing_paid():
+    extra = {"payButtonLabel": "Continue"}
+    with portal_with_our_bill(company_extra=extra) as portal:
+        setup, status, _model = run(portal)
+
+    assert_flagged(
+        setup,
+        status,
+        portal,
+        "Could not find the Pay or Review payment button. Nothing was paid.",
+    )
 
 
 def test_review_screen_for_another_amount_is_not_confirmed():
@@ -259,7 +281,52 @@ def test_review_screen_for_another_amount_is_not_confirmed():
     with portal_with_our_bill(review=True, company_extra=extra) as portal:
         setup, status, _model = run(portal)
 
-    assert_flagged(setup, status, portal, "review screen")
+    assert_flagged(
+        setup,
+        status,
+        portal,
+        f"The review screen does not say $186.42 for {BILL_NUMBER}. Nothing was paid.",
+    )
+
+
+def test_review_screen_for_a_longer_bill_number_is_not_confirmed():
+    extra = {"reviewBillId": f"{BILL_NUMBER}0"}
+    with portal_with_our_bill(review=True, company_extra=extra) as portal:
+        setup, status, _model = run(portal)
+
+    assert_flagged(
+        setup,
+        status,
+        portal,
+        f"The review screen does not say $186.42 for {BILL_NUMBER}. Nothing was paid.",
+    )
+
+
+def test_review_screen_without_a_submit_button_times_out_with_nothing_paid():
+    extra = {"submitButtonLabel": "Continue"}
+    with portal_with_our_bill(review=True, company_extra=extra) as portal:
+        setup, status, _model = run(portal, config=AgentConfig(portal_timeout_ms=1_500))
+
+    assert_flagged(
+        setup,
+        status,
+        portal,
+        "Timed out waiting for the portal while getting the payment ready. "
+        "Nothing was paid.",
+    )
+
+
+def test_driver_refuses_a_payment_page_that_changed_before_paying():
+    # The agent re-checks the page before submit_payment, so this check only
+    # fires on a page that changes in between: drive the driver directly.
+    other_amount = PaymentForm(OUR_ACCOUNT, BILL_NUMBER, Decimal("186.43"))
+    with portal_with_our_bill() as portal, PlaywrightPortal(portal.url) as driver:
+        driver.sign_in(EMAIL, SecretStr(PASSWORD))
+        driver.open_payment(OUR_ACCOUNT, BILL_NUMBER)
+        with pytest.raises(PaymentNotSubmitted, match="changed before paying"):
+            driver.submit_payment(other_amount)
+
+    assert portal.payment_posts == []
 
 
 # Failures
@@ -286,7 +353,9 @@ def test_no_answer_after_submitting_is_flagged_to_check_the_portal():
 
     assert status is PaymentRunStatus.flagged
     reason = setup.run["flag_reason"]
-    assert "Timed out" in reason and "check the portal" in reason
+    assert "Timed out" in reason and "while submitting the payment" in reason
+    assert "check the portal before paying this bill again" in reason
+    assert "Nothing was paid" not in reason
     assert setup.payments() == []
 
 

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -37,11 +38,19 @@ def _require_readable_bill(client: Client, bill_id: UUID, user: CurrentUser) -> 
         raise _bill_not_found()
 
 
-def not_approved_detail(bill_status: BillStatus) -> str:
+def not_approved_detail(bill_status: BillStatus | None) -> str:
+    if bill_status is None:
+        return "This bill can't be paid in its current state."
     if bill_status is BillStatus.paid:
         return "This bill has already been paid."
     label = bill_status.replace("_", " ")
     return f"Only approved bills can be paid. This bill is {label}."
+
+
+def _amount_mismatch_detail(bill_amount: Decimal | None) -> str:
+    if bill_amount is None:
+        return "This bill has no amount, so it can't be marked paid."
+    return f"A completed payment must be for the full bill amount ({bill_amount:.2f})."
 
 
 @router.post("", response_model=PaymentRead, status_code=status.HTTP_201_CREATED)
@@ -72,10 +81,7 @@ def record_bill_payment(
     except AmountMismatch as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                "A completed payment must be for the full bill amount "
-                f"({exc.bill_amount:.2f})."
-            ),
+            detail=_amount_mismatch_detail(exc.bill_amount),
         ) from exc
 
 

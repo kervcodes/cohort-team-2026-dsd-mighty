@@ -11,17 +11,18 @@ through FOREIGN_KEYS. Inserts and updates must satisfy FOREIGN_KEYS and
 UNIQUE_KEYS; a violation raises the `APIError` PostgREST sends, with the
 Postgres error code, so the repositories' error handling runs in tests.
 
-`rpc()` runs Python twins of the SQL functions the repositories call (see
-FakeRpc), with Vault as a dict of plaintext secrets.
-
-`rpc()` runs Python twins of the Postgres functions in RPCS; each mirrors its
-migration, including the SQLSTATE and DETAIL of every refusal.
+`rpc()` runs Python twins of the Postgres functions, the `FakeSupabase._rpc_*`
+methods (`_record_payment` for record_payment), with Vault as a dict of
+plaintext secrets; each mirrors its migration, including the SQLSTATE and
+DETAIL of every refusal. Each call is one transaction, as through PostgREST:
+if the twin raises, every table row and Vault secret it changed is put back.
 
 Supports only the query shapes the repository uses. Helpers, not tests.
 """
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -314,6 +315,10 @@ def _refuse(code: str, message: str, details: str | None = None) -> APIError:
     return APIError({"code": code, "message": message, "details": details})
 
 
+def _decimal_or_none(value: Any) -> Decimal | None:
+    return None if value is None else Decimal(str(value))
+
+
 def _record_payment(db: "FakeSupabase", params: dict[str, Any]) -> dict[str, Any]:
     """Migration 20261115120000_record_payment, without the row lock: the fake
     runs one call at a time, which is what the lock gives Postgres."""
@@ -325,12 +330,19 @@ def _record_payment(db: "FakeSupabase", params: dict[str, Any]) -> dict[str, Any
     bill = db.find("bills", "bill_id", bill_id)
     if bill is None:
         raise _refuse("PT404", f"Bill {bill_id} not found")
-    if bill["status"] != "approved":
-        raise _refuse("PT409", f"Bill {bill_id} is not approved", bill["status"])
 
-    bill_amount = Decimal(str(bill["amount"]))
-    if payment_status == "completed" and Decimal(params["p_amount"]) != bill_amount:
-        raise _refuse("PT422", "Amount does not match", f"{bill_amount:.2f}")
+    # `is distinct from`: None never equals a value but does equal None, and
+    # a null DETAIL comes back empty.
+    bill_status = bill["status"]
+    if bill_status != "approved":
+        detail = "" if bill_status is None else bill_status
+        raise _refuse("PT409", f"Bill {bill_id} is not approved", detail)
+
+    bill_amount = _decimal_or_none(bill["amount"])
+    amount = _decimal_or_none(params["p_amount"])
+    if payment_status == "completed" and amount != bill_amount:
+        detail = "" if bill_amount is None else f"{bill_amount:.2f}"
+        raise _refuse("PT422", "Amount does not match", detail)
 
     # payments_failure_reason_only_when_failed
     if (payment_status == "failed") != (params["p_failure_reason"] is not None):
@@ -398,11 +410,32 @@ class _Rpc:
         self._params = params
 
     def execute(self) -> _Result:
-        if self._db.fail_rpcs:
-            raise APIError({"code": "08006", "message": "connection failure"})
         self._db.rpc_calls.append(self._name)
         function = getattr(self._db, f"_rpc_{self._name}")
-        return _Result(function(**self._params))
+        with self._db.transaction():
+            return _Result(function(**self._params))
+
+
+# Columns the account functions accept, as in the SQL functions' allow-lists.
+ACCOUNT_UPDATE_FIELDS = (
+    "account_number",
+    "account_type",
+    "payment_method",
+    "portal_url",
+    "portal_login_email",
+    "status",
+)
+ACCOUNT_CREATE_FIELDS = ("property_id", "vendor_id", *ACCOUNT_UPDATE_FIELDS)
+
+
+def _invalid(message: str) -> APIError:
+    return APIError({"code": "22023", "message": message})
+
+
+def _reject_unknown_fields(fields: dict[str, Any], allowed: tuple[str, ...]) -> None:
+    unknown = sorted(set(fields) - set(allowed))
+    if unknown:
+        raise _invalid(f"unknown vendor account fields: {', '.join(unknown)}")
 
 
 class FakeSupabase:
@@ -411,14 +444,41 @@ class FakeSupabase:
         self.storage = _Storage()
         # Vault: secret id -> plaintext. The real one stores ciphertext.
         self.vault: dict[str, str] = {}
+        # Vault writes raise, as when Vault is unavailable mid-transaction.
+        self.fail_vault_writes = False
+        # Names of the functions called through rpc(), in order.
         self.rpc_calls: list[str] = []
-        self.fail_rpcs = False
 
     def table(self, name: str) -> _Query:
         return _Query(self, name)
 
     def rpc(self, name: str, params: dict[str, Any]) -> _Rpc:
         return _Rpc(self, name, params)
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Undo every row and Vault change if the body raises.
+
+        Rows are restored in place, so a test holding a row dict sees the
+        rolled-back values.
+        """
+        saved_rows = {
+            name: [(row, dict(row)) for row in rows]
+            for name, rows in self.tables.items()
+        }
+        saved_vault = dict(self.vault)
+        try:
+            yield
+        except BaseException:
+            for name, rows in self.tables.items():
+                saved = saved_rows.get(name, [])
+                for row, values in saved:
+                    row.clear()
+                    row.update(values)
+                rows[:] = [row for row, _ in saved]
+            self.vault.clear()
+            self.vault.update(saved_vault)
+            raise
 
     def after_delete(self, table: str, row: dict[str, Any]) -> None:
         # Trigger vendor_accounts_delete_portal_password.
@@ -475,7 +535,8 @@ class FakeSupabase:
         return [dict(run)]
 
     # Python twins of the SQL functions in
-    # 20261115100000_vendor_portal_login.sql. Keep them in step.
+    # 20261115100000_vendor_portal_login.sql. Keep them in step: same checks,
+    # same order, same error codes.
 
     def _locked_account(self, account_id: str) -> dict[str, Any]:
         account = self.find("vendor_accounts", "account_id", account_id)
@@ -485,27 +546,78 @@ class FakeSupabase:
             )
         return account
 
-    def _rpc_set_vendor_account_portal_password(
-        self, p_account_id: str, p_password: str
-    ) -> None:
-        if not p_password:
-            raise APIError(
-                {"code": "22023", "message": "portal password must not be empty"}
-            )
-        account = self._locked_account(p_account_id)
+    def _write_vault(self, secret_id: str, password: str) -> None:
+        if self.fail_vault_writes:
+            raise APIError({"code": "XX000", "message": "vault unavailable"})
+        self.vault[secret_id] = password
+
+    # set_vendor_account_portal_password: a building block, not callable by
+    # the service role, so not an `_rpc_` twin.
+    def _set_portal_password(self, account_id: str, password: str | None) -> None:
+        if not password:
+            raise _invalid("portal password must not be empty")
+        account = self._locked_account(account_id)
         secret_id = account["portal_password_secret_id"]
         if secret_id is None:
             secret_id = str(uuid4())
+            self._write_vault(secret_id, password)
             account["portal_password_secret_id"] = secret_id
-        self.vault[secret_id] = p_password
+        else:
+            self._write_vault(secret_id, password)
 
-    def _rpc_clear_vendor_account_portal_password(self, p_account_id: str) -> None:
-        account = self._locked_account(p_account_id)
+    # clear_vendor_account_portal_password: a building block too.
+    def _clear_portal_password(self, account_id: str) -> None:
+        account = self._locked_account(account_id)
         secret_id = account["portal_password_secret_id"]
         if secret_id is not None:
             # Deleting the secret nulls the id (on delete set null).
             del self.vault[secret_id]
             account["portal_password_secret_id"] = None
+
+    def _rpc_create_vendor_account(
+        self, p_account: dict[str, Any], p_password: str | None
+    ) -> list[dict[str, Any]]:
+        if not isinstance(p_account, dict):
+            raise _invalid("vendor account must be a JSON object")
+        _reject_unknown_fields(p_account, ACCOUNT_CREATE_FIELDS)
+        # A missing key reads as null, as `->>` does.
+        values = {field: p_account.get(field) for field in ACCOUNT_CREATE_FIELDS}
+        created = self.table("vendor_accounts").insert(values).execute()
+        assert created is not None
+        account_id = created.data[0]["account_id"]
+        if p_password is not None:
+            self._set_portal_password(account_id, p_password)
+        return [dict(self._locked_account(account_id))]
+
+    def _rpc_update_vendor_account(
+        self,
+        p_account_id: str,
+        p_changes: dict[str, Any],
+        p_password_action: str,
+        p_password: str | None,
+    ) -> list[dict[str, Any]]:
+        if p_password_action not in ("keep", "clear", "set"):
+            raise _invalid("portal password action must be keep, clear or set")
+        if p_password_action != "set" and p_password is not None:
+            raise _invalid("a portal password goes only with the set action")
+        if not isinstance(p_changes, dict):
+            raise _invalid("vendor account changes must be a JSON object")
+        _reject_unknown_fields(p_changes, ACCOUNT_UPDATE_FIELDS)
+
+        if self.find("vendor_accounts", "account_id", p_account_id) is None:
+            return []
+
+        if p_changes:
+            self.table("vendor_accounts").update(p_changes).eq(
+                "account_id", p_account_id
+            ).execute()
+
+        if p_password_action == "set":
+            self._set_portal_password(p_account_id, p_password)
+        elif p_password_action == "clear":
+            self._clear_portal_password(p_account_id)
+
+        return [dict(self._locked_account(p_account_id))]
 
     def _rpc_get_vendor_account_portal_login(
         self, p_account_id: str
@@ -573,7 +685,8 @@ class FakeSupabase:
     def add_vendor_account(
         self, property_id: str, vendor_id: str, **fields: Any
     ) -> dict[str, Any]:
-        """An account row; set its password with `rpc`, as the repository does."""
+        """An account row; set its password through the `update_vendor_account`
+        rpc, as the repository does."""
         row = {
             **_insert_defaults("vendor_accounts"),
             "property_id": property_id,

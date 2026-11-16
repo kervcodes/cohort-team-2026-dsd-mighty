@@ -178,8 +178,13 @@ def test_route_allows_only_its_active_roles(
         portal_login_email="ap@example.com",
     )
     db.rpc(
-        "set_vendor_account_portal_password",
-        {"p_account_id": account["account_id"], "p_password": "hunter2-portal"},
+        "update_vendor_account",
+        {
+            "p_account_id": account["account_id"],
+            "p_changes": {},
+            "p_password_action": "set",
+            "p_password": "hunter2-portal",
+        },
     ).execute()
     ids = {
         "vendor_id": vendor["vendor_id"],

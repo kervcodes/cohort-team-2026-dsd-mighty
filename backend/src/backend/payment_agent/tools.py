@@ -12,7 +12,10 @@ act on, and nothing is paid. Rules enforced here, not by the prompt:
   matches the portal bill on account number plus bill number (the amount is a
   check, never the key), and refuses when the portal already shows the bill
   paid or has a completed payment for it, when the amount differs, or when
-  the payment page or review screen names another account, bill or amount.
+  the payment page, Pay button or review screen names another account, bill
+  or amount. A failure before the final Submit / Pay click says nothing was
+  paid; any failure from the click on (or of an unknown kind) says to check
+  the portal before paying the bill again.
 - `save_receipt` records exactly what the receipt says through
   `record_payment` (DC-54), after checking it is for our account, bill and
   amount.
@@ -33,6 +36,7 @@ from pydantic import SecretStr
 from backend.payment_agent.playwright_portal import format_money, same_bill
 from backend.payment_agent.portal import (
     PaymentForm,
+    PaymentNotSubmitted,
     PaymentOutcome,
     PortalBillStatus,
     PortalDriver,
@@ -463,8 +467,16 @@ class PaymentTools:
             f"Paying {ours}: {format_money(target.amount)} by one-time ACH "
             "with the portal's sample details.",
         )
+        # Cautious until the driver says it stopped before the final Submit /
+        # Pay click: any other failure may come after the portal took it.
         self.payment_submitted = True
-        self.outcome = self._portal(lambda: driver.submit_payment(expected))
+        try:
+            self.outcome = driver.submit_payment(expected)
+        except PaymentNotSubmitted as refusal:
+            self.payment_submitted = False
+            raise Flagged(f"{str(refusal).rstrip('.')}. Nothing was paid.") from None
+        except PortalError as error:
+            raise Flagged(str(error)) from None
         self.log.add("pay", f"The portal says the payment was {self.outcome.value}.")
         return {"outcome": self.outcome.value, "next": "Call save_receipt."}
 

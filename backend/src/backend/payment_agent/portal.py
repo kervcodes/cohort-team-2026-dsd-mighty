@@ -83,6 +83,12 @@ class AccountNotOnPortal(PortalError):
     """The login has no service account with our account number."""
 
 
+class PaymentNotSubmitted(PortalError):
+    """`submit_payment` stopped before pressing the final Submit / Pay button,
+    so nothing reached the portal's payment step. Any other error from
+    `submit_payment` means the payment may have been submitted."""
+
+
 class PortalDriver(Protocol):
     def sign_in(self, email: str, password: SecretStr) -> None:
         """Sign in. Raises SignInFailed, PortalTimeout or PortalError."""
@@ -102,9 +108,13 @@ class PortalDriver(Protocol):
 
     def submit_payment(self, expected: PaymentForm) -> PaymentOutcome:
         """Fill the sample details, authorize and submit the open payment,
-        confirming on a review screen if the portal has one. Refuses (raises
-        PortalError before submitting) if the pay or review screen names a
-        different bill or amount than `expected`."""
+        confirming on a review screen if the portal has one. Refuses if the
+        payment page, Pay button or review screen names a different bill or
+        amount than `expected`.
+
+        Raises PaymentNotSubmitted for a refusal or failure before the final
+        Submit / Pay click, and only then: any other error (including one
+        from the click itself) may come after the portal took the payment."""
         ...
 
     def read_receipt(self) -> PortalReceipt:

@@ -52,8 +52,13 @@ def make_setup(portal_url: str, password: str = PASSWORD) -> Setup:
         portal_login_email=EMAIL,
     )
     db.rpc(
-        "set_vendor_account_portal_password",
-        {"p_account_id": account["account_id"], "p_password": password},
+        "update_vendor_account",
+        {
+            "p_account_id": account["account_id"],
+            "p_changes": {},
+            "p_password_action": "set",
+            "p_password": password,
+        },
     ).execute()
     bill = db.add_bill(
         ANALYST,

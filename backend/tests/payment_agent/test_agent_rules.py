@@ -21,11 +21,13 @@ from backend.payment_agent.agent import run_payment
 from backend.payment_agent.model import AgentConfig, MissingApiKeyError
 from backend.payment_agent.portal import (
     PaymentForm,
+    PaymentNotSubmitted,
     PaymentOutcome,
     PortalBill,
     PortalBillStatus,
     PortalError,
     PortalReceipt,
+    PortalTimeout,
     SignInFailed,
 )
 from backend.schemas.payment_run import PaymentRunStatus
@@ -401,8 +403,13 @@ def test_plain_http_portal_is_refused():
 def test_missing_password_is_flagged():
     setup = make_setup(PORTAL_URL)
     setup.db.rpc(
-        "clear_vendor_account_portal_password",
-        {"p_account_id": setup.account["account_id"]},
+        "update_vendor_account",
+        {
+            "p_account_id": setup.account["account_id"],
+            "p_changes": {},
+            "p_password_action": "clear",
+            "p_password": None,
+        },
     ).execute()
     setup, stub, status, _model = go(HAPPY_PATH, setup=setup)
 
@@ -438,11 +445,41 @@ def test_recording_refused_because_the_bill_was_paid_meanwhile_is_flagged():
     assert "PAY-0001" in reason(setup) and "reconcile" in reason(setup)
 
 
-def test_portal_error_after_submitting_says_to_check_the_portal():
-    stub = StubPortal(submit_error=PortalError("The portal showed an error."))
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        "The payment page changed before paying.",
+        "Could not find the Pay or Review payment button.",
+        "The Pay button says $199.99, not $186.42.",
+        "The review screen does not say $186.42 for BILL-1001.",
+        "Timed out waiting for the portal while getting the payment ready.",
+    ],
+)
+def test_refusal_before_the_final_click_says_only_nothing_was_paid(refusal):
+    stub = StubPortal(submit_error=PaymentNotSubmitted(refusal))
+    setup, stub, status, _model = go(HAPPY_PATH, stub)
+
+    assert status is PaymentRunStatus.flagged
+    assert reason(setup) == f"{refusal} Nothing was paid."
+    assert setup.payments() == []
+    assert setup.bill["status"] == "approved"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        PortalError("The portal showed an error after the payment was submitted."),
+        PortalTimeout("Timed out waiting for the portal while submitting the payment."),
+    ],
+)
+def test_portal_error_after_submitting_says_to_check_the_portal(error):
+    stub = StubPortal(submit_error=error)
     setup, _stub, status, _model = go(HAPPY_PATH, stub)
 
+    assert status is PaymentRunStatus.flagged
+    assert reason(setup).startswith(str(error))
     assert "check the portal before paying this bill again" in reason(setup)
+    assert "Nothing was paid" not in reason(setup)
 
 
 def test_unexpected_error_flags_the_run_and_keeps_the_secret_out(caplog):
