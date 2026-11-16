@@ -166,4 +166,10 @@ services:
 
 ## Upgrading playwright
 
-The base image tag must match the playwright version in `backend/uv.lock`: the image's Chromium is the build that playwright release drives. When you upgrade playwright, change `PLAYWRIGHT_IMAGE` in `backend/payment-worker.Dockerfile` to the matching `mcr.microsoft.com/playwright/python:v<version>-noble` tag. `backend/tests/payment_agent/test_worker_image.py` fails until they match, and the CI image job fails if Chromium does not start.
+The base image tag must match the playwright version in `backend/uv.lock`: the image's Chromium is the build that playwright release drives. When you upgrade playwright, change `PLAYWRIGHT_IMAGE` in `backend/payment-worker.Dockerfile` to the matching `mcr.microsoft.com/playwright/python:v<version>-noble` tag. The CI image job fails until they match: it compares the playwright installed in the built image with the release recorded in the base image's `/ms-playwright/.docker-info`, and it fails if Chromium does not start. To check locally after `docker build`:
+
+```sh
+docker run --rm payment-worker python -c 'import importlib.metadata, json; print(importlib.metadata.version("playwright"), json.load(open("/ms-playwright/.docker-info"))["driverVersion"])'
+```
+
+The two versions it prints must be the same.

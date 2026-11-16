@@ -52,6 +52,11 @@ jobs:
         uses: actions/checkout@v4
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+      - name: Put a .env and a test file in the build context, as on a developer's machine
+        # The checkout has no .env (it is gitignored). These two files must not reach the image.
+        run: |
+          echo "SUPABASE_SECRET_KEY=image-canary" > backend/.env
+          echo "# image canary" > backend/tests/test_image_canary.py
       - name: Build the image
         uses: docker/build-push-action@v6
         with:
@@ -61,6 +66,28 @@ jobs:
           load: true
           cache-from: type=gha,scope=payment-worker
           cache-to: type=gha,mode=max,scope=payment-worker
+      - name: The installed playwright is the base image's Playwright release
+        # /ms-playwright/.docker-info is written by the playwright that installed the base
+        # image's browsers (`playwright mark-docker-image`); Playwright reads it to spot a
+        # stale image.
+        run: |
+          docker run --rm payment-worker:ci python -c '
+          import importlib.metadata, json, sys
+          base = json.load(open("/ms-playwright/.docker-info"))["driverVersion"]
+          installed = importlib.metadata.version("playwright")
+          if installed != base:
+              sys.exit(
+                  f"uv.lock installs playwright {installed} but the base image is Playwright {base}; "
+                  f"set PLAYWRIGHT_IMAGE in payment-worker.Dockerfile to "
+                  f"mcr.microsoft.com/playwright/python:v{installed}-noble"
+              )
+          print(f"playwright {installed} on the Playwright {base} image")
+          '
+      - name: The .env and tests/ never reach the image
+        # As root, so find can read every directory in the image.
+        run: |
+          leaked=$(docker run --rm --user root payment-worker:ci find / -xdev \( -name .env -o -name test_image_canary.py \) -print)
+          if [ -n "$leaked" ]; then echo "In the image: $leaked"; exit 1; fi
       - name: Start Chromium the way a run does, in 512 MB (Render Starter)
         run: docker run --rm --memory=512m --memory-swap=512m payment-worker:ci python -m backend.payment_agent.worker --check-browser
       - name: Runs as a non-root user

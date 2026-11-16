@@ -6,7 +6,7 @@
 # The base is Microsoft's Playwright image for the exact playwright version in
 # uv.lock (1.65.2): its Chromium in /ms-playwright and its system libraries
 # are the ones that playwright release drives. Bump this tag whenever uv.lock
-# changes playwright.
+# changes playwright; CI's payment-worker-image job fails until they match.
 ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright/python:v1.65.2-noble
 
 # Build: install the locked dependencies and the backend package into a venv.
