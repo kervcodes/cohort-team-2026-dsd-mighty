@@ -3,22 +3,15 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FileCheck, FileUp, LoaderCircle } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type DragEvent, useLayoutEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import Button from "@/components/Button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
 import { draftPayload, type StoredPdf, useInvoiceDraft } from "@/hooks/invoices/useInvoiceDraft";
-import { extractBill, submitBill } from "@/lib/api/bills";
+import { useInvoiceExtraction } from "@/hooks/invoices/useInvoiceExtraction";
+import { submitBill } from "@/lib/api/bills";
 import { ApiError } from "@/lib/api/http";
-import {
-  clearedValues,
-  type ExtractedFormField,
-  type ExtractionBanner,
-  errorBanner,
-  type FieldValues,
-  planFill,
-  READING_MESSAGE,
-} from "@/lib/extraction";
+import type { ExtractionBanner } from "@/lib/extraction";
 import {
   accountStatuses,
   emptyInvoiceForm,
@@ -36,11 +29,6 @@ type UnansweredSubmit = {
 
 const ALREADY_SUBMITTED_MESSAGE =
   "This bill was already sent for approval with the earlier values, so your latest changes weren't saved. Open it from the dashboard to check what was sent.";
-
-type ReaderState =
-  | { phase: "idle" }
-  | { phase: "reading" }
-  | { phase: "done"; banner: ExtractionBanner };
 
 const bannerTones: Record<ExtractionBanner["tone"], string> = {
   success: "border-paid/30 bg-paid-bg text-paid",
@@ -186,11 +174,6 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
   const unansweredSubmits = useRef<UnansweredSubmit[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [reader, setReader] = useState<ReaderState>({ phase: "idle" });
-  const [notes, setNotes] = useState<FieldValues>({});
-
-  const readRef = useRef<AbortController | null>(null);
-  const readerFilled = useRef(new Map<ExtractedFormField, string>());
 
   const {
     register,
@@ -206,7 +189,11 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     defaultValues: emptyInvoiceForm,
   });
 
-  // All draft state and operations are managed by the custom hook.
+  function markEdited() {
+    setSubmitError("");
+  }
+
+  // Draft lifecycle is managed by useInvoiceDraft.
   const {
     draftId,
     draftStatus,
@@ -226,6 +213,13 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     setSubmitError,
   });
 
+  // PDF extraction lifecycle is managed by useInvoiceExtraction.
+  const { reader, notes, readInvoice, resetReader, clearFieldNote, readingMessage } =
+    useInvoiceExtraction({
+      form: { getValues, setValue, getFieldState },
+      onEdited: markEdited,
+    });
+
   const watchedValues = useWatch({ control });
 
   const hasAnyInput =
@@ -239,7 +233,6 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
   async function onSubmit(values: InvoiceFormValues) {
     setCreateStatus("loading");
     setSubmitError("");
-    setDraftMessage("");
 
     let id = draftId;
 
@@ -304,89 +297,6 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
 
     setCreateStatus("success");
     router.push("/dashboard");
-  }
-
-  // Stop a PDF extraction request when leaving or unmounting the page.
-  useEffect(
-    () => () => {
-      if (!readRef.current) return;
-
-      readRef.current.abort();
-      readRef.current = null;
-      setReader({ phase: "idle" });
-    },
-    [],
-  );
-
-  function markEdited() {
-    setSubmitError("");
-    setDraftMessage("");
-  }
-
-  function resetReader(next: ReaderState) {
-    readRef.current?.abort();
-    readRef.current = null;
-    setNotes({});
-    setReader(next);
-  }
-
-  function replaceableFields(): Set<ExtractedFormField> {
-    const current = getValues();
-
-    return new Set(
-      [...readerFilled.current]
-        .filter(([name, value]) => current[name] === value)
-        .map(([name]) => name),
-    );
-  }
-
-  function applyFill(values: Partial<Record<ExtractedFormField, string>>) {
-    const entries = Object.entries(values) as [ExtractedFormField, string][];
-
-    for (const [name, value] of entries) {
-      setValue(name, value, {
-        shouldDirty: true,
-        shouldValidate: getFieldState(name).invalid,
-      });
-
-      if (value === "") {
-        readerFilled.current.delete(name);
-      } else {
-        readerFilled.current.set(name, value);
-      }
-    }
-
-    if (entries.length > 0) markEdited();
-  }
-
-  async function readInvoice(file: File) {
-    resetReader({ phase: "reading" });
-
-    const controller = new AbortController();
-    readRef.current = controller;
-
-    let banner: ExtractionBanner;
-
-    try {
-      const result = await extractBill(file, controller.signal);
-
-      if (controller.signal.aborted) return;
-
-      const plan = planFill(result, getValues(), replaceableFields());
-
-      applyFill(plan.values);
-      setNotes(plan.notes);
-      banner = plan.banner;
-    } catch (error) {
-      if (controller.signal.aborted) return;
-
-      applyFill(clearedValues(replaceableFields()));
-
-      banner = errorBanner(error instanceof Error ? error.message : "Unable to read the invoice.");
-    }
-
-    readRef.current = null;
-    setReader({ phase: "done", banner });
   }
 
   function selectFile(file: File | null) {
@@ -478,13 +388,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
         const name = "name" in target ? target.name : null;
 
         if (typeof name === "string") {
-          readerFilled.current.delete(name as ExtractedFormField);
-
-          setNotes((current) =>
-            name in current
-              ? Object.fromEntries(Object.entries(current).filter(([field]) => field !== name))
-              : current,
-          );
+          clearFieldNote(name);
         }
       }}
       noValidate
@@ -580,7 +484,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
               aria-hidden="true"
               className="h-4 w-4 animate-spin motion-reduce:animate-none"
             />
-            {READING_MESSAGE}
+            {readingMessage}
           </p>
         )}
 
