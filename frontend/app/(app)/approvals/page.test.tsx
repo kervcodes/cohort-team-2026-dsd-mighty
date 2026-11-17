@@ -51,6 +51,9 @@ function bill(overrides: Partial<Bill> = {}): Bill {
     account_status: "unpaid",
     website_name: null,
     vendor_account_id: null,
+    vendor_id: null,
+    property_id: null,
+    vendor_account_picked: false,
     submitted_by: {
       id: "user-123",
       full_name: "John Smith",

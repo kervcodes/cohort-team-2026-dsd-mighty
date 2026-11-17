@@ -126,6 +126,12 @@ jest.mock("@/lib/api/bills", () => ({
   uploadInvoicePdf: jest.fn(),
 }));
 
+// The vendor account lookup never answers here; its own tests are in
+// invoice-form-vendor-account.test.tsx.
+jest.mock("@/lib/api/vendor-account-lookup", () => ({
+  lookUpVendorAccounts: jest.fn(() => new Promise<never>(() => {})),
+}));
+
 function pdf(name = "invoice.pdf", type = "application/pdf") {
   return new File(["%PDF-1.4"], name, { type });
 }
@@ -221,6 +227,8 @@ function fullDraft(overrides: Partial<BillDraftDetail> = {}): BillDraftDetail {
     property_address: "12 Elm St",
     account_status: null,
     website_name: null,
+    vendor_account_id: null,
+    vendor_account_picked: false,
     document_path: null,
     ...overrides,
   };
@@ -245,6 +253,7 @@ describe("InvoiceForm", () => {
 
     [
       "Account / Customer #",
+      "Vendor account",
       "Statement / Bill ID",
       "Customer / Business Name",
       "Property Address",
@@ -951,6 +960,8 @@ describe("InvoiceForm", () => {
         property_address: "123 Main Street",
         account_status: "unpaid",
         website_name: "electric.example.com",
+        vendor_account_id: null,
+        vendor_account_picked: false,
         document_path: null,
       });
 
@@ -1021,6 +1032,8 @@ describe("InvoiceForm", () => {
         property_address: null,
         account_status: null,
         website_name: null,
+        vendor_account_id: null,
+        vendor_account_picked: false,
         document_path: null,
       });
 
@@ -1046,6 +1059,8 @@ describe("InvoiceForm", () => {
       property_address: null,
       account_status: null,
       website_name: null,
+      vendor_account_id: null,
+      vendor_account_picked: false,
       document_path: null,
     };
 
@@ -1719,6 +1734,8 @@ describe("InvoiceForm", () => {
         property_address: null,
         account_status: null,
         website_name: null,
+        vendor_account_id: null,
+        vendor_account_picked: false,
         document_path: null,
       });
       mockExtractBill.mockResolvedValueOnce(extractionResult()).mockResolvedValueOnce(
@@ -1756,6 +1773,9 @@ describe("InvoiceForm", () => {
         account_status: null,
         website_name: null,
         vendor_account_id: null,
+        vendor_id: null,
+        property_id: null,
+        vendor_account_picked: false,
         submitted_by: { id: "u-1", full_name: "Analyst" },
         status: "rejected",
         exception_reason: null,
