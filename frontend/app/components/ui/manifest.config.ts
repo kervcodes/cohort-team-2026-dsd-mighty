@@ -7,7 +7,7 @@
  * then migrate existing call sites. The hooks block new violations from the
  * moment the rule is enabled.
  */
-import type { DsPresetName, DsPresetOverride, DsRule } from "./manifest";
+import type { DsPresetName, DsPresetOverride, DsRule } from "./manifest.ts";
 
 /**
  * Presets from `manifest.ts` to enforce. Starts empty so adopting the module

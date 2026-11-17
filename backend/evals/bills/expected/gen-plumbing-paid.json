@@ -1,0 +1,42 @@
+{
+  "document_type": "invoice",
+  "vendor_name": "Kestrel Plumbing & Drain LLC",
+  "account_number": "KPD-4471",
+  "invoice_number": "KPD-26-1196",
+  "invoice_date": "2026-10-24",
+  "due_date": "2026-11-08",
+  "amount_due": "0.00",
+  "previous_balance": null,
+  "payments_received": "593.16",
+  "current_charges": "593.16",
+  "line_items": [
+    {
+      "description": "Service call and diagnosis",
+      "amount": "125.00"
+    },
+    {
+      "description": "Plumber labor",
+      "amount": "270.00"
+    },
+    {
+      "description": "Pressure regulator, 1 in., lead-free brass",
+      "amount": "186.50"
+    },
+    {
+      "description": "Sales tax (6.25% on materials)",
+      "amount": "11.66"
+    }
+  ],
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
+  "service_period_start": null,
+  "service_period_end": null,
+  "description": "Water pressure regulator replacement",
+  "payment_website": "https://pay.kestrel-plumbing.example",
+  "account_status": "paid",
+  "expected_issues": [
+    "BAD_AMOUNT"
+  ],
+  "expected_status": "needs_attention",
+  "case": "Paid copy of a contractor invoice: status PAID, the payment equals the invoice total and the balance due is $0.00",
+  "notes": "Read correctly, amount_due is 0.00, which BillCreate rejects (amount must be greater than 0), so BAD_AMOUNT is expected and a person decides how to record a bill that is already paid."
+}

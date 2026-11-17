@@ -1,43 +1,44 @@
-from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from backend.auth import VENDOR_READERS, VENDOR_WRITERS, require_active
 from backend.schemas.vendor import VendorCreate, VendorRead, VendorUpdate
+from backend.services import vendor_repository
+from backend.supabase_client import get_admin_supabase
 
 router = APIRouter(
     prefix="/vendors",
     tags=["vendors"],
 )
 
-vendors: dict[UUID, VendorRead] = {}
+
+@router.get(
+    "",
+    response_model=list[VendorRead],
+    dependencies=[Depends(require_active(*VENDOR_READERS))],
+)
+def list_vendors() -> list[dict]:
+    return vendor_repository.list_vendors(get_admin_supabase())
 
 
 @router.post(
     "",
     response_model=VendorRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_active(*VENDOR_WRITERS))],
 )
-def create_vendor(vendor: VendorCreate):
-    vendor_id = uuid4()
-
-    new_vendor = VendorRead(
-        id=vendor_id,
-        name=vendor.name,
-        contact_email=vendor.contact_email,
-        contact_phone=vendor.contact_phone,
-        default_payment_method=vendor.default_payment_method,
-        created_at=datetime.now(UTC),
-    )
-
-    vendors[vendor_id] = new_vendor
-
-    return new_vendor
+def create_vendor(vendor: VendorCreate) -> dict:
+    return vendor_repository.create_vendor(get_admin_supabase(), vendor)
 
 
-@router.get("/{vendor_id}", response_model=VendorRead)
-def get_vendor(vendor_id: UUID):
-    vendor = vendors.get(vendor_id)
+@router.get(
+    "/{vendor_id}",
+    response_model=VendorRead,
+    dependencies=[Depends(require_active(*VENDOR_READERS))],
+)
+def get_vendor(vendor_id: UUID) -> dict:
+    vendor = vendor_repository.get_vendor(get_admin_supabase(), vendor_id)
 
     if vendor is None:
         raise HTTPException(
@@ -48,9 +49,13 @@ def get_vendor(vendor_id: UUID):
     return vendor
 
 
-@router.patch("/{vendor_id}", response_model=VendorRead)
-def update_vendor(vendor_id: UUID, updates: VendorUpdate):
-    vendor = vendors.get(vendor_id)
+@router.patch(
+    "/{vendor_id}",
+    response_model=VendorRead,
+    dependencies=[Depends(require_active(*VENDOR_WRITERS))],
+)
+def update_vendor(vendor_id: UUID, updates: VendorUpdate) -> dict:
+    vendor = vendor_repository.update_vendor(get_admin_supabase(), vendor_id, updates)
 
     if vendor is None:
         raise HTTPException(
@@ -58,9 +63,4 @@ def update_vendor(vendor_id: UUID, updates: VendorUpdate):
             detail="Vendor not found.",
         )
 
-    update_data = updates.model_dump(exclude_unset=True)
-
-    updated_vendor = vendor.model_copy(update=update_data)
-    vendors[vendor_id] = updated_vendor
-
-    return updated_vendor
+    return vendor

@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
 /**
  * check-ds-coverage.ts — verify every primitive in components/ui/ has a
  * matching entry in components/ui/manifest.ts.

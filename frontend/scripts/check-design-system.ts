@@ -1,13 +1,13 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
 /**
  * check-design-system.ts — pattern-based guard against raw HTML elements that
  * should use design-system components.
  *
  * Usage:
- *   bun scripts/check-design-system.ts <file> [<file> ...]       lint-staged (files as argv)
- *   bun scripts/check-design-system.ts --staged-only <file> ...  only lines added in the staged diff
- *   bun scripts/check-design-system.ts --all                     sweep the whole repo (pre-push, CI)
- *   bun scripts/check-design-system.ts --claude-hook             Claude Code PreToolUse hook (JSON on stdin)
+ *   node --experimental-strip-types scripts/check-design-system.ts <file> [<file> ...]       lint-staged (files as argv)
+ *   node --experimental-strip-types scripts/check-design-system.ts --staged-only <file> ...  only lines added in the staged diff
+ *   node --experimental-strip-types scripts/check-design-system.ts --all                     sweep the whole repo (pre-push, CI)
+ *   node --experimental-strip-types scripts/check-design-system.ts --claude-hook             Claude Code PreToolUse hook (JSON on stdin)
  *
  * Exit codes:
  *   0  clean

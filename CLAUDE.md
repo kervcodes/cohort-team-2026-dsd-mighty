@@ -22,7 +22,7 @@ Frontend, from `frontend/`:
 - `pnpm test` - Jest
 - `pnpm build` - `next build`
 - `pnpm dev` - dev server
-- `pnpm run check:ds` - design-system sweep (needs `bun`)
+- `pnpm run check:ds` - design-system sweep (plain Node 22, no bun)
 
 Repo root:
 

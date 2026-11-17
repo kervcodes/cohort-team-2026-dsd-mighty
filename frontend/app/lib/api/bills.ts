@@ -1,69 +1,103 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+import type {
+  Bill,
+  BillCreatePayload,
+  BillDraftDetail,
+  BillDraftPayload,
+  BillDraftResponse,
+  DashboardBill,
+  DocumentUploadResponse,
+} from "@/types/bill";
+import type { ExtractionResult } from "@/types/extraction";
+import { apiRequest } from "./http";
 
-export type BillStatus =
-  | "draft"
-  | "pending_approval"
-  | "approved"
-  | "rejected"
-  | "paid"
-  | "failed"
-  | "exception";
-
-export type AccountStatus = "unpaid" | "outstanding" | "paid";
-
-export type BillCreatePayload = {
-  account_number_raw: string;
-  vendor_name_raw?: string;
-  invoice_number: string;
-  invoice_date: string;
-  due_date: string;
-  amount: string;
-  prev_payments?: string;
-  description?: string;
-  processing_notes?: string;
-  property_address?: string;
-  account_status?: AccountStatus;
-  website_name?: string;
-};
-
-export type Bill = {
-  id: string;
-  account_number_raw: string;
-  vendor_name_raw: string | null;
-  invoice_number: string;
-  invoice_date: string;
-  due_date: string;
-  amount: string;
-  prev_payments: string | null;
-  description: string | null;
-  processing_notes: string | null;
-  property_address: string | null;
-  account_status: AccountStatus | null;
-  website_name: string | null;
-  vendor_account_id: string | null;
-  submitted_by: { id: string; full_name: string };
-  status: BillStatus;
-  exception_reason: string | null;
-  document_path: string | null;
-  created_at: string;
-};
-
-export async function createBill(payload: BillCreatePayload): Promise<Bill> {
-  let res: Response;
-  try {
-    res = await fetch(`${API_URL}/bills`, {
+// Create: sends the saved draft `billId`, with the PDF stored on it, for
+// approval with the form's final values. The same bill, never a second one.
+export function submitBill(billId: string, payload: BillCreatePayload): Promise<Bill> {
+  return apiRequest<Bill>(
+    `/bills/${billId}/submit`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-    });
-  } catch {
-    throw new Error("Unable to reach the backend. Check your connection and try again.");
-  }
+    },
+    {
+      signedOut: "You must be signed in to submit an invoice.",
+      failed: "Unable to submit the invoice",
+    },
+  );
+}
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => null);
+// A dropped file can have an empty MIME type (the form accepts it by its
+// .pdf extension). FormData would then send it as application/octet-stream.
+// The backend still checks the %PDF- signature.
+export function withPdfType(file: File): File {
+  return file.type ? file : new File([file], file.name, { type: "application/pdf" });
+}
 
-    throw new Error(error?.detail ?? `Request failed (${res.status})`);
-  }
-  return res.json();
+// Stores the PDF on the draft `billId`, replacing any PDF stored there before.
+export function uploadInvoicePdf(file: File, billId: string): Promise<DocumentUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", withPdfType(file));
+
+  return apiRequest<DocumentUploadResponse>(
+    `/bills/${billId}/document`,
+    { method: "POST", body: formData },
+    { signedOut: "You must be signed in to upload a PDF.", failed: "Upload failed" },
+  );
+}
+
+// Reads the bill with AI and returns the values for the form to pre-fill.
+// Nothing is saved. Takes 3-10 s, up to 90 s; `signal` stops waiting for it.
+export function extractBill(file: File, signal?: AbortSignal): Promise<ExtractionResult> {
+  const formData = new FormData();
+  formData.append("file", withPdfType(file));
+
+  return apiRequest<ExtractionResult>(
+    "/bills/extract",
+    { method: "POST", body: formData, signal },
+    { signedOut: "You must be signed in to read an invoice.", failed: "Couldn't read the invoice" },
+  );
+}
+
+function sendDraft(
+  method: "POST" | "PATCH",
+  path: string,
+  payload: BillDraftPayload,
+): Promise<BillDraftResponse> {
+  return apiRequest<BillDraftResponse>(
+    path,
+    {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    { signedOut: "You must be signed in to save a draft.", failed: "Unable to save draft" },
+  );
+}
+
+export function saveBillDraft(payload: BillDraftPayload): Promise<BillDraftResponse> {
+  return sendDraft("POST", "/bills/drafts", payload);
+}
+
+export function updateBillDraft(
+  billId: string,
+  payload: BillDraftPayload,
+): Promise<BillDraftResponse> {
+  return sendDraft("PATCH", `/bills/${billId}/draft`, payload);
+}
+
+export function getDashboardBills(): Promise<DashboardBill[]> {
+  return apiRequest<DashboardBill[]>(
+    "/bills/dashboard",
+    { method: "GET", cache: "no-store" },
+    { signedOut: "You must be signed in to view invoices.", failed: "Unable to load invoices" },
+  );
+}
+
+export function getBillDraft(billId: string): Promise<BillDraftDetail> {
+  return apiRequest<BillDraftDetail>(
+    `/bills/${billId}/draft`,
+    { method: "GET", cache: "no-store" },
+    { signedOut: "You must be signed in to view a draft.", failed: "Unable to load draft" },
+  );
 }
