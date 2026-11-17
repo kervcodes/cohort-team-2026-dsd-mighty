@@ -763,7 +763,7 @@ class FakeSupabase:
         p_comments: str | None = None,
     ) -> dict[str, Any]:
         if p_decision not in {"approve", "reject"}:
-            raise _sql_error("Invalid approval p_decision.", "22023")
+            raise _sql_error("Invalid approval decision.", "22023")
 
         p_comments = p_comments.strip() if p_comments else None
 
