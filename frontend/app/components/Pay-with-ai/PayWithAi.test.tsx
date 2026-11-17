@@ -395,7 +395,10 @@ describe("polling a run", () => {
     await advance(2000);
 
     const region = liveRegion();
-    expect(within(region).getByText(`Needs a person: ${reason}`)).toBeInTheDocument();
+    expect(within(region).getByText("Needs a person")).toBeInTheDocument();
+    // The reason once in the panel and once as the flag step, never glued to the title.
+    expect(within(region).getAllByText(reason)).toHaveLength(2);
+    expect(within(region).queryByText(/Needs a person:/)).not.toBeInTheDocument();
     const steps = within(region).getByRole("list", { name: "Steps" });
     expect(within(steps).getAllByRole("listitem")).toHaveLength(3);
     expect(within(steps).getByText("Signed in to https://portal.example.com.")).toBeVisible();
@@ -520,6 +523,8 @@ describe("on load", () => {
     renderPay();
 
     const toggle = await screen.findByText("Show steps (3)");
+    // The open state's label; CSS shows one of the two depending on the disclosure.
+    expect(toggle.closest("summary")).toHaveTextContent("Hide steps");
     expect(screen.getByText("Signed in to https://portal.example.com.")).not.toBeVisible();
     await user().click(toggle);
     expect(screen.getByText("Signed in to https://portal.example.com.")).toBeVisible();

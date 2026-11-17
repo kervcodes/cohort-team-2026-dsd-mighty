@@ -40,7 +40,7 @@ const COPY = {
   paidHint: "Claude paid this bill on the vendor's portal.",
   failedTitle: "The portal declined the payment",
   failedHint: "Nothing was paid and the bill stays approved.",
-  flaggedTitle: (reason: string) => `Needs a person: ${reason}`,
+  flaggedTitle: "Needs a person",
   flaggedHint: "Claude stopped. Read the steps before trying again.",
   confirmationNumber: "Confirmation number",
   amount: "Amount",
@@ -48,6 +48,7 @@ const COPY = {
   portalReference: (reference: string) => `Portal reference: ${reference}`,
   steps: "Steps",
   showSteps: (count: number) => `Show steps (${count})`,
+  hideSteps: "Hide steps",
   noSteps: "No steps yet.",
   started: (when: string, who: string | null) =>
     who ? `Started ${when} by ${who}` : `Started ${when}`,
@@ -317,8 +318,9 @@ function LatestRun({
           <Banner
             tone="warning"
             icon={<TriangleAlert aria-hidden className={`${iconClass} text-due-soon`} />}
-            title={COPY.flaggedTitle(run.flag_reason ?? EMPTY_VALUE)}
+            title={COPY.flaggedTitle}
           >
+            <p className="font-medium wrap-anywhere">{run.flag_reason ?? EMPTY_VALUE}</p>
             <p>{COPY.flaggedHint}</p>
           </Banner>
           {meta}
@@ -363,7 +365,8 @@ function CollapsedSteps({ steps }: { steps: PaymentRunStep[] }) {
     <details className="group">
       <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded text-sm font-medium text-primary hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <ChevronRight aria-hidden className="size-4 transition-transform group-open:rotate-90" />
-        {COPY.showSteps(steps.length)}
+        <span className="group-open:hidden">{COPY.showSteps(steps.length)}</span>
+        <span className="hidden group-open:inline">{COPY.hideSteps}</span>
       </summary>
       <div className="pt-3">
         <StepList steps={steps} />
@@ -411,7 +414,7 @@ function EarlierRuns({
               <div className="space-y-3 px-3 pt-1 pb-3 sm:pl-10">
                 {run.flag_reason && (
                   <p className="text-sm font-medium text-foreground wrap-anywhere">
-                    {COPY.flaggedTitle(run.flag_reason)}
+                    {run.flag_reason}
                   </p>
                 )}
                 <StepList steps={run.steps} />
