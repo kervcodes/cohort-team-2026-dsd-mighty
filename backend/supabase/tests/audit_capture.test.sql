@@ -312,12 +312,12 @@ select results_eq(
 );
 
 insert into public.payments (
-    payment_id, bill_id, payment_method, amount, attempt_number
+    payment_id, bill_id, payment_method, amount, attempt_number, recorded_by
 )
 values (
     '60000000-0000-4000-8000-000000000001',
     '10000000-0000-4000-8000-000000000001',
-    'ach', 250.00, 1
+    'ach', 250.00, 1, '00000000-0000-4000-8000-0000000000c1'
 );
 update public.payments set payment_status = 'failed', failure_reason = 'insufficient funds'
 where payment_id = '60000000-0000-4000-8000-000000000001';
