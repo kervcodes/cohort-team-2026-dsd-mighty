@@ -19,6 +19,7 @@ let mockPathname = "/invoices/new";
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push, bfcacheId: "_b_0_" }),
   usePathname: () => mockPathname,
+  useParams: () => ({}),
 }));
 
 jest.mock("@/lib/api/bills", () => ({

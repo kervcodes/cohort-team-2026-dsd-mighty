@@ -160,6 +160,9 @@ function mapBillToFormValues(bill: Bill): InvoiceFormValues {
     propertyAddress: bill.property_address ?? "",
     accountStatus: bill.account_status ?? "",
     websiteName: bill.website_name ?? "",
+    // As for a draft: only the analyst's own pick is sent back; the server
+    // matches the account number again on resubmit.
+    vendorAccountId: bill.vendor_account_picked ? (bill.vendor_account_id ?? "") : "",
   };
 }
 
