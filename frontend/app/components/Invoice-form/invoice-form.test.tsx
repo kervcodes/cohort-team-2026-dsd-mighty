@@ -34,8 +34,6 @@ const mockHandleCreate = jest.fn();
 const mockReadInvoice = jest.fn();
 const mockResetReader = jest.fn();
 const mockClearFieldNote = jest.fn();
-const mockOnDraftCreated = jest.fn();
-const mockSetSubmitError = jest.fn();
 
 const mockRouter = {
   push: mockPush,
@@ -231,7 +229,6 @@ describe("PDF selection", () => {
   });
 
   it("rejects a file that is not a PDF", async () => {
-    const user = userEvent.setup();
     const file = new File(["image"], "invoice.png", {
       type: "image/png",
     });
