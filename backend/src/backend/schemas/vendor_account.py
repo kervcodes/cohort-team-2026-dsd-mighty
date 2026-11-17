@@ -76,3 +76,14 @@ class VendorAccountRead(VendorAccountBase):
     status: ActiveStatus
     portal_password_set: bool
     created_at: datetime
+
+
+class VendorAccountOption(BaseModel):
+    """An active vendor account as the bill form lists it (GET /vendor-accounts)."""
+
+    id: UUID
+    account_number: str
+    vendor_id: UUID
+    vendor_name: str
+    property_id: UUID
+    property_name: str

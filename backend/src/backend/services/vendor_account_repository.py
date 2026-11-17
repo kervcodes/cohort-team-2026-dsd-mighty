@@ -26,6 +26,14 @@ COLUMNS = (
     "status,created_at"
 )
 
+# A vendor account as the bill form lists it: the vendor's name and the
+# property's name come embedded through the account's foreign keys.
+OPTION_COLUMNS = (
+    "account_id,account_number,vendor_id,property_id,"
+    "vendor:vendors!vendor_id(vendor_name),"
+    "property:properties!property_id(property_name)"
+)
+
 UNIQUE_VIOLATION = "23505"
 FOREIGN_KEY_VIOLATION = "23503"
 
@@ -103,6 +111,33 @@ def list_accounts_for_vendor(client: Client, vendor_id: UUID) -> list[dict[str, 
     )
 
     return [_to_api(row) for row in response.data or []]
+
+
+def list_active_account_options(client: Client) -> list[dict[str, Any]]:
+    """Every active account with its vendor's and property's names, by vendor
+    name, then account number."""
+    response = (
+        client.table("vendor_accounts")
+        .select(OPTION_COLUMNS)
+        .eq("status", "active")
+        .execute()
+    )
+    options = [
+        {
+            "id": row["account_id"],
+            "account_number": row["account_number"],
+            "vendor_id": row["vendor_id"],
+            "vendor_name": row["vendor"]["vendor_name"],
+            "property_id": row["property_id"],
+            "property_name": row["property"]["property_name"],
+        }
+        for row in response.data or []
+    ]
+    # Sorted here, ignoring case, so "acme" and "Acme" sort together.
+    return sorted(
+        options,
+        key=lambda option: (option["vendor_name"].casefold(), option["account_number"]),
+    )
 
 
 def create_account(client: Client, account: VendorAccountCreate) -> dict[str, Any]:

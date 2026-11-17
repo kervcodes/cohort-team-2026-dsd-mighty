@@ -44,6 +44,8 @@ function bill(overrides: Partial<DashboardBill> = {}): DashboardBill {
     invoice_number: "INV-1",
     property_address: "1 Main St",
     vendor_name_raw: "Acme Power",
+    vendor_name: null,
+    property_name: null,
     invoice_date: "2026-11-01",
     due_date: "2026-11-20",
     amount: 100,
@@ -202,6 +204,32 @@ describe("Dashboard", () => {
         dueDate: null,
         amount: 12,
         status: "approved",
+      });
+    });
+
+    it("names a matched bill's vendor and property, and an unmatched one's raw values", async () => {
+      await renderLoaded([
+        bill({
+          bill_id: "matched",
+          vendor_name_raw: "ALDER CREEK LNDSCP",
+          property_address: "125 Industrial Way, Springfield, IL 62701",
+          vendor_name: "Alder Creek Landscaping",
+          property_name: "Industrial Park",
+        }),
+        bill({ bill_id: "unmatched" }),
+      ]);
+
+      const [matched, unmatched] = tableInvoices(HISTORY_TABLE);
+      expect(matched).toMatchObject({
+        vendor: "Alder Creek Landscaping",
+        property: "Industrial Park",
+        // The company is the name printed on the bill.
+        company: "ALDER CREEK LNDSCP",
+      });
+      expect(unmatched).toMatchObject({
+        vendor: "Acme Power",
+        property: "1 Main St",
+        company: "Acme Power",
       });
     });
   });
