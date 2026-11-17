@@ -112,11 +112,11 @@ export default function PayWithAi({ billId, billStatus, onPaid }: Props) {
   return (
     <section
       aria-labelledby={headingId}
-      className="rounded-xl border border-border bg-surface p-4 shadow-sm sm:p-6"
+      className="rounded-xl border border-border bg-surface p-6 shadow-sm"
     >
-      <h2 id={headingId} className="text-lg font-semibold text-foreground">
+      <h3 id={headingId} className="text-lg font-semibold text-foreground">
         {COPY.heading}
-      </h2>
+      </h3>
 
       {loadError ? (
         <div role="alert" className="mt-4 flex flex-col items-start gap-3">
@@ -284,7 +284,7 @@ function LatestRun({
             title={COPY.paidTitle}
           >
             <p>{COPY.paidHint}</p>
-            <dl className="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-3">
+            <dl className="flex flex-col gap-3 pt-2 sm:flex-row sm:flex-wrap sm:gap-x-8">
               <Fact label={COPY.confirmationNumber}>
                 {run.receipt?.confirmation_number ?? EMPTY_VALUE}
               </Fact>

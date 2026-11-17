@@ -1,9 +1,8 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@/auth/AuthProvider";
 import Button from "@/components/Button";
-import { DataTable, type DataTableColumn } from "@/components/DataTable/DataTable";
 import { StatusBadge } from "@/components/Status-Badge/status-badge";
 import { ApiError } from "@/lib/api/http";
 import { listPayments, recordPayment } from "@/lib/api/payments";
@@ -14,20 +13,16 @@ import type { Payment, PaymentCreatePayload, PaymentStatus } from "@/types/payme
 import { MarkAsPaidDialog } from "./MarkAsPaidDialog";
 
 const COPY = {
-  title: "Payments",
+  title: "Payment history",
   markAsPaid: "Mark as paid",
+  explainer: "Paid outside the app? Record the payment here.",
   paidOn: (day: string) => `Paid on ${day}`,
   history: "Payment history",
-  loading: "Loading payments...",
-  empty: "No payments yet.",
   loadFailed: "Unable to load payments.",
   saveFailed: "Unable to save the payment. Try again.",
-  notSet: "-",
-  date: "Date",
-  method: "Method",
-  reference: "Reference",
-  amount: "Amount",
-  result: "Result",
+  tryAgain: "Try again",
+  reference: (reference: string) => `Reference ${reference}`,
+  separator: "\u00b7",
 };
 
 const RESULTS: Record<PaymentStatus, { label: string; className: string }> = {
@@ -36,44 +31,37 @@ const RESULTS: Record<PaymentStatus, { label: string; className: string }> = {
   pending: { label: "Pending", className: "bg-pending-bg text-pending" },
 };
 
-// Short values stay on one line; the table scrolls sideways in its card on a phone.
-const oneLine = (value: string) => <span className="whitespace-nowrap">{value}</span>;
+// One attempt: the amount and its result, then when, how and the reference,
+// and why it failed. A list, not a table, so it fits half the page.
+function PaymentItem({ payment }: { payment: Payment }) {
+  const result = RESULTS[payment.payment_status];
+  const details = [
+    payment.paid_on ? formatDay(payment.paid_on) : null,
+    paymentMethodLabels[payment.payment_method],
+    payment.reference ? COPY.reference(payment.reference) : null,
+  ].filter((detail) => detail !== null);
 
-const columns: DataTableColumn<Payment>[] = [
-  {
-    header: COPY.date,
-    cell: (payment) => oneLine(payment.paid_on ? formatDay(payment.paid_on) : COPY.notSet),
-  },
-  { header: COPY.method, cell: (payment) => oneLine(paymentMethodLabels[payment.payment_method]) },
-  { header: COPY.reference, cell: (payment) => oneLine(payment.reference ?? COPY.notSet) },
-  {
-    header: COPY.amount,
-    align: "right",
-    cell: (payment) => (
-      <span className="whitespace-nowrap tabular-nums">{formatUsd(payment.amount)}</span>
-    ),
-  },
-  {
-    header: COPY.result,
-    cell: (payment) => {
-      const result = RESULTS[payment.payment_status];
-      return (
-        <div className="space-y-1">
-          <span
-            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${result.className}`}
-          >
-            {result.label}
-          </span>
-          {payment.failure_reason && (
-            <p className="max-w-xs break-words text-xs text-foreground-muted">
-              {payment.failure_reason}
-            </p>
-          )}
+  return (
+    <li className="px-3 py-2.5 text-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold tabular-nums text-foreground">{formatUsd(payment.amount)}</p>
+          <p className="text-foreground-muted wrap-anywhere">
+            {details.join(` ${COPY.separator} `)}
+          </p>
         </div>
-      );
-    },
-  },
-];
+        <span
+          className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${result.className}`}
+        >
+          {result.label}
+        </span>
+      </div>
+      {payment.failure_reason && (
+        <p className="mt-1 text-foreground wrap-anywhere">{payment.failure_reason}</p>
+      )}
+    </li>
+  );
+}
 
 type Props = {
   billId: string;
@@ -117,7 +105,7 @@ export function BillPayments({ billId, billAmount, billStatus, onPaid }: Props) 
   const isPaid = billStatus === "paid" || completed !== null;
   const canPay = canRecord && billStatus === "approved" && !isPaid && conflict === null;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `reload` re-runs the load
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `reload` re-runs the load, and so does a new `billStatus` (a bill paid elsewhere, such as by Pay with AI, has a payment to show)
   useEffect(() => {
     let cancelled = false;
     listPayments(billId)
@@ -132,7 +120,7 @@ export function BillPayments({ billId, billAmount, billStatus, onPaid }: Props) 
     return () => {
       cancelled = true;
     };
-  }, [billId, reload]);
+  }, [billId, billStatus, reload]);
 
   // Tell the page once per completed payment, however it was found.
   const notifiedPaymentId = useRef<string | null>(null);
@@ -191,43 +179,64 @@ export function BillPayments({ billId, billAmount, billStatus, onPaid }: Props) 
     return null;
   }
 
-  let action: ReactNode = null;
-  if (isPaid) {
-    action = (
-      <p
-        ref={paidRef}
-        tabIndex={-1}
-        className="flex items-center gap-2 rounded text-sm text-foreground-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <StatusBadge status="paid" />
-        {completed?.paid_on && <span>{COPY.paidOn(formatDay(completed.paid_on))}</span>}
-      </p>
-    );
-  } else if (canPay) {
-    action = <Button label={COPY.markAsPaid} onClick={() => setDialogOpen(true)} />;
-  }
-
   return (
-    <section aria-labelledby={headingId} className="space-y-3">
-      <div className="flex min-h-9 flex-wrap items-center justify-between gap-3">
-        <h2 id={headingId} className="text-lg font-semibold text-foreground">
+    <section
+      aria-labelledby={headingId}
+      className="rounded-xl border border-border bg-surface p-6 shadow-sm"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <h3 id={headingId} className="text-lg font-semibold text-foreground">
           {COPY.title}
-        </h2>
-        {action}
+        </h3>
+        {isPaid && (
+          <p
+            ref={paidRef}
+            tabIndex={-1}
+            className="flex items-center gap-2 rounded text-sm text-foreground-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <StatusBadge status="paid" />
+            {completed?.paid_on && <span>{COPY.paidOn(formatDay(completed.paid_on))}</span>}
+          </p>
+        )}
       </div>
 
-      {conflict && !isPaid && <p className="text-sm text-foreground-muted">{conflict}</p>}
+      {conflict && !isPaid && <p className="mt-4 text-sm text-foreground-muted">{conflict}</p>}
 
-      {(hasHistory || showLoadError) && (
-        <DataTable
-          label={COPY.history}
-          columns={columns}
-          rows={payments ?? []}
-          getRowKey={(payment) => payment.id}
-          emptyMessage={COPY.empty}
-          error={showLoadError ? loadError : null}
-          onRetry={() => setReload((n) => n + 1)}
-        />
+      {showLoadError && (
+        <div role="alert" className="mt-4 flex flex-col items-start gap-3">
+          <p className="text-sm text-overdue">{loadError}</p>
+          <Button
+            label={COPY.tryAgain}
+            variant="secondary"
+            onClick={() => setReload((n) => n + 1)}
+          />
+        </div>
+      )}
+
+      {hasHistory && (
+        <ul
+          aria-label={COPY.history}
+          className="mt-4 divide-y divide-border rounded-lg border border-border"
+        >
+          {payments.map((payment) => (
+            <PaymentItem key={payment.id} payment={payment} />
+          ))}
+        </ul>
+      )}
+
+      {canPay && (
+        <div
+          className={`mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6 ${
+            hasHistory || showLoadError ? "border-t border-border pt-4" : ""
+          }`}
+        >
+          <p className="text-sm text-foreground-muted">{COPY.explainer}</p>
+          <Button
+            label={COPY.markAsPaid}
+            onClick={() => setDialogOpen(true)}
+            className="w-full shrink-0 sm:w-auto"
+          />
+        </div>
       )}
 
       {dialogOpen && (

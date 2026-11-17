@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useAuth } from "@/auth/AuthProvider";
 import { StatusBadge } from "@/components/Status-Badge/status-badge";
@@ -10,9 +10,10 @@ import { decideApproval, getApprovals } from "@/lib/api/approvals";
 import { getBill, getBillDocument } from "@/lib/api/bills";
 import type { Approval, ApprovalDecisionType } from "@/types/approval";
 import type { Bill } from "@/types/bill";
+import { PaymentSection } from "./PaymentSection";
 
 function formatDate(date: string | null) {
-  if (!date) return "—";
+  if (!date) return "-";
 
   return new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
     month: "short",
@@ -120,6 +121,17 @@ export default function InvoiceDetail() {
     return () => {
       cancelled = true;
     };
+  }, [invoiceId]);
+
+  // Re-read the bill in place once a payment panel finds it paid, so the
+  // status badge and the approval area follow. A failed re-read keeps the
+  // bill on screen; the panel already shows it paid.
+  const reloadBill = useCallback(() => {
+    getBill(invoiceId)
+      .then((result) => setBill((current) => (current?.id === result.id ? result : current)))
+      .catch(() => {
+        // Nothing to do: the next visit reads the bill again.
+      });
   }, [invoiceId]);
 
   useEffect(() => {
@@ -271,12 +283,12 @@ export default function InvoiceDetail() {
         <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <p className="text-sm text-foreground-muted">Vendor</p>
-            <p className="font-medium">{bill.vendor_name_raw ?? "—"}</p>
+            <p className="font-medium">{bill.vendor_name_raw ?? "-"}</p>
           </div>
 
           <div>
             <p className="text-sm text-foreground-muted">Property</p>
-            <p className="font-medium">{bill.property_address ?? "—"}</p>
+            <p className="font-medium">{bill.property_address ?? "-"}</p>
           </div>
 
           <div>
@@ -528,6 +540,8 @@ export default function InvoiceDetail() {
           />
         )}
       </section>
+
+      <PaymentSection bill={bill} onPaid={reloadBill} />
     </main>
   );
 }

@@ -95,7 +95,7 @@ describe("who can mark a bill as paid", () => {
     mockListPayments.mockResolvedValue([failedAttempt]);
     renderPayments();
 
-    expect(await screen.findByRole("table", { name: "Payment history" })).toBeInTheDocument();
+    expect(await screen.findByRole("list", { name: "Payment history" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mark as paid" })).not.toBeInTheDocument();
   });
 
@@ -124,11 +124,13 @@ describe("payment history", () => {
     mockListPayments.mockResolvedValue([payment(), failedAttempt]);
     renderPayments({ billStatus: "paid" });
 
-    const table = await screen.findByRole("table", { name: "Payment history" });
-    const rows = within(table).getAllByRole("row").slice(1);
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveTextContent("Nov 14, 2026ACHCONF-1$1,250.00Completed");
-    expect(rows[1]).toHaveTextContent("Nov 10, 2026Check-$1,250.00FailedBank returned it");
+    const list = await screen.findByRole("list", { name: "Payment history" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent(
+      "$1,250.00Nov 14, 2026 \u00b7 ACH \u00b7 Reference CONF-1Completed",
+    );
+    expect(items[1]).toHaveTextContent("$1,250.00Nov 10, 2026 \u00b7 CheckFailedBank returned it");
   });
 
   it("shows a paid bill as paid, with the date it was paid", async () => {
@@ -138,6 +140,18 @@ describe("payment history", () => {
     expect(await screen.findByText("Paid on Nov 14, 2026")).toBeInTheDocument();
     expect(screen.getByText("paid")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mark as paid" })).not.toBeInTheDocument();
+  });
+
+  it("reads the history again when the bill is paid elsewhere, such as by Pay with AI", async () => {
+    const { rerender } = renderPayments();
+    await waitFor(() => expect(mockListPayments).toHaveBeenCalledTimes(1));
+    mockListPayments.mockResolvedValue([payment()]);
+
+    rerender(<BillPayments billId="bill-1" billAmount="1250.00" billStatus="paid" />);
+
+    expect(await screen.findByText("Paid on Nov 14, 2026")).toBeInTheDocument();
+    expect(mockListPayments).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("list", { name: "Payment history" })).toHaveTextContent("Completed");
   });
 
   it("offers a retry when the history can't be loaded", async () => {
@@ -208,7 +222,7 @@ describe("the mark as paid dialog", () => {
     expect(onPaid).toHaveBeenCalledTimes(1);
     expect(onPaid).toHaveBeenCalledWith(recorded);
     await waitFor(() => expect(mockListPayments).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("table", { name: "Payment history" })).toHaveTextContent("Completed");
+    expect(screen.getByRole("list", { name: "Payment history" })).toHaveTextContent("Completed");
   });
 
   it("records a failed attempt with its reason and leaves the bill payable", async () => {
@@ -241,7 +255,7 @@ describe("the mark as paid dialog", () => {
       failure_reason: "Card declined",
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "Payment history" })).toHaveTextContent(
+    expect(screen.getByRole("list", { name: "Payment history" })).toHaveTextContent(
       "FailedCard declined",
     );
     expect(markAsPaidButton()).toHaveFocus();
