@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { Activity, useSyncExternalStore } from "react";
 import {
   extractBill,
+  getBill,
   getBillDraft,
+  resubmitBill,
   saveBillDraft,
   submitBill,
   updateBillDraft,
@@ -115,7 +117,9 @@ function RoutedForm() {
 // createBill, which makes a second bill) fails the test.
 jest.mock("@/lib/api/bills", () => ({
   extractBill: jest.fn(),
+  getBill: jest.fn(),
   getBillDraft: jest.fn(),
+  resubmitBill: jest.fn(),
   saveBillDraft: jest.fn(),
   submitBill: jest.fn(),
   updateBillDraft: jest.fn(),
@@ -132,6 +136,8 @@ const mockUploadInvoicePdf = uploadInvoicePdf as jest.MockedFunction<typeof uplo
 const mockSubmitBill = submitBill as jest.MockedFunction<typeof submitBill>;
 
 const mockGetBillDraft = getBillDraft as jest.MockedFunction<typeof getBillDraft>;
+const mockGetBill = getBill as jest.MockedFunction<typeof getBill>;
+const mockResubmitBill = resubmitBill as jest.MockedFunction<typeof resubmitBill>;
 const mockExtractBill = extractBill as jest.MockedFunction<typeof extractBill>;
 
 function read(value: string | null, confidence: Confidence = "high"): Extracted {
@@ -1729,6 +1735,60 @@ describe("InvoiceForm", () => {
       await screen.findByText(/Filled 7 fields/);
 
       expect(screen.getByLabelText("Account / Customer #")).toHaveValue("DRAFT-ACC");
+    });
+  });
+
+  describe("Resubmitting a rejected bill", () => {
+    beforeEach(() => {
+      mockRouter = { ...mockRouter, pathname: "/invoices/bill-1/resubmit" };
+      mockGetBill.mockReset().mockResolvedValue({
+        id: "bill-1",
+        account_number_raw: "ACC-100",
+        vendor_name_raw: "City Power",
+        invoice_number: "INV-2001",
+        invoice_date: "2026-10-01",
+        due_date: "2026-10-31",
+        amount: "250.00",
+        prev_payments: null,
+        description: "Electricity",
+        processing_notes: null,
+        property_address: "12 Elm St",
+        account_status: null,
+        website_name: null,
+        vendor_account_id: null,
+        submitted_by: { id: "u-1", full_name: "Analyst" },
+        status: "rejected",
+        exception_reason: null,
+        document_path: "bill-1/invoice.pdf",
+        created_at: "2026-10-02T00:00:00Z",
+      });
+      mockResubmitBill.mockReset().mockResolvedValue({ id: "bill-1" } as Bill);
+      mockUploadInvoicePdf.mockReset();
+    });
+
+    it("offers no PDF picker and says the existing PDF is kept", async () => {
+      const { container } = render(<InvoiceForm isResubmission />);
+      await screen.findByDisplayValue("ACC-100");
+
+      expect(screen.queryByText("Upload / import invoice (PDF)")).not.toBeInTheDocument();
+      expect(container.querySelector('input[type="file"]')).toBeNull();
+      expect(
+        screen.getByText("The existing invoice PDF will be retained when you resubmit this bill."),
+      ).toBeInTheDocument();
+    });
+
+    it("resubmits the fields only, without uploading or reading a PDF", async () => {
+      const user = userEvent.setup();
+      render(<InvoiceForm isResubmission />);
+      await screen.findByDisplayValue("ACC-100");
+
+      await user.click(screen.getByRole("button", { name: "Resubmit Invoice" }));
+
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+      expect(mockResubmitBill).toHaveBeenCalledTimes(1);
+      expect(mockResubmitBill.mock.calls[0][0]).toBe("bill-1");
+      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
+      expect(mockExtractBill).not.toHaveBeenCalled();
     });
   });
 });
