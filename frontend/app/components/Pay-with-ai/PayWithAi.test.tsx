@@ -38,6 +38,7 @@ function run(overrides: Partial<PaymentRun> = {}): PaymentRun {
     id: "run-1",
     bill_id: "bill-1",
     started_by: "user-pat",
+    started_by_name: "Pat Lee",
     status: "queued",
     steps: [QUEUED_STEP],
     flag_reason: null,
@@ -487,12 +488,20 @@ describe("on load", () => {
     expect(onPaid).toHaveBeenCalledTimes(1);
   });
 
-  it("names who started the latest run from its queued step", async () => {
-    mockList.mockResolvedValue([run()]);
+  it("names who started the latest run from their account, not the step text", async () => {
+    mockList.mockResolvedValue([run({ steps: [step("queued", "Queued by Someone Else.")] })]);
     mockGet.mockReturnValue(new Promise(() => {}));
     renderPay();
 
     expect(await screen.findByText(/^Started .* by Pat Lee$/)).toBeInTheDocument();
+  });
+
+  it("leaves the name out when the run has none", async () => {
+    mockList.mockResolvedValue([run({ started_by_name: null })]);
+    mockGet.mockReturnValue(new Promise(() => {}));
+    renderPay();
+
+    expect(await screen.findByText(/^Started /)).not.toHaveTextContent(/ by /);
   });
 
   it("does not call onPaid for a run that was already paid", async () => {

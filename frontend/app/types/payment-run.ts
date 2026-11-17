@@ -32,6 +32,9 @@ export type PaymentRun = {
   id: string;
   bill_id: string;
   started_by: string;
+  // The starter's full name, from their account. The API always sends it;
+  // null only if that account were gone.
+  started_by_name: string | null;
   status: PaymentRunStatus;
   steps: PaymentRunStep[];
   // Set exactly when the run is flagged.

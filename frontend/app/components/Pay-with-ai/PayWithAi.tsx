@@ -61,9 +61,6 @@ const COPY = {
 // The roles the backend lets start a run (PAYMENT_WRITERS).
 const PAYERS = new Set(["approver", "admin"]);
 
-// The first step of every run reads "Queued by <full name>."
-const QUEUED_BY = /^Queued by (.+)\.$/;
-
 type Props = {
   billId: string;
   billStatus: BillStatus;
@@ -107,9 +104,7 @@ export default function PayWithAi({ billId, billStatus, onPaid }: Props) {
   }
 
   const startedBy = (run: PaymentRun) =>
-    run.started_by === profile?.id
-      ? COPY.you
-      : (run.steps[0]?.detail.match(QUEUED_BY)?.[1] ?? null);
+    run.started_by === profile?.id ? COPY.you : run.started_by_name;
 
   // Set apart from a run shown above it, so it reads as the next action.
   const actionSpacing = latest ? "mt-4 border-t border-border pt-4" : "mt-4";
