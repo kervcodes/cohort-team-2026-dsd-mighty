@@ -5,7 +5,7 @@
 
 begin;
 
-select plan(9);
+select plan(8);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values (
@@ -113,11 +113,17 @@ select results_eq(
 
 -- 3. resubmit_bill_with_approval
 
-insert into public.bills (bill_id, submitted_by, status)
+-- A non-draft bill must carry the required invoice fields
+-- (bills_required_unless_draft).
+insert into public.bills (
+    bill_id, submitted_by, status,
+    account_number_raw, invoice_number, invoice_date, due_date, amount
+)
 values (
     '00000000-0000-4000-8000-0000000000e2',
     '00000000-0000-4000-8000-0000000000d1',
-    'rejected'
+    'rejected',
+    'ACC-1', 'INV-REJECTED', '2026-11-01', '2026-11-30', 100.00
 );
 
 select lives_ok(
