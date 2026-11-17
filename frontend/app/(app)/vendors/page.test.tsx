@@ -118,6 +118,17 @@ describe("VendorsPage", () => {
     expect(within(zeta as HTMLElement).getAllByText("—")).toHaveLength(3);
   });
 
+  it("links each vendor name to its detail page", async () => {
+    signInAs("analyst");
+    mockListVendors.mockResolvedValue([vendor()]);
+    render(<VendorsPage />);
+
+    expect(await screen.findByRole("link", { name: "Acme Water" })).toHaveAttribute(
+      "href",
+      "/vendors/vendor-1",
+    );
+  });
+
   it("tells admins how to add the first vendor when the list is empty", async () => {
     signInAs("admin");
     render(<VendorsPage />);

@@ -15,6 +15,8 @@ export type DataTableColumn<T> = {
   header: string;
   cell: (row: T) => ReactNode;
   align?: "left" | "right";
+  // Extra classes for this column's cells, such as "whitespace-nowrap".
+  className?: string;
 };
 
 export type DataTableProps<T> = {
@@ -30,6 +32,9 @@ export type DataTableProps<T> = {
   error?: string | null;
   onRetry?: () => void;
   pageSize?: number;
+  // Tighter gaps between columns (24px instead of 48px) for tables with many
+  // columns. The first and last cells keep their 24px from the card's edge.
+  compact?: boolean;
 };
 
 const pageButton =
@@ -63,11 +68,14 @@ export function DataTable<T>({
   error = null,
   onRetry,
   pageSize = 10,
+  compact = false,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pageRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const padX = compact ? "px-3 first:pl-6 last:pr-6" : "px-6";
 
   const alignClass = (column: DataTableColumn<T>) =>
     column.align === "right" ? "text-right" : "text-left";
@@ -98,7 +106,7 @@ export function DataTable<T>({
                 <th
                   key={column.header}
                   scope="col"
-                  className={`px-6 py-3 font-medium ${alignClass(column)}`}
+                  className={`whitespace-nowrap ${padX} py-3 font-medium ${alignClass(column)}`}
                 >
                   {column.header}
                 </th>
@@ -123,7 +131,10 @@ export function DataTable<T>({
                   className="text-foreground transition-colors hover:bg-surface-muted"
                 >
                   {columns.map((column) => (
-                    <td key={column.header} className={`px-6 py-4 ${alignClass(column)}`}>
+                    <td
+                      key={column.header}
+                      className={`${padX} py-4 ${alignClass(column)} ${column.className ?? ""}`}
+                    >
                       {column.cell(row)}
                     </td>
                   ))}

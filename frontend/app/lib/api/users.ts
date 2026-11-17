@@ -2,16 +2,6 @@ import type { EntityStatus } from "@/types/entity";
 import type { ApiProfile, UserRole } from "@/types/user";
 import { apiRequest } from "./http";
 
-function apiUrl(): string {
-  const url = process.env.NEXT_PUBLIC_API_URL;
-
-  if (!url) {
-    throw new Error("NEXT_PUBLIC_API_URL is missing. Check .env.local");
-  }
-
-  return url;
-}
-
 export type UserUpdatePayload = {
   role?: UserRole;
   status?: EntityStatus;

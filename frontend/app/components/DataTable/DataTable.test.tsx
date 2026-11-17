@@ -42,6 +42,27 @@ describe("DataTable", () => {
     expect(screen.getByRole("cell", { name: "$2" })).toHaveClass("text-right");
   });
 
+  it("keeps headers on one line and adds a column's own cell classes", () => {
+    renderTable({
+      rows: makeRows(1),
+      columns: [
+        { header: "Long header name", cell: (row) => row.name, className: "whitespace-nowrap" },
+      ],
+    });
+
+    expect(screen.getByRole("columnheader", { name: "Long header name" })).toHaveClass(
+      "whitespace-nowrap",
+    );
+    expect(screen.getByRole("cell", { name: "Item 1" })).toHaveClass("whitespace-nowrap");
+  });
+
+  it("narrows the gaps between columns when compact", () => {
+    renderTable({ rows: makeRows(1), compact: true });
+
+    expect(screen.getByRole("cell", { name: "Item 1" })).toHaveClass("px-3", "first:pl-6");
+    expect(screen.getByRole("columnheader", { name: "Name" })).not.toHaveClass("px-6");
+  });
+
   it("shows the empty message when there are no rows", () => {
     renderTable();
 

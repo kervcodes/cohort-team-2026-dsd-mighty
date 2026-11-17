@@ -1,4 +1,6 @@
-"""Every bill and vendor route enforces the role table: who may call it, active only.
+"""Every bill, vendor, vendor account and property route enforces the role table.
+
+Who may call each route, active users only.
 
 The table below is the rule, written out as data. Each case overrides
 `get_current_user` only, so the routes' real `require_active` check runs, and
@@ -45,6 +47,12 @@ ROLE_TABLE = [
     ("POST", "/vendors", {ADMIN}, 201),
     ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
     ("PATCH", "/vendors/{vendor_id}", {ADMIN}, 200),
+    ("GET", "/vendors/{vendor_id}/accounts", {ANALYST, APPROVER, ADMIN}, 200),
+    ("GET", "/vendor-accounts", {ANALYST, APPROVER, ADMIN}, 200),
+    ("POST", "/vendor-accounts", {ADMIN}, 201),
+    ("GET", "/vendor-accounts/{account_id}", {ANALYST, APPROVER, ADMIN}, 200),
+    ("PATCH", "/vendor-accounts/{account_id}", {ADMIN}, 200),
+    ("GET", "/properties", {ANALYST, APPROVER, ADMIN}, 200),
     ("GET", "/admin/users", {ADMIN}, 200),
     ("GET", "/admin/users/{user_id}", {ADMIN}, 200),
     ("PATCH", "/admin/users/{user_id}", {ADMIN}, 200),
@@ -78,6 +86,20 @@ REQUEST_BODY = {
     },
     ("POST", "/vendors"): {"json": {"name": "Acme Water"}},
     ("PATCH", "/vendors/{vendor_id}"): {"json": {"contact_phone": "555-0100"}},
+    # {placeholders} are filled with the ids of the rows the test creates.
+    ("POST", "/vendor-accounts"): {
+        "json": {
+            "property_id": "{property_id}",
+            "vendor_id": "{vendor_id}",
+            "account_number": "ACC-2",
+            "account_type": "water",
+            "payment_method": "ach",
+            "portal_password": "hunter2-portal",
+        }
+    },
+    ("PATCH", "/vendor-accounts/{account_id}"): {
+        "json": {"account_type": "sewer", "portal_password": "hunter2-portal"}
+    },
     ("PATCH", "/admin/users/{user_id}"): {"json": {"role": "approver"}},
 }
 
@@ -108,6 +130,8 @@ def db():
         patch("backend.api.bills.get_admin_supabase", return_value=fake),
         patch("backend.api.bill_documents.get_admin_supabase", return_value=fake),
         patch("backend.api.vendors.get_admin_supabase", return_value=fake),
+        patch("backend.api.vendor_accounts.get_admin_supabase", return_value=fake),
+        patch("backend.api.properties.get_admin_supabase", return_value=fake),
         patch("backend.api.users.get_admin_supabase", return_value=fake),
         patch("backend.api.payments.get_admin_supabase", return_value=fake),
     ):
@@ -138,6 +162,14 @@ def test_route_allows_only_its_active_roles(
 
     bill = db.add_bill(str(user.id), **BILL_FIELDS.get((method, path), {}))
     vendor = db.add_vendor("Acme Water")
+    prop = db.add_property()
+    account = db.add_vendor_account(prop["property_id"], vendor["vendor_id"])
+    ids = {
+        "bill_id": bill["bill_id"],
+        "vendor_id": vendor["vendor_id"],
+        "property_id": prop["property_id"],
+        "account_id": account["account_id"],
+    }
 
     target_user = db.add_user(
         "00000000-0000-0000-0000-000000000001",
@@ -153,14 +185,18 @@ def test_route_allows_only_its_active_roles(
         lambda: user,
     )
 
+    request = REQUEST_BODY.get((method, path), {})
+    if "json" in request:
+        json = {
+            key: value.format(**ids) if isinstance(value, str) else value
+            for key, value in request["json"].items()
+        }
+        request = {**request, "json": json}
+
     response = TestClient(app).request(
         method,
-        path.format(
-            bill_id=bill["bill_id"],
-            vendor_id=vendor["vendor_id"],
-            user_id=target_user["user_id"],
-        ),
-        **REQUEST_BODY.get((method, path), {}),
+        path.format(**ids, user_id=target_user["user_id"]),
+        **request,
     )
 
     assert response.status_code == expected, response.text
@@ -182,11 +218,6 @@ OPEN_ROUTES = {
     # In-memory stubs; DC-43 (approve and reject actions) adds the role check.
     ("GET", "/approvals"),
     ("POST", "/approvals/{approval_id}/decision"),
-    # In-memory stubs, no Supabase; must get a role-table row before they touch
-    # Supabase.
-    ("POST", "/vendor-accounts"),
-    ("GET", "/vendor-accounts/{account_id}"),
-    ("PATCH", "/vendor-accounts/{account_id}"),
 }
 
 
