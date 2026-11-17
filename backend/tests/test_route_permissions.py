@@ -262,14 +262,6 @@ OPEN_ROUTES = {
     # Health check for Render and the team; publishable client only, so RLS
     # applies (test_health.py checks it never uses the admin client).
     ("GET", "/health"),
-    # In-memory stubs; DC-43 (approve and reject actions) adds the role check.
-    # In-memory stubs, no Supabase; must get a role-table row before they touch
-    # Supabase.
-    ("POST", "/vendor-accounts"),
-    ("GET", "/vendor-accounts/{account_id}"),
-    ("PATCH", "/vendor-accounts/{account_id}"),
-    ("GET", "/approvals"),
-    ("POST", "/approvals/{approval_id}/decision"),
 }
 
 
