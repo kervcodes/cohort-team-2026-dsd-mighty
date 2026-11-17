@@ -2,6 +2,8 @@
 matched to a vendor account with a portal login, and a claimed run. Helpers,
 not tests."""
 
+import json
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid4
@@ -20,6 +22,9 @@ APPROVER = str(uuid4())
 ANALYST = str(uuid4())
 BILL_NUMBER = "BILL-1001"
 AMOUNT = "186.42"
+# Passwords whose escaped forms differ from the raw text: in JSON (a quote, a
+# backslash, non-ASCII) and in Python's repr (a backslash).
+AWKWARD_PASSWORDS = ['Pw"q7-s3cret', "Pw\\q7-s3cret", "Pässwörd-q7"]
 
 
 @dataclass
@@ -96,3 +101,53 @@ def agent(
 
 def no_portal(_url: str) -> PortalDriver:
     raise AssertionError("this test must not open the portal")
+
+
+def password_forms(password: str) -> set[str]:
+    """The password as it would read in plain text, in JSON (ASCII-escaped
+    or not) and in a Python repr or ascii()."""
+    return {
+        password,
+        json.dumps(password)[1:-1],
+        json.dumps(password, ensure_ascii=False)[1:-1],
+        repr(password)[1:-1],
+        ascii(password)[1:-1],
+    }
+
+
+def _strings(value: Any) -> Iterator[str]:
+    """Every string in a JSON-like value, and in any string that is itself
+    JSON (a tool result's content)."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield from _strings(key)
+            yield from _strings(item)
+    elif isinstance(value, list | tuple):
+        for item in value:
+            yield from _strings(item)
+    elif isinstance(value, str):
+        yield value
+        try:
+            decoded = json.loads(value)
+        except ValueError:
+            return
+        if not isinstance(decoded, str):
+            yield from _strings(decoded)
+
+
+def assert_password_never_shown(
+    password: str, setup: Setup, model: ScriptedModel, log_text: str
+) -> None:
+    """In no form: not in any model request (tool results included), the
+    run's steps, flag reason or receipt, the payments, or the log."""
+    forms = password_forms(password)
+    seen = {
+        "model request": list(_strings(model.requests)),
+        "run": list(_strings(setup.run)),
+        "payments": list(_strings(setup.payments())),
+        "log": [log_text],
+    }
+    for where, texts in seen.items():
+        for text in texts:
+            for form in forms:
+                assert form not in text, f"the password ({form!r}) is in a {where}"

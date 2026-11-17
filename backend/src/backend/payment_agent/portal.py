@@ -84,9 +84,10 @@ class AccountNotOnPortal(PortalError):
 
 
 class PaymentNotSubmitted(PortalError):
-    """`submit_payment` stopped before pressing the final Submit / Pay button,
-    so nothing reached the portal's payment step. Any other error from
-    `submit_payment` means the payment may have been submitted."""
+    """`submit_payment` stopped before the first click that may submit the
+    payment (the Pay button, or Review payment on a portal with a review
+    screen), so nothing reached the portal's payment step. Any other error
+    from `submit_payment` means the payment may have been submitted."""
 
 
 class PortalDriver(Protocol):
@@ -112,13 +113,17 @@ class PortalDriver(Protocol):
         payment page, Pay button or review screen names a different bill or
         amount than `expected`.
 
-        Raises PaymentNotSubmitted for a refusal or failure before the final
-        Submit / Pay click, and only then: any other error (including one
-        from the click itself) may come after the portal took the payment."""
+        Raises PaymentNotSubmitted for a refusal or failure before the first
+        click that may submit the payment, and only then. That click is the
+        Pay button, or Review payment on a portal with a review screen: a
+        real portal's review button is not guaranteed never to pay. Any
+        other error (including one from that click, the review screen or
+        Submit payment) may come after the portal took the payment."""
         ...
 
     def read_receipt(self) -> PortalReceipt:
-        """Read the receipt the portal showed after submitting."""
+        """Read the receipt the portal shows after submitting. Call it right
+        after `submit_payment`: any navigation leaves the receipt page."""
         ...
 
     def close(self) -> None: ...

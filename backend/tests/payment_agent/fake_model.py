@@ -28,8 +28,7 @@ HAPPY_PATH = [
     tool("load_approved_bill"),
     tool("sign_in"),
     tool("list_portal_bills"),
-    tool("pay", bill_number="BILL-1001"),
-    tool("save_receipt"),
+    tool("pay", bill_number="BILL-1001"),  # pays, records and ends the run
 ]
 
 

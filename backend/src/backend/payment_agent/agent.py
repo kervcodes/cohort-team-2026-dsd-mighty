@@ -6,11 +6,12 @@ per turn) with limits in code: at most `max_model_turns` model calls and
 `time_limit_seconds` of wall clock, checked before every model call and every
 tool call. The run always ends with a status:
 
-- the model calls save_receipt (paid or failed) or flag_for_person, or a
-  tool's check flags the run;
-- otherwise (the model stops, refuses, errors, or a limit is hit) code ends
-  it: if the portal already gave a result, code saves the receipt itself, so
-  a payment that went through is never left unrecorded; else it flags.
+- pay ends it: once the portal may have the payment, pay records the
+  receipt (paid or failed) or flags the run, before the model calls anything
+  else, so a payment that went through is never left unrecorded;
+- the model calls flag_for_person, or a tool's check flags the run;
+- otherwise (the model stops, refuses, errors, or a limit is hit) code flags
+  it.
 """
 
 import logging
@@ -118,18 +119,6 @@ def _loop(
     raise _Stop(f"The run hit its limit of {config.max_model_turns} model turns.")
 
 
-def _finish_unended(tools: PaymentTools, reason: str) -> None:
-    """End a run the loop left open: save a known portal result, else flag."""
-    if tools.outcome is not None and tools.end is None:
-        tools.log.add(
-            "save_receipt",
-            f"{reason} The portal already gave a result, so the receipt is saved now.",
-        )
-        tools.call("save_receipt", {})
-    if tools.end is None:
-        tools.flag(reason)
-
-
 def run_payment(
     run_id: UUID,
     *,
@@ -166,7 +155,7 @@ def run_payment(
             client = model_client or create_model_client()
             _loop(tools, client, config, redactor, lambda: clock() > deadline)
         except _Stop as stop:
-            _finish_unended(tools, str(stop))
+            tools.flag(str(stop))
         except RunTaken:
             raise
         except Exception as error:
@@ -174,9 +163,7 @@ def run_payment(
             # any secret scrubbed out of it.
             details = redactor.scrub("".join(traceback.format_exception(error)))
             logger.error("payment run %s crashed:\n%s", run_id, details)
-            _finish_unended(
-                tools, f"The agent hit an unexpected error ({type(error).__name__})."
-            )
+            tools.flag(f"The agent hit an unexpected error ({type(error).__name__}).")
     except RunTaken:
         logger.warning("payment run %s was ended elsewhere; stopped", run_id)
         return None

@@ -60,6 +60,7 @@ class FakePortal:
     billing: str = "direct"  # direct | statement | center
     review: bool = False
     decline: bool = False  # the portal declines every payment
+    password: str = PASSWORD  # the one login's password
     hang: set[str] = field(default_factory=set)  # API paths that never answer
     company_extra: dict[str, Any] = field(default_factory=dict)
     site: Path = SITE  # the page and scripts served at /
@@ -186,7 +187,9 @@ class FakePortal:
                     return
                 if path == "/api/login":
                     portal.login_attempts += 1
-                    if data.get("email") == EMAIL and data.get("password") == PASSWORD:
+                    if data.get("email") == EMAIL and data.get("password") == (
+                        portal.password
+                    ):
                         self._json(
                             200, {"ok": True}, **{"Set-Cookie": "session=ok; Path=/"}
                         )
