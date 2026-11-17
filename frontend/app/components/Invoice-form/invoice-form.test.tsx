@@ -1807,8 +1807,35 @@ describe("InvoiceForm", () => {
       await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
       expect(mockResubmitBill).toHaveBeenCalledTimes(1);
       expect(mockResubmitBill.mock.calls[0][0]).toBe("bill-1");
+      expect(mockResubmitBill.mock.calls[0][1]).toEqual(
+        expect.objectContaining({
+          account_number_raw: "ACC-100",
+          invoice_number: "INV-2001",
+          amount: "250.00",
+          vendor_account_id: undefined,
+        }),
+      );
       expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
       expect(mockExtractBill).not.toHaveBeenCalled();
+    });
+
+    it("resubmits the vendor account the analyst picked", async () => {
+      const bill = await mockGetBill("bill-1");
+      mockGetBill.mockResolvedValue({
+        ...bill,
+        vendor_account_id: "acct-9",
+        vendor_account_picked: true,
+      });
+      const user = userEvent.setup();
+      render(<InvoiceForm isResubmission />);
+      await screen.findByDisplayValue("ACC-100");
+
+      await user.click(screen.getByRole("button", { name: "Resubmit Invoice" }));
+
+      await waitFor(() => expect(mockResubmitBill).toHaveBeenCalledTimes(1));
+      expect(mockResubmitBill.mock.calls[0][1]).toEqual(
+        expect.objectContaining({ vendor_account_id: "acct-9" }),
+      );
     });
   });
 });

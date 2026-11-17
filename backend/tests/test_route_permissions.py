@@ -215,6 +215,7 @@ def test_route_allows_only_its_active_roles(
         "vendor_id": vendor["vendor_id"],
         "property_id": prop["property_id"],
         "account_id": account["account_id"],
+        "approval_id": approval["approval_id"] if approval else None,
     }
 
     target_user = db.add_user(
@@ -239,11 +240,10 @@ def test_route_allows_only_its_active_roles(
         }
         request = {**request, "json": json}
 
-        response = TestClient(app).request(
+    response = TestClient(app).request(
         method,
         path.format(**ids, user_id=target_user["user_id"]),
         **request,
-  
     )
 
     assert response.status_code == expected, response.text

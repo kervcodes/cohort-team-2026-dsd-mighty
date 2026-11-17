@@ -139,9 +139,9 @@ def save_bill(
 
     payload["submitted_by"] = str(user_id)
     payload["status"] = status.value
-    payload |= match_columns( 
-    client, fields.account_number_raw, fields.vendor_account_id
-)
+    payload |= match_columns(
+        client, fields.account_number_raw, fields.vendor_account_id
+    )
 
     response = _write(
         client.table("bills").insert(payload).select(BILL_COLUMNS).single()
@@ -376,47 +376,8 @@ def update_draft(
     user_id: str,
     draft: BillDraftCreate,
 ) -> dict | None:
-    """Update the caller's own draft.
+    """Update the caller's own draft; return None if no such draft exists.
 
-    Explicit nulls clear fields. Unspecified fields remain unchanged.
-    """
-    payload = draft.model_dump(
-        mode="json",
-        exclude_unset=True,
-        exclude=MATCH_FIELDS,
-    )
-
-    sent = draft.model_fields_set
-
-    if "account_number_raw" in sent:
-        payload |= match_columns(
-            client, draft.account_number_raw, draft.vendor_account_id
-        )
-    else:
-        stored = get_editable_draft(client, bill_id, user_id)
-        if stored is None:
-            return None
-
-        if "vendor_account_id" in sent or not stored["vendor_account_picked"]:
-            payload |= match_columns(
-                client,
-                stored.get("account_number_raw"),
-                draft.vendor_account_id,
-            )
-
-        if not payload:
-            return stored
-
-    response = _write(
-        _editable(
-            client.table("bills").update(payload).eq("bill_id", str(bill_id)),
-            user_id,
-        ).select(DRAFT_COLUMNS)
-    )
-
-    rows = response.data or []
-
-    return rows[0] if len(rows) == 1 else None
     `exclude_unset` keeps explicit nulls, so a field cleared in the form is
     cleared in the database, while fields the client did not send are left
     untouched. The match is worked out again when the request sends the
