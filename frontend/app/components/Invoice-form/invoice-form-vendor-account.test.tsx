@@ -13,17 +13,20 @@ import type { Bill, BillDraftDetail } from "@/types/bill";
 import type { VendorAccountOption } from "@/types/vendor-account-lookup";
 import { InvoiceForm } from "./invoice-form";
 
-const push = jest.fn();
+const mockPush = jest.fn();
 let mockPathname = "/invoices/new";
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ push, bfcacheId: "_b_0_" }),
+  useRouter: () => ({ push: mockPush, bfcacheId: "_b_0_" }),
   usePathname: () => mockPathname,
+  useParams: () => ({}),
 }));
 
 jest.mock("@/lib/api/bills", () => ({
   extractBill: jest.fn(),
+  getBill: jest.fn(),
   getBillDraft: jest.fn(),
+  resubmitBill: jest.fn(),
   saveBillDraft: jest.fn(),
   submitBill: jest.fn(),
   updateBillDraft: jest.fn(),
@@ -78,7 +81,9 @@ function vendorAccount() {
 }
 
 function typeAccountNumber(value: string) {
-  fireEvent.change(screen.getByLabelText("Account / Customer #"), { target: { value } });
+  fireEvent.change(screen.getByLabelText("Account / Customer #"), {
+    target: { value },
+  });
 }
 
 async function findMatched(vendorName: string) {
@@ -153,7 +158,7 @@ async function saveDraftAndCreate(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Save Draft" }));
   await screen.findByRole("button", { name: "Draft Saved ✓" });
   await user.click(screen.getByRole("button", { name: "Create" }));
-  await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/dashboard"));
   return {
     saved: mockUpdateBillDraft.mock.calls[0][1].vendor_account_id,
     submitted: mockSubmitBill.mock.calls[0][1].vendor_account_id,
@@ -177,7 +182,10 @@ describe("InvoiceForm vendor account", () => {
       status: "draft",
       document_path: null,
     });
-    mockSubmitBill.mockResolvedValue({ id: "bill-1", status: "pending_approval" } as Bill);
+    mockSubmitBill.mockResolvedValue({
+      id: "bill-1",
+      status: "pending_approval",
+    } as Bill);
     mockGetBillDraft.mockReturnValue(new Promise<never>(() => {}));
     mockExtractBill.mockReturnValue(new Promise<never>(() => {}));
   });
@@ -253,10 +261,12 @@ describe("InvoiceForm vendor account", () => {
     expect(matched).toHaveTextContent(PICKED);
     await user.click(screen.getByRole("button", { name: "Save Draft" }));
     await screen.findByRole("button", { name: "Draft Saved ✓" });
-    expect(mockSaveBillDraft.mock.calls[0][0]).toMatchObject({ vendor_account_id: "acc-3" });
+    expect(mockSaveBillDraft.mock.calls[0][0]).toMatchObject({
+      vendor_account_id: "acc-3",
+    });
 
     await user.click(screen.getByRole("button", { name: "Create" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/dashboard"));
     expect(mockSubmitBill).toHaveBeenCalledWith(
       "bill-1",
       expect.objectContaining({ vendor_account_id: "acc-3" }),
@@ -271,7 +281,7 @@ describe("InvoiceForm vendor account", () => {
 
     await user.click(screen.getByRole("button", { name: "Create" }));
 
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/dashboard"));
     expect(mockSaveBillDraft.mock.calls[0][0].vendor_account_id).toBeNull();
     expect(mockSubmitBill.mock.calls[0][1].vendor_account_id).toBeUndefined();
   });
@@ -295,7 +305,9 @@ describe("InvoiceForm vendor account", () => {
     expect(screen.getByRole("button", { name: "Change" })).toHaveFocus();
     await user.click(screen.getByRole("button", { name: "Save Draft" }));
     await screen.findByRole("button", { name: "Draft Saved ✓" });
-    expect(mockSaveBillDraft.mock.calls[0][0]).toMatchObject({ vendor_account_id: "acc-2" });
+    expect(mockSaveBillDraft.mock.calls[0][0]).toMatchObject({
+      vendor_account_id: "acc-2",
+    });
   });
 
   it("keeps the match when the person keeps the current account", async () => {
@@ -333,7 +345,11 @@ describe("InvoiceForm vendor account", () => {
       extraction: {
         document_type: "invoice",
         vendor_name: nothing,
-        account_number: { value: "2000456700", evidence: "2000456700", confidence: "high" },
+        account_number: {
+          value: "2000456700",
+          evidence: "2000456700",
+          confidence: "high",
+        },
         invoice_number: nothing,
         invoice_date: nothing,
         due_date: nothing,
@@ -362,7 +378,9 @@ describe("InvoiceForm vendor account", () => {
     const { container } = render(<InvoiceForm />);
 
     fireEvent.change(container.querySelector("#invoicePdf") as HTMLInputElement, {
-      target: { files: [new File(["%PDF-1.4"], "bill.pdf", { type: "application/pdf" })] },
+      target: {
+        files: [new File(["%PDF-1.4"], "bill.pdf", { type: "application/pdf" })],
+      },
     });
 
     await findMatched("Alder Creek Landscaping");
@@ -374,7 +392,10 @@ describe("InvoiceForm vendor account", () => {
     mockPathname = "/invoices/bill-1/edit";
     // Its number matches another account: the pick still wins.
     mockGetBillDraft.mockResolvedValue(
-      completeDraft({ vendor_account_id: "acc-2", vendor_account_picked: true }),
+      completeDraft({
+        vendor_account_id: "acc-2",
+        vendor_account_picked: true,
+      }),
     );
 
     render(<InvoiceForm />);
@@ -382,7 +403,10 @@ describe("InvoiceForm vendor account", () => {
     const matched = await findMatched("Brightwater Water & Sewer");
     expect(matched).toHaveTextContent("2000456701 · 125 Industrial Way");
     expect(matched).toHaveTextContent(PICKED);
-    expect(await saveDraftAndCreate(user)).toEqual({ saved: "acc-2", submitted: "acc-2" });
+    expect(await saveDraftAndCreate(user)).toEqual({
+      saved: "acc-2",
+      submitted: "acc-2",
+    });
   });
 
   it("reopens a draft matched by its number as matched, and leaves it to the server", async () => {
@@ -395,7 +419,10 @@ describe("InvoiceForm vendor account", () => {
     const matched = await findMatched("Alder Creek Landscaping");
     expect(matched).toHaveTextContent(MATCHED_BY_NUMBER);
     expect(matched).not.toHaveTextContent(PICKED);
-    expect(await saveDraftAndCreate(user)).toEqual({ saved: null, submitted: undefined });
+    expect(await saveDraftAndCreate(user)).toEqual({
+      saved: null,
+      submitted: undefined,
+    });
   });
 
   it("shows what the number finds now, not a stale match the number found", async () => {
@@ -404,7 +431,10 @@ describe("InvoiceForm vendor account", () => {
     // Matched to Alder when saved; since then a second account has the same
     // number, so the server would leave it unmatched.
     mockGetBillDraft.mockResolvedValue(
-      completeDraft({ account_number_raw: "2000456701", vendor_account_id: "acc-1" }),
+      completeDraft({
+        account_number_raw: "2000456701",
+        vendor_account_id: "acc-1",
+      }),
     );
 
     render(<InvoiceForm />);
@@ -418,7 +448,10 @@ describe("InvoiceForm vendor account", () => {
     expect(optionNames()).not.toContain(
       "Alder Creek Landscaping · 2000456700 · 125 Industrial Way",
     );
-    expect(await saveDraftAndCreate(user)).toEqual({ saved: null, submitted: undefined });
+    expect(await saveDraftAndCreate(user)).toEqual({
+      saved: null,
+      submitted: undefined,
+    });
   });
 
   it("shows the account the number finds now when it differs from the saved match", async () => {
@@ -473,6 +506,6 @@ describe("InvoiceForm vendor account", () => {
     await user.click(screen.getByRole("button", { name: "Retry Create" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(duplicate));
-    expect(push).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });

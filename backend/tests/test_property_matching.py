@@ -138,6 +138,10 @@ def write(db, path: str, body: dict) -> dict:
         response = client().post("/bills", json=body)
     elif path == "draft":
         response = client().post("/bills/drafts", json=body)
+    elif path == "resubmit":
+        bill_id = db.add_bill(USER, status="rejected")["bill_id"]
+        db.add_approval(bill_id, approval_status="rejected")
+        response = client().post(f"/bills/{bill_id}/resubmit", json=body)
     else:
         bill_id = db.add_bill(USER)["bill_id"]
         if path == "update":
@@ -148,7 +152,7 @@ def write(db, path: str, body: dict) -> dict:
     return db.tables["bills"][-1]
 
 
-WRITE_PATHS = ["create", "draft", "update", "submit"]
+WRITE_PATHS = ["create", "draft", "update", "submit", "resubmit"]
 
 UNMATCHED_NUMBER = {**BILL, "account_number_raw": "9999"}
 

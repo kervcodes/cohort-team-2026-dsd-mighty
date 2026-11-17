@@ -62,15 +62,52 @@ def sign_up(local: Settings):
         user_id = response.user.id
         created.append(user_id)
 
+        # Confirm the signup trigger created the profile.
+        profile_rows = (
+            admin.table("app_users")
+            .select("user_id, email, role, status")
+            .eq("user_id", user_id)
+            .execute()
+            .data
+            or []
+        )
+        assert len(profile_rows) == 1, (
+            f"Expected one app_users profile for {user_id}, "
+            f"but found {len(profile_rows)}. "
+            "Is the signup trigger on auth.users applied?"
+        )
+
+        # Apply the requested test role and status.
         changes = {k: v for k, v in {"role": role, "status": status}.items() if v}
         if changes:
             admin.table("app_users").update(changes).eq("user_id", user_id).execute()
+
+        # Confirm the profile after the update.
+        updated_rows = (
+            admin.table("app_users")
+            .select("user_id, role, status")
+            .eq("user_id", user_id)
+            .execute()
+            .data
+            or []
+        )
+        assert len(updated_rows) == 1, (
+            f"Expected one updated profile for {user_id}, but found {len(updated_rows)}"
+        )
+
+        profile = updated_rows[0]
+        assert profile["role"] == (role or "analyst")
+        assert profile["status"] == (status or "inactive")
+
         return user_id, response.session.access_token
 
     yield make
 
     for user_id in created:
-        admin.auth.admin.delete_user(user_id)
+        try:
+            admin.auth.admin.delete_user(user_id)
+        except Exception as exc:  # don't let cleanup mask the real failure
+            print(f"cleanup failed for {user_id}: {exc}")
 
 
 @pytest.fixture
@@ -139,7 +176,6 @@ def test_bills_are_saved_and_shared_by_the_real_database(sign_up, api):
     # embedded submitter, the `or` visibility filter and the 404 for a draft.
     author_id, author = sign_up(status="active")
     reader_id, reader = sign_up(status="active")
-    bills = get_admin_supabase().table("bills")
     try:
         created = api.post(
             "/bills",
@@ -173,5 +209,19 @@ def test_bills_are_saved_and_shared_by_the_real_database(sign_up, api):
         own_draft = api.get(f"/bills/{draft['bill_id']}", headers=bearer(author))
         assert own_draft.json()["status"] == "draft"
     finally:
-        # bills.submitted_by does not cascade, so the users cannot go first.
-        bills.delete().in_("submitted_by", [author_id, reader_id]).execute()
+        # Children first: approvals reference bills, and bills.submitted_by
+        # references app_users, and neither cascades, so the users cannot go
+        # before their bills and the bills cannot go before their approvals.
+        admin = get_admin_supabase()
+        bill_rows = (
+            admin.table("bills")
+            .select("bill_id")
+            .in_("submitted_by", [author_id, reader_id])
+            .execute()
+            .data
+            or []
+        )
+        bill_ids = [row["bill_id"] for row in bill_rows]
+        if bill_ids:
+            admin.table("approvals").delete().in_("bill_id", bill_ids).execute()
+            admin.table("bills").delete().in_("bill_id", bill_ids).execute()

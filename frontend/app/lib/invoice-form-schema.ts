@@ -89,7 +89,6 @@ export const invoiceDraftFormSchema = z
     issueDate: z
       .string()
       .refine((value) => value === "" || isValidIsoDate(value), "Enter a valid issue date"),
-
     dueDate: z
       .string()
       .refine((value) => value === "" || isValidIsoDate(value), "Enter a valid due date"),
