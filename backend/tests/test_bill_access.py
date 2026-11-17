@@ -325,6 +325,7 @@ def test_dashboard_returns_only_the_declared_columns(db):
         "status",
         "document_path",
         "created_at",
+        "property_address_mismatch",
     }
     assert row["amount"] == 250.5
 

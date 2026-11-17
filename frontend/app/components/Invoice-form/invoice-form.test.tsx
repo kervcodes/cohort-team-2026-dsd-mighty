@@ -177,6 +177,7 @@ function fullDraft(overrides: Partial<BillDraftDetail> = {}): BillDraftDetail {
     website_name: "https://citypower.example.com",
     vendor_account_id: null,
     vendor_account_picked: false,
+    property_address_mismatch: false,
     document_path: null,
     ...overrides,
   };

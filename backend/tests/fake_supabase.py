@@ -29,8 +29,6 @@ from uuid import uuid4
 
 from postgrest.exceptions import APIError
 
-from backend.services.vendor_account_matching import same_account_number
-
 # (table, column) -> (referenced table, referenced column)
 FOREIGN_KEYS = {
     ("bills", "submitted_by"): ("app_users", "user_id"),
@@ -176,6 +174,12 @@ def _insert_defaults(table: str) -> dict[str, Any]:
             "created_at": now,
         }
 
+    if table == "properties":
+        return {
+            "property_id": str(uuid4()),
+            "created_at": now,
+        }
+
     if table == "approvals":
         return {
             "approval_id": str(uuid4()),
@@ -203,6 +207,7 @@ def _insert_defaults(table: str) -> dict[str, Any]:
             "bill_id": str(uuid4()),
             "document_path": None,
             "vendor_account_picked": False,
+            "property_address_mismatch": False,
             "created_at": now,
         }
 
@@ -624,6 +629,17 @@ ACCOUNT_CREATE_FIELDS = (
 
 
 # Bill fields accepted by the approval workflow RPC twins.
+# The bill columns the bill RPCs take from the backend's match; a flag not
+# sent is false, an id not sent is null.
+MATCH_COLUMNS = (
+    "vendor_account_id",
+    "vendor_id",
+    "property_id",
+    "vendor_account_picked",
+    "property_address_mismatch",
+)
+MATCH_FLAGS = ("vendor_account_picked", "property_address_mismatch")
+
 APPROVAL_BILL_FIELDS = (
     "account_number_raw",
     "vendor_name_raw",
@@ -637,7 +653,9 @@ APPROVAL_BILL_FIELDS = (
     "property_address",
     "account_status",
     "website_name",
-    "vendor_account_id",
+    # The match, worked out by the backend (bill_repository._rpc_fields) and
+    # written as sent (migration 20261117130000_bill_rpcs_write_match).
+    *MATCH_COLUMNS,
 )
 
 
@@ -822,6 +840,7 @@ class FakeSupabase:
             "status": "draft",
             "document_path": None,
             "vendor_account_picked": False,
+            "property_address_mismatch": False,
             "created_at": datetime.now(UTC).isoformat(),
             **fields,
         }
@@ -896,44 +915,12 @@ class FakeSupabase:
         for field, value in fields.items():
             bill[field] = value
 
-    def _apply_vendor_match(
-        self,
-        bill: dict[str, Any],
-        pick: str | None,
-    ) -> None:
-        """Python twin of the vendor-account match in the bill RPCs.
-
-        The number rule is the real one, imported from
-        vendor_account_matching, so the fake cannot drift from it.
-        """
-        account: dict[str, Any] | None = None
-        picked = False
-
-        if pick is not None:
-            account = self.find("vendor_accounts", "account_id", str(pick))
-
-            if account is None:
-                raise _invalid("Vendor account not found.")
-
-            if account.get("status") != "active":
-                raise _invalid("This vendor account is inactive.")
-
-            picked = True
-        else:
-            active = [
-                candidate
-                for candidate in self.tables.get("vendor_accounts", [])
-                if candidate.get("status") == "active"
-            ]
-            matches = same_account_number(active, bill.get("account_number_raw"))
-
-            if len(matches) == 1:
-                account = matches[0]
-
-        bill["vendor_account_id"] = account["account_id"] if account else None
-        bill["vendor_id"] = account["vendor_id"] if account else None
-        bill["property_id"] = account["property_id"] if account else None
-        bill["vendor_account_picked"] = picked
+    def _apply_match(self, bill: dict[str, Any], fields: dict[str, Any]) -> None:
+        """Python twin of the match columns in the bill RPCs: written as the
+        backend sent them, a flag not sent false and an id not sent null."""
+        for column in MATCH_COLUMNS:
+            default = False if column in MATCH_FLAGS else None
+            bill[column] = fields.get(column, default)
 
         self._check_invoice_unique(bill)
 
@@ -971,7 +958,7 @@ class FakeSupabase:
             **p_fields,
         )
 
-        self._apply_vendor_match(bill, p_fields.get("vendor_account_id"))
+        self._apply_match(bill, p_fields)
 
         self.add_approval(bill_id=bill["bill_id"])
         return bill["bill_id"]
@@ -998,7 +985,7 @@ class FakeSupabase:
 
         self._ensure_no_pending_approval(p_bill_id)
         self._apply_approval_bill_fields(bill, p_fields)
-        self._apply_vendor_match(bill, p_fields.get("vendor_account_id"))
+        self._apply_match(bill, p_fields)
 
         now = datetime.now(UTC).isoformat()
         bill["status"] = "pending_approval"
@@ -1036,7 +1023,7 @@ class FakeSupabase:
 
         self._ensure_no_pending_approval(p_bill_id)
         self._apply_approval_bill_fields(bill, p_fields)
-        self._apply_vendor_match(bill, p_fields.get("vendor_account_id"))
+        self._apply_match(bill, p_fields)
 
         now = datetime.now(UTC).isoformat()
         bill["status"] = "pending_approval"

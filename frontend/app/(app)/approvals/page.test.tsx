@@ -41,6 +41,7 @@ function bill(overrides: Partial<Bill> = {}): Bill {
     account_number_raw: "ACC-1001",
     vendor_name_raw: "Acme Utilities",
     vendor_account_picked: false,
+    property_address_mismatch: false,
     vendor_id: null,
     property_id: null,
     invoice_number: "INV-1001",

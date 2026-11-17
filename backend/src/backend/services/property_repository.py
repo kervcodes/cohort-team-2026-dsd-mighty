@@ -10,9 +10,10 @@ from typing import Any
 
 from postgrest.exceptions import APIError
 
+from backend.schemas.property import PropertyCreate
 from supabase import Client
 
-COLUMNS = "property_id,property_name,street,city,state,zip_code,status"
+COLUMNS = "property_id,property_name,street,city,state,zip_code,status,created_at"
 
 # PostgREST answers 416 with this code when the offset is past the last row.
 RANGE_NOT_SATISFIABLE = "PGRST103"
@@ -32,6 +33,7 @@ def _to_api(row: dict[str, Any]) -> dict[str, Any]:
             "zip_code": row["zip_code"],
         },
         "status": row["status"],
+        "created_at": row["created_at"],
     }
 
 
@@ -69,3 +71,42 @@ def list_properties(
         return [], counted.count or 0
 
     return [_to_api(row) for row in response.data or []], response.count or 0
+
+
+def create_property(client: Client, prop: PropertyCreate) -> dict[str, Any]:
+    """Insert the property, its address flattened into the table's columns."""
+    payload = {
+        "property_name": prop.property_name,
+        **prop.address.model_dump(),
+        "status": prop.status,
+    }
+    response = client.table("properties").insert(payload).execute()
+
+    return _to_api(response.data[0])
+
+
+ADDRESS_COLUMNS = "property_id,street,zip_code"
+
+
+def list_active_property_addresses(client: Client) -> list[dict[str, Any]]:
+    """The id, street and ZIP of every active property, for property_matching."""
+    response = (
+        client.table("properties")
+        .select(ADDRESS_COLUMNS)
+        .eq("status", "active")
+        .execute()
+    )
+    return list(response.data or [])
+
+
+def get_property_address(client: Client, property_id: str) -> dict[str, Any] | None:
+    """The id, street and ZIP of one property, active or not."""
+    response = (
+        client.table("properties")
+        .select(ADDRESS_COLUMNS)
+        .eq("property_id", property_id)
+        .maybe_single()
+        .execute()
+    )
+    row = response.data if response is not None else None
+    return row if isinstance(row, dict) else None

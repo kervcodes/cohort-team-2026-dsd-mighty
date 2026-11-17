@@ -1,4 +1,4 @@
-import { listAllProperties, listProperties, type PropertyRead } from "./properties";
+import { createProperty, listAllProperties, listProperties, type PropertyRead } from "./properties";
 
 const mockGetSession = jest.fn();
 
@@ -12,6 +12,7 @@ function property(id: string): PropertyRead {
     property_name: `Property ${id}`,
     address: { street: "1 Main St", city: "Dallas", state: "TX", zip_code: "75201" },
     status: "active",
+    created_at: "2026-11-01T00:00:00Z",
   };
 }
 
@@ -95,5 +96,38 @@ describe("listAllProperties", () => {
 
     expect(await listAllProperties()).toEqual([property("1")]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("createProperty", () => {
+  const payload = {
+    property_name: "Property 9",
+    address: { street: "1 Main St", city: "Dallas", state: "TX", zip_code: "75201" },
+  };
+
+  it("POSTs the property as JSON with the bearer token", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 201, json: async () => property("9") });
+
+    const result = await createProperty(payload);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/properties");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer test-token",
+    });
+    expect(JSON.parse(init.body)).toEqual(payload);
+    expect(result).toEqual(property("9"));
+  });
+
+  it("throws the server detail", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ detail: "Your role can't do this." }),
+    });
+
+    await expect(createProperty(payload)).rejects.toThrow("Your role can't do this.");
   });
 });

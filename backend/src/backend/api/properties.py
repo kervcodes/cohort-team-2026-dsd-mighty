@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 
-from backend.auth import PROPERTY_READERS, require_active
-from backend.schemas.property import PagePropertyRead
+from backend.auth import PROPERTY_READERS, PROPERTY_WRITERS, require_active
+from backend.schemas.property import PagePropertyRead, PropertyCreate, PropertyRead
 from backend.services import property_repository
 from backend.supabase_client import get_admin_supabase
 
@@ -23,3 +23,13 @@ def list_properties(
     )
 
     return {"items": items, "total": total, "skip": skip, "limit": limit}
+
+
+@router.post(
+    "",
+    response_model=PropertyRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_active(*PROPERTY_WRITERS))],
+)
+def create_property(prop: PropertyCreate) -> dict:
+    return property_repository.create_property(get_admin_supabase(), prop)

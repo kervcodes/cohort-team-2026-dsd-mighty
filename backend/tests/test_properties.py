@@ -1,7 +1,8 @@
-"""GET /properties reads `public.properties` through the repository.
+"""GET /properties reads `public.properties` through the repository, and
+POST /properties adds one.
 
-Who may call it is checked in test_route_permissions.py; these tests cover
-what it returns for a caller who is allowed.
+Who may call them is checked in test_route_permissions.py; these tests cover
+what they do for a caller who is allowed.
 """
 
 from unittest.mock import patch
@@ -68,6 +69,7 @@ def test_list_returns_properties_sorted_by_name_with_api_field_names(db, analyst
             "zip_code": "73301-0001",
         },
         "status": "inactive",
+        "created_at": oak["created_at"].replace("+00:00", "Z"),
     }
     assert (body["total"], body["skip"], body["limit"]) == (2, 0, 25)
 
@@ -146,3 +148,96 @@ def test_bad_paging_or_empty_name_is_422(db, analyst, params):
     response = analyst.get("/properties", params=params)
 
     assert response.status_code == 422
+
+
+# POST /properties
+
+
+@pytest.fixture
+def admin():
+    app.dependency_overrides[get_current_user] = lambda: make_user(role=UserRole.admin)
+    return TestClient(app)
+
+
+NEW_PROPERTY = {
+    "property_name": "Oak Row",
+    "address": {
+        "street": "40 Oak Row",
+        "city": "Dallas",
+        "state": "TX",
+        "zip_code": "75201",
+    },
+}
+
+
+def test_create_stores_the_address_in_flat_columns_and_returns_it_nested(db, admin):
+    response = admin.post("/properties", json=NEW_PROPERTY)
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    (row,) = db.tables["properties"]
+    assert body == {
+        **NEW_PROPERTY,
+        "id": row["property_id"],
+        "status": "active",
+        "created_at": row["created_at"].replace("+00:00", "Z"),
+    }
+    assert (row["street"], row["city"], row["state"], row["zip_code"]) == (
+        "40 Oak Row",
+        "Dallas",
+        "TX",
+        "75201",
+    )
+    assert row["status"] == "active"
+
+
+def test_create_trims_and_uppercases_the_state(db, admin):
+    body = {
+        "property_name": "  Oak Row ",
+        "status": "inactive",
+        "address": {
+            "street": " 40 Oak Row ",
+            "city": "Dallas",
+            "state": "tx",
+            "zip_code": "75201-1234",
+        },
+    }
+
+    response = admin.post("/properties", json=body)
+
+    assert response.status_code == 201, response.text
+    (row,) = db.tables["properties"]
+    assert (row["property_name"], row["street"], row["state"], row["status"]) == (
+        "Oak Row",
+        "40 Oak Row",
+        "TX",
+        "inactive",
+    )
+    assert row["zip_code"] == "75201-1234"
+
+
+def test_a_created_property_is_listed(db, admin):
+    admin.post("/properties", json=NEW_PROPERTY)
+
+    assert names(admin.get("/properties")) == ["Oak Row"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"property_name": ""},
+        {"property_name": "x" * 201},
+        {"address": {**NEW_PROPERTY["address"], "state": "T1"}},
+        {"address": {**NEW_PROPERTY["address"], "state": "Texas"}},
+        {"address": {**NEW_PROPERTY["address"], "zip_code": "7520"}},
+        {"address": {**NEW_PROPERTY["address"], "zip_code": "75201-12"}},
+        {"address": {**NEW_PROPERTY["address"], "street": " "}},
+        {"status": "closed"},
+        {"property_id": "11111111-1111-4111-8111-111111111111"},
+    ],
+)
+def test_create_rejects_a_bad_body_with_422_and_stores_nothing(db, admin, change):
+    response = admin.post("/properties", json={**NEW_PROPERTY, **change})
+
+    assert response.status_code == 422
+    assert db.tables.get("properties", []) == []

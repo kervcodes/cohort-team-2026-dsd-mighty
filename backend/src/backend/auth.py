@@ -24,6 +24,8 @@ VENDOR_WRITERS = (UserRole.admin,)
 PAYMENT_WRITERS = (UserRole.approver, UserRole.admin)
 # Who may read properties: everyone, e.g. to pick one for a vendor account.
 PROPERTY_READERS = (UserRole.analyst, UserRole.approver, UserRole.admin)
+# Who may add properties: admins only, as with vendors.
+PROPERTY_WRITERS = (UserRole.admin,)
 
 USER_READERS = (UserRole.admin,)
 USER_EDITORS = (UserRole.admin,)

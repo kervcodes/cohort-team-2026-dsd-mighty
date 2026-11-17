@@ -63,6 +63,7 @@ function property(overrides: Partial<PropertyRead> = {}): PropertyRead {
     property_name: "Elm Court",
     address: { street: "1 Main St", city: "Dallas", state: "TX", zip_code: "75201" },
     status: "active",
+    created_at: "2026-11-01T00:00:00Z",
     ...overrides,
   };
 }

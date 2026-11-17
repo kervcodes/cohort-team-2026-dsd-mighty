@@ -13,6 +13,7 @@ export type PropertyRead = {
     zip_code: string;
   };
   status: EntityStatus;
+  created_at: string;
 };
 
 // Backend PagePropertyRead: `total` counts every property, not just this page.
@@ -22,6 +23,26 @@ export type PropertyPage = {
   skip: number;
   limit: number;
 };
+
+// Body of POST /properties (backend PropertyCreate). `status` defaults to
+// "active" on the server.
+export type PropertyCreatePayload = {
+  property_name: string;
+  address: PropertyRead["address"];
+  status?: EntityStatus;
+};
+
+export function createProperty(payload: PropertyCreatePayload): Promise<PropertyRead> {
+  return apiRequest<PropertyRead>(
+    "/properties",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    { signedOut: "You must be signed in to add a property.", failed: "Unable to add the property" },
+  );
+}
 
 // The most GET /properties returns in one page.
 export const MAX_PAGE_SIZE = 100;

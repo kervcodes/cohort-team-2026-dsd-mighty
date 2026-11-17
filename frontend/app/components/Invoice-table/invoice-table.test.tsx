@@ -110,4 +110,20 @@ describe("Invoice table", () => {
       "/invoices/paid-1001",
     );
   });
+
+  it("shows a property warning under the property when there is one", () => {
+    render(
+      <InvoiceTable
+        invoices={[
+          makeInvoice({ id: "flagged", propertyWarning: "Check the address" }),
+          makeInvoice({ id: "fine" }),
+        ]}
+      />,
+    );
+
+    const [note] = screen.getAllByRole("note");
+    expect(note).toHaveTextContent("Check the address");
+    expect(note.closest("td")).toHaveTextContent("Oak Terrace");
+    expect(screen.getAllByRole("note")).toHaveLength(1);
+  });
 });

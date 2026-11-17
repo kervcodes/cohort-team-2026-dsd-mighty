@@ -11,4 +11,7 @@ export type Invoice = {
   amount: number | null;
   status: InvoiceStatus;
   invoiceNumber?: string | null;
+  // Set when the bill's address names another property than its vendor
+  // account's.
+  propertyWarning?: string;
 };

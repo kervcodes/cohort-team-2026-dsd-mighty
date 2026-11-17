@@ -68,6 +68,7 @@ ROLE_TABLE = [
     ("PATCH", "/vendor-accounts/{account_id}", {ADMIN}, 200),
     # Properties
     ("GET", "/properties", {ANALYST, APPROVER, ADMIN}, 200),
+    ("POST", "/properties", {ADMIN}, 201),
     # Approvals
     ("GET", "/approvals", {APPROVER, ADMIN}, 200),
     ("POST", "/approvals/{approval_id}/decision", {APPROVER, ADMIN}, 200),
@@ -108,6 +109,17 @@ REQUEST_BODY = {
         }
     },
     ("POST", "/vendors"): {"json": {"name": "Acme Water"}},
+    ("POST", "/properties"): {
+        "json": {
+            "property_name": "Oak Row",
+            "address": {
+                "street": "40 Oak Row",
+                "city": "Dallas",
+                "state": "TX",
+                "zip_code": "75201",
+            },
+        }
+    },
     ("PATCH", "/vendors/{vendor_id}"): {"json": {"contact_phone": "555-0100"}},
     ("POST", "/vendor-accounts"): {
         "json": {

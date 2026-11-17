@@ -36,6 +36,7 @@ def _bill_row(submitted_by: str, payload: dict | None = None) -> dict:
         "status": "draft",
         "document_path": None,
         "vendor_account_picked": False,
+        "property_address_mismatch": False,
         "created_at": "2026-11-10T00:00:00+00:00",
         "submitted_by": submitted_by,
         "submitter": {

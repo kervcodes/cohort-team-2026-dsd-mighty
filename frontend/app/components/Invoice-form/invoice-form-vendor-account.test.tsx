@@ -136,6 +136,7 @@ function draft(overrides: Partial<BillDraftDetail> = {}): BillDraftDetail {
     website_name: null,
     vendor_account_id: null,
     vendor_account_picked: false,
+    property_address_mismatch: false,
     ...overrides,
   };
 }

@@ -88,7 +88,14 @@ export function InvoiceTable({
                       {invoice.invoiceNumber ?? invoice.id.slice(0, 8)}
                     </Link>
                   </td>
-                  <td className="px-6 py-4">{invoice.property}</td>
+                  <td className="px-6 py-4">
+                    {invoice.property}
+                    {invoice.propertyWarning && (
+                      <p role="note" className="mt-1 text-xs text-due-soon">
+                        {invoice.propertyWarning}
+                      </p>
+                    )}
+                  </td>
                   <td className="px-6 py-4">{invoice.company}</td>
                   <td className="px-6 py-4 tabular-nums">{formatDate(invoice.dueDate)}</td>
                   <td className="px-6 py-4">{invoice.vendor}</td>

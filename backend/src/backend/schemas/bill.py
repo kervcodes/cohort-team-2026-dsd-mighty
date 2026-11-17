@@ -81,13 +81,17 @@ class BillRead(BaseModel):
     property_address: str | None = None
     account_status: AccountStatus | None = None
     website_name: str | None = None
-    # All three None while the bill is unmatched.
+    # The account and vendor are None while the bill is unmatched; the
+    # property is then the one the address names, if any (property_matching).
     vendor_account_id: UUID | None = None
     vendor_id: UUID | None = None
     property_id: UUID | None = None
     # True when the analyst picked the vendor account; false when the account
     # number found it, or nothing did (vendor_account_matching).
     vendor_account_picked: bool
+    # True when the bill has an account and its address does not name the
+    # account's property (property_matching).
+    property_address_mismatch: bool
     submitted_by: UserSummary
     status: BillStatus
     exception_reason: str | None = None
@@ -120,6 +124,7 @@ class BillDraftDetail(BillDraftCreate):
     # As in BillRead. The form sends `vendor_account_id` back only when this
     # is true, so a match the number found is worked out again on save.
     vendor_account_picked: bool
+    property_address_mismatch: bool  # as in BillRead
 
 
 class BillDashboardRow(BaseModel):
@@ -133,6 +138,7 @@ class BillDashboardRow(BaseModel):
     # The matched vendor's and property's names; None while unmatched.
     vendor_name: str | None = None
     property_name: str | None = None
+    property_address_mismatch: bool  # as in BillRead
     invoice_date: date | None = None
     due_date: date | None = None
     # A JSON number, as the dashboard sums it for its totals (display only).

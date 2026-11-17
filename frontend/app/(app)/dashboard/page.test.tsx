@@ -46,6 +46,7 @@ function bill(overrides: Partial<DashboardBill> = {}): DashboardBill {
     vendor_name_raw: "Acme Power",
     vendor_name: null,
     property_name: null,
+    property_address_mismatch: false,
     invoice_date: "2026-11-01",
     due_date: "2026-11-20",
     amount: 100,

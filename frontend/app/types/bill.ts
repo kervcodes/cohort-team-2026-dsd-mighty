@@ -41,13 +41,17 @@ export type Bill = {
   property_address: string | null;
   account_status: AccountStatus | null;
   website_name: string | null;
-  // All three null while the bill is unmatched.
+  // The account and vendor are null while the bill is unmatched; the
+  // property is then the one the address names, if any.
   vendor_account_id: string | null;
   vendor_id: string | null;
   property_id: string | null;
   // true: the analyst picked the vendor account. false: the account number
   // found it, or nothing did.
   vendor_account_picked: boolean;
+  // true: the bill has a vendor account and its address names another
+  // property than the account's.
+  property_address_mismatch: boolean;
   submitted_by: { id: string; full_name: string };
   status: BillStatus;
   exception_reason: string | null;
@@ -106,6 +110,7 @@ export type BillDraftDetail = {
   // As on Bill. Only a picked account is sent back on save: the server
   // matches the account number again otherwise.
   vendor_account_picked: boolean;
+  property_address_mismatch: boolean; // as on Bill
 };
 
 export type DashboardBill = {
@@ -116,6 +121,7 @@ export type DashboardBill = {
   // The matched vendor's and property's names; null while unmatched.
   vendor_name: string | null;
   property_name: string | null;
+  property_address_mismatch: boolean; // as on Bill
   invoice_date: string | null;
   due_date: string | null;
   amount: number | null;

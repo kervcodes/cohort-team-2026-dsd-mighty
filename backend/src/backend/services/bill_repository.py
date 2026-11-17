@@ -15,6 +15,7 @@ from backend.services.bill_access import (
     editable_bills,
     readable_bills,
 )
+from backend.services.property_matching import address_disagrees
 from backend.services.vendor_account_matching import match_columns
 from supabase import Client
 
@@ -23,14 +24,15 @@ BILL_COLUMNS = (
     "invoice_date,due_date,amount,prev_payments,description,"
     "processing_notes,property_address,account_status,website_name,"
     "vendor_account_id,vendor_id,property_id,vendor_account_picked,"
-    "status,exception_reason,document_path,created_at,"
+    "property_address_mismatch,status,exception_reason,document_path,created_at,"
+    # The submitter's name, embedded through the bills.submitted_by foreign key.
     "submitter:app_users!submitted_by(user_id,full_name)"
 )
 
 DASHBOARD_COLUMNS = (
     "bill_id,invoice_number,property_address,"
     "vendor_name_raw,invoice_date,due_date,"
-    "amount,status,document_path,created_at,"
+    "amount,status,document_path,created_at,property_address_mismatch,"
     # The matched vendor and property, null while the bill is unmatched.
     "vendor:vendors!vendor_id(vendor_name),"
     "property:properties!property_id(property_name)"
@@ -62,15 +64,17 @@ def _write(query: Any) -> Any:
         raise
 
 
-def _check_pick(client: Client, fields: BillCreate) -> None:
-    """Raise UnusableVendorAccount before an RPC if the picked account
-    does not exist or is not active."""
-    if fields.vendor_account_id is not None:
-        match_columns(
-            client,
-            fields.account_number_raw,
-            fields.vendor_account_id,
-        )
+def _rpc_fields(client: Client, fields: BillCreate) -> dict[str, Any]:
+    """The bill fields for a bill RPC, with the match worked out here: the
+    vendor account (picked or found by number) and its property, or the
+    property the address names. Raises UnusableVendorAccount before the RPC
+    if the picked account does not exist or is not active."""
+    return fields.model_dump(mode="json", exclude=MATCH_FIELDS) | match_columns(
+        client,
+        fields.account_number_raw,
+        fields.vendor_account_id,
+        fields.property_address,
+    )
 
 
 # ---------------------------------------------------------
@@ -154,6 +158,7 @@ def save_bill(
         client,
         fields.account_number_raw,
         fields.vendor_account_id,
+        fields.property_address,
     )
 
     response = _write(
@@ -174,9 +179,7 @@ def submit_bill_with_approval(
     user_id: UUID,
 ) -> BillRead:
     """Create a brand-new invoice and its pending approval transactionally."""
-    _check_pick(client, fields)
-
-    payload = fields.model_dump(mode="json")
+    payload = _rpc_fields(client, fields)
 
     response = _write(
         client.rpc(
@@ -213,9 +216,7 @@ def resubmit_bill_with_approval(
     its document_path and rejected approval history, and creates
     a new pending approval record.
     """
-    _check_pick(client, fields)
-
-    payload = fields.model_dump(mode="json")
+    payload = _rpc_fields(client, fields)
 
     response = _write(
         client.rpc(
@@ -403,9 +404,10 @@ def update_draft(
     cleared in the database, while fields the client did not send are left
     untouched. The match is worked out again when the request sends the
     account number or the vendor account, and on every save of a draft whose
-    stored match was not picked, so an account added or changed since is
-    taken into account. A picked account stays until the request changes the
-    number or the pick.
+    stored match was not picked, so an account or property added or changed
+    since is taken into account; a value the request does not send is read
+    from the stored draft. A picked account stays until the request changes
+    the number or the pick; a new address on such a draft only flags it again.
     """
     payload = draft.model_dump(
         mode="json",
@@ -415,27 +417,37 @@ def update_draft(
 
     sent = draft.model_fields_set
 
-    if "account_number_raw" in sent:
-        payload |= match_columns(
-            client,
-            draft.account_number_raw,
-            draft.vendor_account_id,
-        )
-    else:
+    stored: dict | None = None
+    if not {"account_number_raw", "property_address"} <= sent:
         stored = get_editable_draft(client, bill_id, user_id)
 
         if stored is None:
             return None
 
-        if "vendor_account_id" in sent or not stored["vendor_account_picked"]:
-            payload |= match_columns(
-                client,
-                stored.get("account_number_raw"),
-                draft.vendor_account_id,
-            )
+    def current(field: str) -> Any:
+        if field in sent or stored is None:
+            return getattr(draft, field)
+        return stored.get(field)
 
-        if not payload:
-            return stored
+    keeps_pick = (
+        stored is not None
+        and stored["vendor_account_picked"]
+        and not sent & {"account_number_raw", "vendor_account_id"}
+    )
+    if not keeps_pick:
+        payload |= match_columns(
+            client,
+            current("account_number_raw"),
+            draft.vendor_account_id,
+            current("property_address"),
+        )
+    elif "property_address" in sent and stored is not None:
+        payload["property_address_mismatch"] = address_disagrees(
+            client, draft.property_address, stored["property_id"]
+        )
+
+    if not payload:
+        return stored
 
     response = _write(
         _editable(
@@ -472,9 +484,7 @@ def submit_draft_with_approval(
     - Insert one pending approval record.
     - Return the existing bill UUID.
     """
-    _check_pick(client, fields)
-
-    payload = fields.model_dump(mode="json")
+    payload = _rpc_fields(client, fields)
 
     response = _write(
         client.rpc(
