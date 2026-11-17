@@ -7,18 +7,23 @@ act on, and nothing is paid. Rules enforced here, not by the prompt:
 - Only an approved bill, matched to an active vendor account with a portal
   login, on an https portal (http only for a local test server).
 - The model never sees the password: `sign_in` reads it from Vault and types
-  it; every step, tool result and flag reason is scrubbed of it.
+  it; every tool result is scrubbed value by value before it is serialized,
+  and every step, flag reason and log line is scrubbed of the password and
+  its escaped forms.
 - One pay attempt per run. `pay` re-reads the bill from our database, then
   matches the portal bill on account number plus bill number (the amount is a
   check, never the key), and refuses when the portal already shows the bill
   paid or has a completed payment for it, when the amount differs, or when
   the payment page, Pay button or review screen names another account, bill
-  or amount. A failure before the final Submit / Pay click says nothing was
-  paid; any failure from the click on (or of an unknown kind) says to check
-  the portal before paying the bill again.
-- `save_receipt` records exactly what the receipt says through
+  or amount. A failure before the click that may submit the payment (the Pay
+  button, or Review payment on a portal with a review screen) says nothing
+  was paid; any failure from that click on (or of an unknown kind) says to
+  check the portal before paying the bill again.
+- Once the portal answers the payment (successful or declined), `pay` reads
+  the receipt on screen and records exactly what it says through
   `record_payment` (DC-54), after checking it is for our account, bill and
-  amount.
+  amount, and the run ends there. No other tool runs between paying and
+  recording, so nothing can navigate away from the receipt first.
 """
 
 import json
@@ -69,39 +74,71 @@ OpenPortal = Callable[[str], PortalDriver]
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 MAX_REASON = 500
 INACTIVE_ACCOUNT = "The vendor account is inactive. Nothing was paid."
+REDACTED = "[redacted]"
 # Each tool's input fields (all strings), as in prompt.TOOLS.
 TOOL_INPUTS: dict[str, set[str]] = {
     "load_approved_bill": set(),
     "sign_in": set(),
     "list_portal_bills": set(),
     "pay": {"bill_number"},
-    "save_receipt": set(),
     "flag_for_person": {"reason"},
 }
-SUBMITTED_NOTE = (
-    "A payment was submitted on the portal and its result is not recorded "
-    "here: check the portal before paying this bill again."
-)
+CHECK_THE_PORTAL = "check the portal before paying this bill again."
 
 
 class RunTaken(Exception):
     """The run is no longer running (flagged elsewhere): stop touching it."""
 
 
+def escaped_forms(secret: str) -> set[str]:
+    """How `secret` can read inside serialized text: as itself, JSON-escaped
+    (ASCII-only or not), and in a Python repr or ascii()."""
+    return {
+        secret,
+        json.dumps(secret)[1:-1],
+        json.dumps(secret, ensure_ascii=False)[1:-1],
+        repr(secret)[1:-1],
+        ascii(secret)[1:-1],
+    }
+
+
 class Redactor:
-    """Removes secrets from any text the agent writes or sends."""
+    """Removes secrets from anything the agent writes or sends.
+
+    Scrub a value with `scrub_value` before serializing it: once escaped, a
+    secret with a quote, a backslash or a non-ASCII character no longer reads
+    as itself. `scrub` also replaces the escaped forms, for text that is
+    already serialized (a traceback, a message quoting a repr)."""
 
     def __init__(self) -> None:
-        self._secrets: list[SecretStr] = []
+        self._forms: list[SecretStr] = []
 
     def add(self, secret: SecretStr) -> None:
-        if secret.get_secret_value():
-            self._secrets.append(secret)
+        value = secret.get_secret_value()
+        if not value:
+            return
+        forms = {form.get_secret_value() for form in self._forms}
+        forms |= escaped_forms(value)
+        # Longest first, so a longer escaped form is replaced whole.
+        self._forms = [SecretStr(f) for f in sorted(forms, key=len, reverse=True)]
 
     def scrub(self, text: str) -> str:
-        for secret in self._secrets:
-            text = text.replace(secret.get_secret_value(), "[redacted]")
+        for form in self._forms:
+            text = text.replace(form.get_secret_value(), REDACTED)
         return text
+
+    def scrub_value(self, value: Any) -> Any:
+        """`value` with every string in it scrubbed, through dicts and lists."""
+        if isinstance(value, str):
+            return self.scrub(value)
+        if isinstance(value, dict):
+            return {
+                self.scrub_value(key): self.scrub_value(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list | tuple):
+            return [self.scrub_value(item) for item in value]
+        return value
 
 
 class RunLog:
@@ -192,7 +229,6 @@ class PaymentTools:
             "sign_in": self.sign_in,
             "list_portal_bills": self.list_portal_bills,
             "pay": self.pay,
-            "save_receipt": self.save_receipt,
             "flag_for_person": self.flag_for_person,
         }
 
@@ -211,12 +247,18 @@ class PaymentTools:
         ):
             return ToolResult({"error": f"Bad input for {name}."}, is_error=True)
         try:
-            return ToolResult(handler(**arguments))
+            content = handler(**arguments)
         except Flagged as flag:
             self.flag(flag.reason)
             return ToolResult({"run_ended": "flagged", "reason": self.end_reason()})
         except _OutOfOrder as problem:
             return ToolResult({"error": str(problem)}, is_error=True)
+        if self.payment_submitted and self.end is None:
+            # pay records a submitted payment, or flags the run, before it
+            # returns. Never hand back to the model with a payment unrecorded:
+            # its next tool could navigate away from the receipt.
+            raise RuntimeError("pay returned without recording the payment")
+        return ToolResult(content)
 
     def end_reason(self) -> str | None:
         return self.end.flag_reason if self.end else None
@@ -225,8 +267,14 @@ class PaymentTools:
         if self.end is not None:
             return
         reason = self.redactor.scrub(reason)[:MAX_REASON]
-        if self.payment_submitted and self.outcome is None:
-            reason = f"{reason} {SUBMITTED_NOTE}"
+        if self.payment_submitted:
+            # Flagging after the payment may have reached the portal: it is
+            # not recorded here, so a person must look before paying again.
+            if self.outcome is None:
+                note = "The payment may have gone through on the portal"
+            else:
+                note = f"The portal says the payment was {self.outcome.value}"
+            reason = f"{reason} {note}, and it is not recorded here: {CHECK_THE_PORTAL}"
         self.end = RunEnd(PaymentRunStatus.flagged, flag_reason=reason)
         self.log.add("flagged", reason)
 
@@ -380,10 +428,11 @@ class PaymentTools:
         }
 
     def pay(self, bill_number: str) -> dict[str, Any]:
+        """Check, pay, and record the portal's answer. Once the payment may
+        have reached the portal, this either records it and ends the run as
+        paid or failed, or flags the run with the check-the-portal note:
+        either way the run ends here, before the model calls anything else."""
         target, driver = self._target(), self._driver()
-        if self.outcome is not None:
-            # The portal already took or declined it; only recording is left.
-            raise _OutOfOrder("This run already paid once: call save_receipt.")
         if self.pay_attempts:
             raise Flagged("A second pay attempt was refused: one per run.")
         self.pay_attempts += 1
@@ -467,24 +516,27 @@ class PaymentTools:
             f"Paying {ours}: {format_money(target.amount)} by one-time ACH "
             "with the portal's sample details.",
         )
-        # Cautious until the driver says it stopped before the final Submit /
-        # Pay click: any other failure may come after the portal took it.
+        # Cautious until the driver says it stopped before the click that may
+        # submit the payment: any other failure may come after the portal
+        # took it.
         self.payment_submitted = True
         try:
-            self.outcome = driver.submit_payment(expected)
+            outcome = driver.submit_payment(expected)
         except PaymentNotSubmitted as refusal:
             self.payment_submitted = False
             raise Flagged(f"{str(refusal).rstrip('.')}. Nothing was paid.") from None
         except PortalError as error:
             raise Flagged(str(error)) from None
-        self.log.add("pay", f"The portal says the payment was {self.outcome.value}.")
-        return {"outcome": self.outcome.value, "next": "Call save_receipt."}
+        self.outcome = outcome
+        # The receipt is on screen now: record it before anything else.
+        return self._record(target, driver, outcome)
 
-    def save_receipt(self) -> dict[str, Any]:
-        target, driver = self._target(), self._driver()
-        if self.outcome is None:
-            raise _OutOfOrder("Nothing was paid yet: call pay first.")
-        outcome = self.outcome
+    def _record(
+        self, target: Target, driver: PortalDriver, outcome: PaymentOutcome
+    ) -> dict[str, Any]:
+        """Read the receipt the portal shows after paying and record it, then
+        end the run. Saves no step before recording, so a run ended elsewhere
+        meanwhile (RunTaken) cannot stop a payment from being recorded."""
         receipt: PortalReceipt = self._portal(driver.read_receipt)
 
         problem = None
@@ -499,13 +551,10 @@ class PaymentTools:
         if problem:
             raise Flagged(
                 f"The receipt ({receipt.confirmation_number}) is for {problem}, "
-                f"not what was paid. It is not recorded here."
+                "not what was paid."
             )
 
-        today = datetime.now(UTC).date()
-        paid_on = receipt.paid_on or today
-        if receipt.paid_on is None:
-            self.log.add("save_receipt", "Could not read the receipt date; used today.")
+        paid_on = receipt.paid_on or datetime.now(UTC).date()
         record = PaymentCreate(
             amount=target.amount,
             payment_method=PaymentMethod.ACH,
@@ -531,9 +580,9 @@ class PaymentTools:
             )
         except (BillNotFound, BillNotApproved, AmountMismatch) as error:
             raise Flagged(
-                f"The portal says the payment was {outcome.value} (confirmation "
-                f"{receipt.confirmation_number}), but recording it here was "
-                f"refused ({type(error).__name__}). A person must reconcile it."
+                f"Recording the portal's receipt (confirmation "
+                f"{receipt.confirmation_number}) was refused "
+                f"({type(error).__name__}). A person must reconcile it."
             ) from None
 
         saved = PaymentRunReceipt(
@@ -549,21 +598,24 @@ class PaymentTools:
             if outcome is PaymentOutcome.successful
             else PaymentRunStatus.failed
         )
+        self.end = RunEnd(status, receipt=saved, payment_id=payment.id)
+
+        self.log.add("pay", f"The portal says the payment was {outcome.value}.")
+        if receipt.paid_on is None:
+            self.log.add("receipt", "Could not read the receipt date; used today.")
         what = "payment" if status is PaymentRunStatus.paid else "declined attempt"
         self.log.add(
-            "save_receipt",
+            "receipt",
             f"Recorded the {what}: confirmation {saved.confirmation_number}, "
             f"{format_money(saved.amount)}, {saved.paid_on.isoformat()}.",
         )
-        self.end = RunEnd(status, receipt=saved, payment_id=payment.id)
-        return {"recorded": True, "confirmation_number": saved.confirmation_number}
+        return {
+            "run_ended": status.value,
+            "outcome": outcome.value,
+            "confirmation_number": saved.confirmation_number,
+        }
 
     def flag_for_person(self, reason: str) -> dict[str, Any]:
-        if self.outcome is not None:
-            # A payment the portal answered is recorded, whatever comes next.
-            raise _OutOfOrder(
-                "The portal already answered the payment: call save_receipt."
-            )
         raise Flagged(f"The agent flagged this run: {reason.strip() or 'no reason'}")
 
 
@@ -572,9 +624,12 @@ class _OutOfOrder(Exception):
 
 
 def tool_result_block(tool_use_id: str, result: ToolResult, redactor: Redactor):
+    # Scrub each string before serializing, where the password still reads as
+    # itself; scrubbing the JSON again is defense in depth.
+    content = json.dumps(redactor.scrub_value(result.content))
     return {
         "type": "tool_result",
         "tool_use_id": tool_use_id,
-        "content": redactor.scrub(json.dumps(result.content)),
+        "content": redactor.scrub(content),
         "is_error": result.is_error,
     }

@@ -1,5 +1,5 @@
-"""Every bill, payment, payment run, vendor and vendor account route enforces
-the role table.
+"""Every bill, payment, payment run, vendor, vendor account and property route
+enforces the role table.
 
 Who may call each route, active users only.
 
@@ -52,9 +52,11 @@ ROLE_TABLE = [
     ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
     ("PATCH", "/vendors/{vendor_id}", {ADMIN}, 200),
     ("GET", "/vendors/{vendor_id}/accounts", {ANALYST, APPROVER, ADMIN}, 200),
+    ("GET", "/vendor-accounts", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/vendor-accounts", {ADMIN}, 201),
     ("GET", "/vendor-accounts/{account_id}", {ANALYST, APPROVER, ADMIN}, 200),
     ("PATCH", "/vendor-accounts/{account_id}", {ADMIN}, 200),
+    ("GET", "/properties", {ANALYST, APPROVER, ADMIN}, 200),
     ("GET", "/admin/users", {ADMIN}, 200),
     ("GET", "/admin/users/{user_id}", {ADMIN}, 200),
     ("PATCH", "/admin/users/{user_id}", {ADMIN}, 200),
@@ -139,6 +141,7 @@ def db():
         patch("backend.api.bill_documents.get_admin_supabase", return_value=fake),
         patch("backend.api.vendors.get_admin_supabase", return_value=fake),
         patch("backend.api.vendor_accounts.get_admin_supabase", return_value=fake),
+        patch("backend.api.properties.get_admin_supabase", return_value=fake),
         patch("backend.api.users.get_admin_supabase", return_value=fake),
         patch("backend.api.payments.get_admin_supabase", return_value=fake),
         patch("backend.api.payment_runs.get_admin_supabase", return_value=fake),

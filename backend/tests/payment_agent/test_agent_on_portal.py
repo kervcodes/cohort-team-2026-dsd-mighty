@@ -11,7 +11,16 @@ import logging
 from decimal import Decimal
 
 import pytest
-from agent_setup import AMOUNT, APPROVER, BILL_NUMBER, Setup, agent, make_setup
+from agent_setup import (
+    AMOUNT,
+    APPROVER,
+    AWKWARD_PASSWORDS,
+    BILL_NUMBER,
+    Setup,
+    agent,
+    assert_password_never_shown,
+    make_setup,
+)
 from fake_model import HAPPY_PATH, tool
 from fake_portal import EMAIL, OUR_ACCOUNT, PASSWORD, Account, FakePortal
 from playwright.sync_api import Error as PlaywrightError
@@ -59,10 +68,6 @@ def run(portal: FakePortal, script=HAPPY_PATH, **kwargs):
     return setup, status, model
 
 
-def details(setup: Setup) -> str:
-    return " | ".join(step["detail"] for step in setup.run["steps"])
-
-
 def assert_flagged(setup: Setup, status, portal: FakePortal, *words: str) -> None:
     """Flagged with nothing paid: no payment reached the portal, and the
     reason never says one might have."""
@@ -76,6 +81,23 @@ def assert_flagged(setup: Setup, status, portal: FakePortal, *words: str) -> Non
     assert setup.payments() == []
     assert setup.bill["status"] == "approved"
     assert portal.payment_posts == []
+
+
+def assert_flagged_to_check_the_portal(
+    setup: Setup, status, portal: FakePortal, *words: str
+) -> None:
+    """Flagged after the payment may have reached the portal: nothing is
+    recorded here, and the reason says to check the portal, never that
+    nothing was paid."""
+    assert status is PaymentRunStatus.flagged
+    run = setup.run
+    for word in words:
+        assert word in run["flag_reason"], run["flag_reason"]
+    assert "check the portal before paying this bill again" in run["flag_reason"]
+    assert "Nothing was paid" not in run["flag_reason"]
+    assert run["payment_id"] is None and run["finished_at"]
+    assert setup.payments() == []
+    assert setup.bill["status"] == "approved"
 
 
 # Paying
@@ -127,7 +149,7 @@ def test_pays_the_bill_and_records_the_receipt(billing, review):
         "list_portal_bills",
         "pay",
         "pay",
-        "save_receipt",
+        "receipt",
         "finished",
     ]
 
@@ -172,15 +194,6 @@ def test_declined_payment_is_recorded_as_failed():
     assert run_row["status"] == "failed"
     assert run_row["payment_id"] == payment["payment_id"]
     assert run_row["receipt"]["outcome"] == "declined"
-
-
-def test_receipt_is_saved_even_if_the_model_stops_after_paying():
-    with portal_with_our_bill() as portal:
-        setup, status, _model = run(portal, HAPPY_PATH[:4])  # no save_receipt
-
-    assert status is PaymentRunStatus.paid
-    assert len(setup.payments()) == 1
-    assert "receipt is saved now" in details(setup)
 
 
 # Refusing to pay
@@ -281,12 +294,13 @@ def test_review_screen_for_another_amount_is_not_confirmed():
     with portal_with_our_bill(review=True, company_extra=extra) as portal:
         setup, status, _model = run(portal)
 
-    assert_flagged(
+    assert_flagged_to_check_the_portal(
         setup,
         status,
         portal,
-        f"The review screen does not say $186.42 for {BILL_NUMBER}. Nothing was paid.",
+        f"The review screen does not say $186.42 for {BILL_NUMBER}.",
     )
+    assert portal.payment_posts == []  # Submit payment was never pressed
 
 
 def test_review_screen_for_a_longer_bill_number_is_not_confirmed():
@@ -294,26 +308,27 @@ def test_review_screen_for_a_longer_bill_number_is_not_confirmed():
     with portal_with_our_bill(review=True, company_extra=extra) as portal:
         setup, status, _model = run(portal)
 
-    assert_flagged(
+    assert_flagged_to_check_the_portal(
         setup,
         status,
         portal,
-        f"The review screen does not say $186.42 for {BILL_NUMBER}. Nothing was paid.",
+        f"The review screen does not say $186.42 for {BILL_NUMBER}.",
     )
+    assert portal.payment_posts == []  # Submit payment was never pressed
 
 
-def test_review_screen_without_a_submit_button_times_out_with_nothing_paid():
+def test_review_screen_without_a_submit_button_times_out_to_check_the_portal():
     extra = {"submitButtonLabel": "Continue"}
     with portal_with_our_bill(review=True, company_extra=extra) as portal:
         setup, status, _model = run(portal, config=AgentConfig(portal_timeout_ms=1_500))
 
-    assert_flagged(
+    assert_flagged_to_check_the_portal(
         setup,
         status,
         portal,
-        "Timed out waiting for the portal while getting the payment ready. "
-        "Nothing was paid.",
+        "Timed out waiting for the portal while submitting the payment.",
     )
+    assert portal.payment_posts == []
 
 
 def test_driver_refuses_a_payment_page_that_changed_before_paying():
@@ -351,12 +366,9 @@ def test_no_answer_after_submitting_is_flagged_to_check_the_portal():
     with portal_with_our_bill(hang={"/api/payments"}) as portal:
         setup, status, _model = run(portal, config=AgentConfig(portal_timeout_ms=1_500))
 
-    assert status is PaymentRunStatus.flagged
-    reason = setup.run["flag_reason"]
-    assert "Timed out" in reason and "while submitting the payment" in reason
-    assert "check the portal before paying this bill again" in reason
-    assert "Nothing was paid" not in reason
-    assert setup.payments() == []
+    assert_flagged_to_check_the_portal(
+        setup, status, portal, "Timed out", "while submitting the payment"
+    )
 
 
 # The password
@@ -419,3 +431,66 @@ def test_every_run_closes_its_browser():
             assert after.check()
 
     assert first is PaymentRunStatus.paid
+
+
+# Regressions
+
+
+@pytest.mark.parametrize(
+    ("decline", "ended"),
+    [(False, PaymentRunStatus.paid), (True, PaymentRunStatus.failed)],
+)
+def test_a_tool_that_navigates_after_pay_cannot_lose_the_receipt(decline, ended):
+    # list_portal_bills leaves the receipt page; pay has recorded it already.
+    script = [*HAPPY_PATH[:4], tool("list_portal_bills")]
+    with portal_with_our_bill(decline=decline) as portal:
+        setup, status, model = run(
+            portal, script, config=AgentConfig(portal_timeout_ms=1_500)
+        )
+
+    assert status is ended
+    assert len(model.requests) == 4  # nothing ran after pay
+    assert len(portal.payment_posts) == 1
+    [on_portal] = portal.payments
+    [payment] = setup.payments()
+    assert payment["provider_reference"] == on_portal["id"]
+    assert payment["payment_status"] == ("failed" if decline else "completed")
+    assert setup.run["payment_id"] == payment["payment_id"]
+    assert setup.run["receipt"]["confirmation_number"] == on_portal["id"]
+
+
+def test_a_failure_from_the_review_payment_click_on_says_to_check_the_portal():
+    # The Review payment click may itself pay on a real portal, so a failure
+    # after it (here, no review screen appears) is never "Nothing was paid".
+    extra = {"reviewHeading": "Confirm your payment"}
+    with portal_with_our_bill(review=True, company_extra=extra) as portal:
+        setup, status, _model = run(portal, config=AgentConfig(portal_timeout_ms=1_500))
+
+    assert_flagged_to_check_the_portal(
+        setup,
+        status,
+        portal,
+        "Timed out waiting for the portal while submitting the payment.",
+    )
+    assert portal.payment_posts == []
+
+
+@pytest.mark.parametrize("password", AWKWARD_PASSWORDS)
+@pytest.mark.parametrize("case", ["paid", "timeout", "declined"])
+def test_an_awkward_password_never_leaves_vault_and_the_browser(password, case, caplog):
+    caplog.set_level(logging.DEBUG)
+    options, ended = {
+        "paid": ({}, PaymentRunStatus.paid),
+        "timeout": ({"hang": {"/api/payments"}}, PaymentRunStatus.flagged),
+        "declined": ({"decline": True}, PaymentRunStatus.failed),
+    }[case]
+    with portal_with_our_bill(password=password, **options) as portal:
+        setup, status, model = run(
+            portal,
+            setup={"password": password},
+            config=AgentConfig(portal_timeout_ms=1_500),
+        )
+
+    assert portal.login_attempts == 1
+    assert status is ended  # the portal took the login
+    assert_password_never_shown(password, setup, model, caplog.text)

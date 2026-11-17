@@ -11,7 +11,17 @@ from typing import Any
 import anthropic
 import httpx2
 import pytest
-from agent_setup import AMOUNT, BILL_NUMBER, Setup, agent, make_setup, no_portal
+from agent_setup import (
+    AMOUNT,
+    AWKWARD_PASSWORDS,
+    BILL_NUMBER,
+    Setup,
+    agent,
+    assert_password_never_shown,
+    make_setup,
+    no_portal,
+    password_forms,
+)
 from fake_model import END, HAPPY_PATH, REFUSAL, tool
 from fake_portal import EMAIL, OUR_ACCOUNT, PASSWORD
 from pydantic import SecretStr
@@ -30,6 +40,7 @@ from backend.payment_agent.portal import (
     PortalTimeout,
     SignInFailed,
 )
+from backend.payment_agent.tools import PaymentTools, Redactor
 from backend.schemas.payment_run import PaymentRunStatus
 
 PORTAL_URL = "https://alder-creek-utility-demo.vercel.app"
@@ -43,15 +54,18 @@ class StubPortal:
     bills: list[PortalBill] = field(default_factory=lambda: [OURS])
     outcome: PaymentOutcome = PaymentOutcome.successful
     receipt_bill: str = BILL_NUMBER
+    password: str = PASSWORD
     sign_in_error: Exception | None = None
+    list_error: Exception | None = None
     submit_error: Exception | None = None
+    receipt_error: Exception | None = None
     on_list: Any = None
     calls: list[str] = field(default_factory=list)
     closed: bool = False
 
     def sign_in(self, email: str, password: SecretStr) -> None:
         self.calls.append("sign_in")
-        assert (email, password.get_secret_value()) == (EMAIL, PASSWORD)
+        assert (email, password.get_secret_value()) == (EMAIL, self.password)
         if self.sign_in_error:
             raise self.sign_in_error
 
@@ -59,6 +73,8 @@ class StubPortal:
         self.calls.append("list_bills")
         if self.on_list:
             self.on_list()
+        if self.list_error:
+            raise self.list_error
         return self.bills
 
     def list_payments(self, account_number: str) -> list:
@@ -74,6 +90,9 @@ class StubPortal:
         return self.outcome
 
     def read_receipt(self) -> PortalReceipt:
+        self.calls.append("read_receipt")
+        if self.receipt_error:
+            raise self.receipt_error
         return PortalReceipt(
             account_number=OUR_ACCOUNT,
             confirmation_number="PAY-0001",
@@ -108,7 +127,7 @@ def test_happy_path_with_a_stub_portal():
     assert stub.closed
     assert setup.payments()[0]["provider_reference"] == "PAY-0001"
     assert setup.run["receipt"]["paid_on"] == "2026-11-15"
-    assert len(model.requests) == 5  # the run ends with save_receipt
+    assert len(model.requests) == 4  # the run ends with pay
 
 
 def test_model_request_uses_the_configured_model_with_adaptive_thinking():
@@ -128,7 +147,6 @@ def test_model_request_uses_the_configured_model_with_adaptive_thinking():
         "sign_in",
         "list_portal_bills",
         "pay",
-        "save_receipt",
         "flag_for_person",
     }
     assert all(t["strict"] for t in request["tools"])
@@ -327,23 +345,6 @@ def test_bad_tool_input_is_an_error():
     assert result["is_error"] is True
 
 
-def test_a_second_pay_after_an_answer_is_refused_and_the_payment_saved():
-    script = [*HAPPY_PATH[:4], tool("pay", bill_number=BILL_NUMBER), END]
-    setup, stub, status, _model = go(script)
-
-    assert stub.calls.count("submit") == 1
-    assert status is PaymentRunStatus.paid
-    assert len(setup.payments()) == 1
-
-
-def test_flagging_after_the_portal_answered_still_saves_the_payment():
-    script = [*HAPPY_PATH[:4], tool("flag_for_person", reason="Unsure."), END]
-    setup, _stub, status, _model = go(script)
-
-    assert status is PaymentRunStatus.paid
-    assert len(setup.payments()) == 1
-
-
 def test_bill_not_approved_is_flagged_before_signing_in():
     setup = make_setup(PORTAL_URL)
     setup.bill["status"] = "pending_approval"
@@ -420,7 +421,11 @@ def test_receipt_for_another_bill_is_not_recorded():
     setup, _stub, status, _model = go(HAPPY_PATH, StubPortal(receipt_bill="BILL-9"))
 
     assert status is PaymentRunStatus.flagged
-    assert "BILL-9" in reason(setup) and "not recorded" in reason(setup)
+    assert reason(setup) == (
+        "The receipt (PAY-0001) is for bill BILL-9, not what was paid. The portal "
+        "says the payment was successful, and it is not recorded here: check the "
+        "portal before paying this bill again."
+    )
     assert setup.payments() == []
 
 
@@ -443,6 +448,7 @@ def test_recording_refused_because_the_bill_was_paid_meanwhile_is_flagged():
 
     assert status is PaymentRunStatus.flagged
     assert "PAY-0001" in reason(setup) and "reconcile" in reason(setup)
+    assert "check the portal before paying this bill again" in reason(setup)
 
 
 @pytest.mark.parametrize(
@@ -451,7 +457,6 @@ def test_recording_refused_because_the_bill_was_paid_meanwhile_is_flagged():
         "The payment page changed before paying.",
         "Could not find the Pay or Review payment button.",
         "The Pay button says $199.99, not $186.42.",
-        "The review screen does not say $186.42 for BILL-1001.",
         "Timed out waiting for the portal while getting the payment ready.",
     ],
 )
@@ -470,6 +475,8 @@ def test_refusal_before_the_final_click_says_only_nothing_was_paid(refusal):
     [
         PortalError("The portal showed an error after the payment was submitted."),
         PortalTimeout("Timed out waiting for the portal while submitting the payment."),
+        # From the Review payment click on, the payment may be submitted.
+        PortalError("The review screen does not say $186.42 for BILL-1001."),
     ],
 )
 def test_portal_error_after_submitting_says_to_check_the_portal(error):
@@ -528,3 +535,105 @@ def test_only_a_running_run_is_run():
 
     assert status is None
     assert model.requests == []
+
+
+# Recording the payment inside pay
+
+
+def test_the_run_ends_inside_pay_so_no_tool_runs_after_it():
+    # The model asks for more after pay; none of it runs, and the payment is
+    # recorded from the receipt pay read before handing back.
+    script = [
+        *HAPPY_PATH[:4],
+        tool("list_portal_bills"),
+        tool("pay", bill_number=BILL_NUMBER),
+        tool("flag_for_person", reason="Unsure."),
+    ]
+    setup, stub, status, model = go(script)
+
+    assert status is PaymentRunStatus.paid
+    assert len(model.requests) == 4
+    assert stub.calls == [
+        "sign_in",
+        "list_bills",
+        "list_bills",
+        "submit",
+        "read_receipt",
+    ]
+    [payment] = setup.payments()
+    assert setup.run["payment_id"] == payment["payment_id"]
+
+
+def test_pay_never_hands_back_to_the_model_with_the_payment_unrecorded(
+    monkeypatch,
+):
+    # A pay that returned without recording would let the model's next tool
+    # navigate away from the receipt: the run flags at once instead.
+    monkeypatch.setattr(PaymentTools, "_record", lambda *_args: {"recorded": False})
+    setup, stub, status, model = go([*HAPPY_PATH, tool("list_portal_bills")])
+
+    assert status is PaymentRunStatus.flagged
+    assert "unexpected error (RuntimeError)" in reason(setup)
+    assert "check the portal before paying this bill again" in reason(setup)
+    assert len(model.requests) == 4
+    assert stub.calls.count("list_bills") == 2  # list_portal_bills and pay's own
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        PortalTimeout("Timed out waiting for the portal while reading the receipt."),
+        PortalError("The receipt is missing Amount."),
+        RuntimeError("boom"),
+    ],
+)
+def test_a_receipt_that_cannot_be_read_says_to_check_the_portal(error):
+    setup, stub, status, _model = go(HAPPY_PATH, StubPortal(receipt_error=error))
+
+    assert status is PaymentRunStatus.flagged
+    assert stub.calls.count("submit") == 1
+    assert "check the portal before paying this bill again" in reason(setup)
+    assert "Nothing was paid" not in reason(setup)
+    assert setup.payments() == []
+    assert setup.bill["status"] == "approved"
+
+
+# The password in escaped forms
+
+
+def test_redactor_scrubs_nested_values_and_escaped_forms():
+    for password in AWKWARD_PASSWORDS:
+        redactor = Redactor()
+        redactor.add(SecretStr(password))
+        value = {"a": [f"x {password} y", {"b": password}], "c": 1}
+
+        assert redactor.scrub_value(value) == {
+            "a": ["x [redacted] y", {"b": "[redacted]"}],
+            "c": 1,
+        }
+        for form in password_forms(password):
+            assert redactor.scrub(f"<{form}>") == "<[redacted]>"
+
+
+@pytest.mark.parametrize("password", AWKWARD_PASSWORDS)
+@pytest.mark.parametrize("leak", ["portal text", "portal error", "crash"])
+def test_an_awkward_password_never_shows_in_any_form(password, leak, caplog):
+    caplog.set_level(logging.DEBUG)
+    echoed = PortalBill(
+        BILL_NUMBER, Decimal(AMOUNT), f"Nov 30 ({password})", PortalBillStatus.due
+    )
+    stub = {
+        # The portal shows the password in a bill the model is sent.
+        "portal text": StubPortal(bills=[echoed]),
+        # A driver error quoting portal text with repr().
+        "portal error": StubPortal(
+            list_error=PortalError(f"Unknown bill status {password!r} on the portal.")
+        ),
+        # A bug whose traceback quotes it.
+        "crash": StubPortal(submit_error=RuntimeError(f"boom {password!r}")),
+    }[leak]
+    stub.password = password
+    setup = make_setup(PORTAL_URL, password=password)
+    setup, _stub, _status, model = go(HAPPY_PATH, stub, setup)
+
+    assert_password_never_shown(password, setup, model, caplog.text)

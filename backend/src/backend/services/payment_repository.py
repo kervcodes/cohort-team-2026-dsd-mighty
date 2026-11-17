@@ -1,5 +1,5 @@
 """Payments against bills. Recording one goes through the `record_payment`
-Postgres function (migration 20261115120000_record_payment), which locks the
+Postgres function (migration 20261117100000_record_payment), which locks the
 bill, checks it, inserts the payment and marks the bill paid in one
 transaction."""
 

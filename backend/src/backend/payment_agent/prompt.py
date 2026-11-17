@@ -21,8 +21,8 @@ approved bill's number. Match on the bill number only: other bills, even on \
 the same account, can have the same amount. The amount is a check, never the \
 key.
 4. If that bill is listed, not paid, and its amount equals the approved \
-amount, call pay with its bill number. Call pay at most once.
-5. When pay reports a result (successful or declined), call save_receipt.
+amount, call pay with its bill number. Call pay at most once. pay records \
+the portal's receipt itself and ends the run.
 
 If anything is unexpected (the bill is not listed, it already shows paid, the \
 amount differs, or a tool returns an error you cannot fix by calling the \
@@ -72,18 +72,14 @@ TOOLS: list[dict[str, Any]] = [
         "Pay one bill on the portal, once per run. Code re-checks that it is "
         "this run's approved bill, on this run's account, for the approved "
         "amount and not already paid, then pays it with the portal's sample "
-        "payment details. Returns successful or declined.",
+        "payment details, reads the portal's receipt and records the payment "
+        "(or the declined attempt) on the bill. Ends the run.",
         {
             "bill_number": {
                 "type": "string",
                 "description": "The portal bill number, e.g. BILL-1001.",
             }
         },
-    ),
-    _tool(
-        "save_receipt",
-        "Read the portal's receipt after pay and record the payment (or the "
-        "declined attempt) on the bill. Ends the run.",
     ),
     _tool(
         "flag_for_person",

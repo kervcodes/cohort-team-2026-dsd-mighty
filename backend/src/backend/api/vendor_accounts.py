@@ -1,14 +1,16 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from backend.auth import VENDOR_READERS, VENDOR_WRITERS, require_active
 from backend.schemas.vendor_account import (
     VendorAccountCreate,
+    VendorAccountOption,
     VendorAccountRead,
     VendorAccountUpdate,
 )
 from backend.services import vendor_account_repository, vendor_repository
+from backend.services.vendor_account_matching import same_account_number
 from backend.services.vendor_account_repository import (
     DuplicateVendorAccount,
     UnknownReference,
@@ -38,6 +40,26 @@ def list_vendor_accounts(vendor_id: UUID) -> list[dict]:
         )
 
     return vendor_account_repository.list_accounts_for_vendor(client, vendor_id)
+
+
+@router.get(
+    "/vendor-accounts",
+    response_model=list[VendorAccountOption],
+    dependencies=[Depends(require_active(*VENDOR_READERS))],
+)
+def list_active_vendor_accounts(
+    account_number: str | None = Query(default=None, max_length=100),
+) -> list[dict]:
+    """Active accounts with their vendor's and property's names, for the bill
+    form. `account_number` keeps only the accounts a bill with that number
+    matches, by the rule bills are matched with."""
+    accounts = vendor_account_repository.list_active_account_options(
+        get_admin_supabase()
+    )
+
+    if account_number is None:
+        return accounts
+    return same_account_number(accounts, account_number)
 
 
 @router.post(

@@ -15,6 +15,7 @@ from backend.api.health import router as health_router
 from backend.api.me import router as me_router
 from backend.api.payment_runs import router as payment_runs_router
 from backend.api.payments import router as payments_router
+from backend.api.properties import router as properties_router
 from backend.api.users import router as users_router
 from backend.api.vendor_accounts import router as vendor_accounts_router
 from backend.api.vendors import router as vendors_router
@@ -78,6 +79,7 @@ app.include_router(payment_runs_router)
 app.include_router(approvals_router)
 app.include_router(vendors_router)
 app.include_router(vendor_accounts_router)
+app.include_router(properties_router)
 app.include_router(bill_documents_router)
 app.include_router(me_router)
 app.include_router(users_router)

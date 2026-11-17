@@ -31,8 +31,9 @@ Errors: every public method converts Playwright errors into `PortalError` /
 `PortalTimeout` with a message written here, raised outside the `except`
 block so no Playwright message (which could quote a typed value) rides along
 as the exception's context. `submit_payment` raises `PaymentNotSubmitted` for
-anything that goes wrong before its final Submit / Pay click, and a plain
-`PortalError` / `PortalTimeout` from the click on.
+anything that goes wrong before its first click that may submit the payment
+("Pay $x", or "Review payment" on a portal with a review screen), and a plain
+`PortalError` / `PortalTimeout` from that click on.
 """
 
 import re
@@ -73,7 +74,8 @@ CHROMIUM_ARGS = ("--disable-dev-shm-usage",)
 _browser_slot = threading.Lock()
 
 ACCOUNT_SELECTOR = "Property / service account"
-PAY_BUTTON = re.compile(r"^(Pay \$[\d,]+\.\d{2}|Review payment)$")
+REVIEW_BUTTON = "Review payment"
+PAY_BUTTON = re.compile(rf"^(Pay \$[\d,]+\.\d{{2}}|{REVIEW_BUTTON})$")
 OVERVIEW_HEADING = re.compile(r"^Welcome, ")
 RESULT_HEADING = re.compile(r"^Payment (complete|declined)\.$")
 OPEN_BILL_LINK = ("Pay bill", "View statement")
@@ -421,14 +423,18 @@ class PlaywrightPortal:
         )
 
     def submit_payment(self, expected: PaymentForm) -> PaymentOutcome:
-        submit = self._before_submitting(lambda: self._prepare_payment(expected))
+        button, reviews = self._before_submitting(
+            lambda: self._prepare_payment(expected)
+        )
         return self._attempt(
-            "submitting the payment", lambda: self._submit_and_read(submit)
+            "submitting the payment",
+            lambda: self._submit_and_read(button, reviews, expected),
         )
 
     def _before_submitting(self, action: Callable[[], T]) -> T:
-        """Run a step that comes before the final Submit / Pay click. Any
-        failure there, a refusal or a timeout, is PaymentNotSubmitted."""
+        """Run a step that comes before the first click that may submit the
+        payment. Any failure there, a refusal or a timeout, is
+        PaymentNotSubmitted."""
         failure: PaymentNotSubmitted
         try:
             return self._attempt("getting the payment ready", action)
@@ -436,10 +442,10 @@ class PlaywrightPortal:
             failure = PaymentNotSubmitted(str(error))
         raise failure
 
-    def _prepare_payment(self, expected: PaymentForm) -> Locator:
-        """Fill and check the payment up to its final click, and return the
-        button that submits it: "Pay $x", or "Submit payment" on a review
-        screen. Nothing is paid yet."""
+    def _prepare_payment(self, expected: PaymentForm) -> tuple[Locator, bool]:
+        """Fill and check the payment page, and return its button plus
+        whether it opens a review screen ("Review payment") rather than
+        paying ("Pay $x"). Nothing that could pay has been clicked yet."""
         page = self._page
         if self._read_payment_form() != expected:
             raise PortalError("The payment page changed before paying.")
@@ -458,28 +464,35 @@ class PlaywrightPortal:
         if button.count() != 1:
             raise PortalError("Could not find the Pay or Review payment button.")
         label = button.inner_text().strip()
-        if label != "Review payment":
-            shown = parse_money(label.removeprefix("Pay "))
-            if shown != expected.amount:
-                raise PortalError(
-                    f"The Pay button says {format_money(shown)}, "
-                    f"not {format_money(expected.amount)}."
-                )
-            return button
+        if label == REVIEW_BUTTON:
+            return button, True
+        shown = parse_money(label.removeprefix("Pay "))
+        if shown != expected.amount:
+            raise PortalError(
+                f"The Pay button says {format_money(shown)}, "
+                f"not {format_money(expected.amount)}."
+            )
+        return button, False
 
-        button.click()  # only opens the review screen
-        review = page.locator("#payment-review")
-        review.get_by_role("heading", name="Review your payment").wait_for()
-        text = " ".join(review.inner_text().split())
-        wanted = f"{format_money(expected.amount)} for {expected.bill_number}"
-        if not re.search(re.escape(wanted) + r"(?![\w-])", text):
-            raise PortalError(f"The review screen does not say {wanted}.")
-        submit = review.get_by_role("button", name="Submit payment")
-        submit.wait_for()  # exactly one, before the click that pays
-        return submit
-
-    def _submit_and_read(self, submit: Locator) -> PaymentOutcome:
-        submit.click()
+    def _submit_and_read(
+        self, button: Locator, reviews: bool, expected: PaymentForm
+    ) -> PaymentOutcome:
+        """Click the button, confirm on the review screen if it opened one,
+        and read the portal's answer. From the first click on, any failure
+        may come after the portal took the payment: the demo portals' Review
+        payment only opens the review screen, but a real portal's is not
+        guaranteed to."""
+        button.click()
+        if reviews:
+            review = self._page.locator("#payment-review")
+            review.get_by_role("heading", name="Review your payment").wait_for()
+            text = " ".join(review.inner_text().split())
+            wanted = f"{format_money(expected.amount)} for {expected.bill_number}"
+            if not re.search(re.escape(wanted) + r"(?![\w-])", text):
+                raise PortalError(f"The review screen does not say {wanted}.")
+            submit = review.get_by_role("button", name="Submit payment")
+            submit.wait_for()  # exactly one
+            submit.click()
         result = self._heading(RESULT_HEADING)
         result.or_(self._error_notice()).first.wait_for()
         if not result.is_visible():
