@@ -1,4 +1,11 @@
-import { createProperty, listAllProperties, listProperties, type PropertyRead } from "./properties";
+import {
+  createProperty,
+  getProperty,
+  listAllProperties,
+  listProperties,
+  type PropertyRead,
+  updateProperty,
+} from "./properties";
 
 const mockGetSession = jest.fn();
 
@@ -129,5 +136,59 @@ describe("createProperty", () => {
     });
 
     await expect(createProperty(payload)).rejects.toThrow("Your role can't do this.");
+  });
+});
+
+describe("getProperty", () => {
+  it("GETs the property with the bearer token", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => property("7") });
+
+    const result = await getProperty("7");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/properties/7");
+    expect(init.method).toBe("GET");
+    expect(init.headers).toEqual({ Authorization: "Bearer test-token" });
+    expect(result).toEqual(property("7"));
+  });
+
+  it("throws the server detail", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({ detail: "Property not found." }),
+    });
+
+    await expect(getProperty("7")).rejects.toThrow("Property not found.");
+  });
+});
+
+describe("updateProperty", () => {
+  it("PATCHes only the fields sent, as JSON with the bearer token", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => property("7") });
+
+    const result = await updateProperty("7", { status: "inactive" });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/properties/7");
+    expect(init.method).toBe("PATCH");
+    expect(init.headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer test-token",
+    });
+    expect(JSON.parse(init.body)).toEqual({ status: "inactive" });
+    expect(result).toEqual(property("7"));
+  });
+
+  it("throws the server detail", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ detail: "Your role can't do this." }),
+    });
+
+    await expect(updateProperty("7", { status: "inactive" })).rejects.toThrow(
+      "Your role can't do this.",
+    );
   });
 });

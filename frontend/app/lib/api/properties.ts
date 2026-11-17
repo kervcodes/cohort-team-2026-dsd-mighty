@@ -44,6 +44,41 @@ export function createProperty(payload: PropertyCreatePayload): Promise<Property
   );
 }
 
+// Body of PATCH /properties/:id (backend PropertyUpdate): only the fields to
+// change. A new address replaces the whole address; null is refused.
+export type PropertyUpdatePayload = Partial<Omit<PropertyCreatePayload, "status">> & {
+  status?: EntityStatus;
+};
+
+export function getProperty(propertyId: string): Promise<PropertyRead> {
+  return apiRequest<PropertyRead>(
+    `/properties/${encodeURIComponent(propertyId)}`,
+    { method: "GET", cache: "no-store" },
+    {
+      signedOut: "You must be signed in to view this property.",
+      failed: "Unable to load the property",
+    },
+  );
+}
+
+export function updateProperty(
+  propertyId: string,
+  payload: PropertyUpdatePayload,
+): Promise<PropertyRead> {
+  return apiRequest<PropertyRead>(
+    `/properties/${encodeURIComponent(propertyId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    {
+      signedOut: "You must be signed in to change a property.",
+      failed: "Unable to save the property",
+    },
+  );
+}
+
 // The most GET /properties returns in one page.
 export const MAX_PAGE_SIZE = 100;
 

@@ -1,5 +1,5 @@
-"""GET /properties reads `public.properties` through the repository, and
-POST /properties adds one.
+"""GET /properties reads `public.properties` through the repository, POST
+/properties adds one, GET /properties/{id} reads one and PATCH changes one.
 
 Who may call them is checked in test_route_permissions.py; these tests cover
 what they do for a caller who is allowed.
@@ -241,3 +241,138 @@ def test_create_rejects_a_bad_body_with_422_and_stores_nothing(db, admin, change
 
     assert response.status_code == 422
     assert db.tables.get("properties", []) == []
+
+
+# GET /properties/{id}
+
+MISSING_ID = "11111111-1111-4111-8111-111111111111"
+
+
+def test_get_returns_one_property_with_api_field_names(db, analyst):
+    oak = db.add_property("Oak Plaza", street="9 Oak Ave", zip_code="73301")
+
+    response = analyst.get(f"/properties/{oak['property_id']}")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["id"] == oak["property_id"]
+    assert body["property_name"] == "Oak Plaza"
+    assert body["address"]["street"] == "9 Oak Ave"
+    assert body["address"]["zip_code"] == "73301"
+
+
+def test_get_an_unknown_property_is_404(db, analyst):
+    response = analyst.get(f"/properties/{MISSING_ID}")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Property not found."
+
+
+def test_get_a_malformed_id_is_422(db, analyst):
+    assert analyst.get("/properties/not-a-uuid").status_code == 422
+
+
+# PATCH /properties/{id}
+
+
+def test_patch_changes_only_the_fields_sent(db, admin):
+    oak = db.add_property("Oak Plaza", street="9 Oak Ave", city="Austin")
+
+    response = admin.patch(
+        f"/properties/{oak['property_id']}", json={"property_name": "  Oak Court "}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["property_name"] == "Oak Court"
+    (row,) = db.tables["properties"]
+    assert (row["property_name"], row["street"], row["city"], row["status"]) == (
+        "Oak Court",
+        "9 Oak Ave",
+        "Austin",
+        "active",
+    )
+
+
+def test_patch_replaces_the_whole_address_in_flat_columns(db, admin):
+    oak = db.add_property("Oak Plaza")
+    address = {
+        "street": " 12 Elm St ",
+        "city": "Plano",
+        "state": "tx",
+        "zip_code": "75024-1234",
+    }
+
+    response = admin.patch(
+        f"/properties/{oak['property_id']}", json={"address": address}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["address"] == {
+        "street": "12 Elm St",
+        "city": "Plano",
+        "state": "TX",
+        "zip_code": "75024-1234",
+    }
+    (row,) = db.tables["properties"]
+    assert (row["street"], row["city"], row["state"], row["zip_code"]) == (
+        "12 Elm St",
+        "Plano",
+        "TX",
+        "75024-1234",
+    )
+
+
+def test_patch_deactivates_and_reactivates(db, admin):
+    oak = db.add_property("Oak Plaza")
+    url = f"/properties/{oak['property_id']}"
+
+    assert admin.patch(url, json={"status": "inactive"}).json()["status"] == "inactive"
+    assert db.tables["properties"][0]["status"] == "inactive"
+    assert admin.patch(url, json={"status": "active"}).json()["status"] == "active"
+    assert db.tables["properties"][0]["status"] == "active"
+
+
+def test_a_deactivated_property_is_no_longer_matched_by_address(db, admin):
+    from backend.services.property_matching import property_for_address
+
+    oak = db.add_property("Oak Plaza", street="9 Oak Ave", zip_code="75201")
+    address = "9 Oak Ave, Dallas, TX 75201"
+    assert property_for_address(db, address) == oak["property_id"]
+
+    admin.patch(f"/properties/{oak['property_id']}", json={"status": "inactive"})
+
+    assert property_for_address(db, address) is None
+
+
+def test_patch_an_unknown_property_is_404(db, admin):
+    response = admin.patch(f"/properties/{MISSING_ID}", json={"status": "inactive"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Property not found."
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"property_name": None},
+        {"address": None},
+        {"status": None},
+        {"property_name": ""},
+        {"property_name": "x" * 201},
+        {"status": "closed"},
+        {"address": {**NEW_PROPERTY["address"], "state": "Texas"}},
+        {"address": {**NEW_PROPERTY["address"], "zip_code": "7520"}},
+        {"address": {"street": "1 Main St"}},
+        {"property_id": MISSING_ID},
+        {"created_at": "2026-01-01T00:00:00Z"},
+    ],
+)
+def test_patch_rejects_a_bad_body_with_422_and_changes_nothing(db, admin, body):
+    oak = db.add_property("Oak Plaza")
+    before = dict(db.tables["properties"][0])
+
+    response = admin.patch(f"/properties/{oak['property_id']}", json=body)
+
+    assert response.status_code == 422
+    assert db.tables["properties"][0] == before

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { StatusBadge } from "@/components/Status-Badge/status-badge";
 import type { Property } from "@/types/property";
@@ -72,12 +73,21 @@ export function PropertyTable({
               rows.map((property) => (
                 <tr
                   key={property.property_id}
-                  className="text-foreground transition-colors hover:bg-surface-muted"
+                  // `relative` anchors the name link's ::after, which covers the
+                  // whole row: clicking anywhere in it opens the property.
+                  className="group relative text-foreground transition-colors hover:bg-surface-muted"
                 >
                   <td className="px-6 py-4 font-mono text-xs">
                     {property.property_id.slice(0, 8)}
                   </td>
-                  <td className="px-6 py-4">{property.property_name}</td>
+                  <td className="px-6 py-4">
+                    <Link
+                      href={`/properties/${property.property_id}`}
+                      className="rounded font-medium text-primary after:absolute after:inset-0 after:content-[''] group-hover:text-primary-hover group-hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {property.property_name}
+                    </Link>
+                  </td>
                   <td className="px-6 py-4">{property.street}</td>
 
                   <td className="px-6 py-4">{property.city}</td>

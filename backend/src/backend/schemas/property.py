@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.schemas.common import ActiveStatus
 
@@ -45,11 +45,24 @@ class PropertyRead(PropertyBase):
 
 
 class PropertyUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    """PATCH /properties/{id}: the fields to change. A new address replaces the
+    whole address. Every column is required, so null never clears one, and a
+    body that changes nothing is refused."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     property_name: str | None = Field(default=None, min_length=1, max_length=200)
     address: Address | None = None
     status: ActiveStatus | None = None
+
+    @model_validator(mode="after")
+    def _changes_something(self) -> "PropertyUpdate":
+        if not self.model_fields_set:
+            raise ValueError("Send at least one field to change.")
+        for field in self.model_fields_set:
+            if getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null.")
+        return self
 
 
 class PagePropertyRead(BaseModel):

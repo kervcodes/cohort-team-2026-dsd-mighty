@@ -61,6 +61,23 @@ describe("PropertyTable", () => {
     expect(screen.getByText("10001")).toBeInTheDocument();
   });
 
+  it("links each property name to its detail page", () => {
+    render(<PropertyTable properties={[createProperty()]} userRole="analyst" />);
+
+    expect(screen.getByRole("link", { name: "Test Property" })).toHaveAttribute(
+      "href",
+      "/properties/123456789012",
+    );
+  });
+
+  it("stretches the name link over its whole row, so a click anywhere opens it", () => {
+    render(<PropertyTable properties={[createProperty()]} userRole="analyst" />);
+
+    const link = screen.getByRole("link", { name: "Test Property" });
+    expect(link.closest("tr")).toHaveClass("relative");
+    expect(link).toHaveClass("after:absolute", "after:inset-0");
+  });
+
   it("displays the formatted creation date", () => {
     const property = createProperty({
       created_at: "2026-11-05T14:03:22+00:00",

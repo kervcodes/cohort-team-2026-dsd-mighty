@@ -1,4 +1,4 @@
-"""Reads `public.properties`.
+"""Reads and writes `public.properties`.
 
 The table names its key `property_id` and keeps the address in flat columns;
 the API calls the key `id` and nests the address (`PropertyRead`). The
@@ -7,10 +7,11 @@ mapping lives here and nowhere else.
 
 import re
 from typing import Any
+from uuid import UUID
 
 from postgrest.exceptions import APIError
 
-from backend.schemas.property import PropertyCreate
+from backend.schemas.property import PropertyCreate, PropertyUpdate
 from supabase import Client
 
 COLUMNS = "property_id,property_name,street,city,state,zip_code,status,created_at"
@@ -83,6 +84,38 @@ def create_property(client: Client, prop: PropertyCreate) -> dict[str, Any]:
     response = client.table("properties").insert(payload).execute()
 
     return _to_api(response.data[0])
+
+
+def get_property(client: Client, property_id: UUID) -> dict[str, Any] | None:
+    """The property, or None if there is no such property."""
+    response = (
+        client.table("properties")
+        .select(COLUMNS)
+        .eq("property_id", str(property_id))
+        .maybe_single()
+        .execute()
+    )
+    row = response.data if response is not None else None
+    return _to_api(row) if isinstance(row, dict) else None
+
+
+def update_property(
+    client: Client, property_id: UUID, updates: PropertyUpdate
+) -> dict[str, Any] | None:
+    """Change the fields sent, the address flattened into its columns; return
+    the property, or None if there is no such property."""
+    changes = updates.model_dump(exclude_unset=True)
+    payload = {**changes.pop("address", {}), **changes}
+
+    response = (
+        client.table("properties")
+        .update(payload)
+        .eq("property_id", str(property_id))
+        .select(COLUMNS)
+        .execute()
+    )
+    rows = response.data or []
+    return _to_api(rows[0]) if len(rows) == 1 else None
 
 
 ADDRESS_COLUMNS = "property_id,street,zip_code"

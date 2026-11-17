@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PropertyCreatePayload } from "@/lib/api/properties";
+import type { PropertyCreatePayload, PropertyRead } from "@/lib/api/properties";
 
 // Limits mirror backend/src/backend/schemas/property.py (and the properties
 // table checks) so the user sees the error inline instead of as a 422.
@@ -42,5 +42,16 @@ export function toPropertyPayload(values: PropertyFormValues): PropertyCreatePay
       state: values.state,
       zip_code: values.zipCode,
     },
+  };
+}
+
+// The form filled in with a saved property, for the edit page.
+export function fromProperty(property: PropertyRead): PropertyFormInput {
+  return {
+    name: property.property_name,
+    street: property.address.street,
+    city: property.address.city,
+    state: property.address.state,
+    zipCode: property.address.zip_code,
   };
 }
