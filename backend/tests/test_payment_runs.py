@@ -91,6 +91,7 @@ def test_approver_or_admin_queues_a_run(db, role):
     body = response.json()
     assert body["bill_id"] == bill["bill_id"]
     assert body["started_by"] == user_id
+    assert body["started_by_name"] == f"Test {role}"
     assert body["status"] == "queued"
     assert [s["step"] for s in body["steps"]] == ["queued"]
     assert body["steps"][0]["detail"] == f"Queued by Test {role}."
@@ -236,6 +237,47 @@ def test_list_is_newest_first(db):
     assert response.status_code == 200
     assert [r["id"] for r in response.json()] == [new["run_id"], old["run_id"]]
     assert response.json()[1]["flag_reason"] == "Timed out."
+
+
+def test_runs_name_whoever_started_them(db):
+    bill = payable_bill(db)
+    admin_id = str(uuid4())
+    db.add_user(APPROVER, role="approver", full_name="Ana Approver")
+    db.add_user(admin_id, role="admin", full_name="Ada Admin")
+    now = datetime.now(UTC)
+    first = db.add_payment_run(
+        bill["bill_id"],
+        APPROVER,
+        status="flagged",
+        flag_reason="Timed out.",
+        started_at=now.isoformat(),
+        finished_at=now.isoformat(),
+        created_at=(now - timedelta(hours=1)).isoformat(),
+    )
+    second = db.add_payment_run(bill["bill_id"], admin_id, created_at=now.isoformat())
+
+    # Read by an analyst, so the names come from app_users, not the viewer.
+    client = as_user(db, ANALYST, UserRole.analyst)
+    listed = client.get(f"/bills/{bill['bill_id']}/payment-runs").json()
+    one = client.get(f"/payment-runs/{first['run_id']}").json()
+
+    assert [(r["id"], r["started_by_name"]) for r in listed] == [
+        (second["run_id"], "Ada Admin"),
+        (first["run_id"], "Ana Approver"),
+    ]
+    assert one["started_by_name"] == "Ana Approver"
+
+
+def test_a_renamed_starter_shows_their_current_name(db):
+    bill = payable_bill(db)
+    response = start(approver(db), bill)
+    db.find("app_users", "user_id", APPROVER)["full_name"] = "Ana Renamed"
+
+    run = approver(db).get(f"/payment-runs/{response.json()['id']}").json()
+
+    assert run["started_by_name"] == "Ana Renamed"
+    # The first step keeps the name the run was queued under.
+    assert run["steps"][0]["detail"] == "Queued by Test approver."
 
 
 def test_read_one_run_with_its_receipt(db):

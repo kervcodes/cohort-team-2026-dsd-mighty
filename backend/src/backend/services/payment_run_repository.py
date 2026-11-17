@@ -23,7 +23,9 @@ from supabase import Client
 
 RUN_COLUMNS = (
     "run_id,bill_id,started_by,status,steps,flag_reason,receipt,payment_id,"
-    "created_at,started_at,finished_at,updated_at"
+    "created_at,started_at,finished_at,updated_at,"
+    # The starter's name, embedded through the payment_runs.started_by key.
+    "starter:app_users!started_by(full_name)"
 )
 
 UNIQUE_VIOLATION = "23505"
@@ -48,7 +50,15 @@ def new_step(step: str, detail: str) -> PaymentRunStep:
 
 
 def _to_run(row: dict[str, Any]) -> PaymentRunRead:
-    return PaymentRunRead.model_validate({**row, "id": row["run_id"]})
+    # A row read without the embed (the worker's claim) has no name.
+    starter = row.get("starter")
+    return PaymentRunRead.model_validate(
+        {
+            **row,
+            "id": row["run_id"],
+            "started_by_name": starter["full_name"] if starter else None,
+        }
+    )
 
 
 def _steps_json(steps: list[PaymentRunStep]) -> list[dict[str, Any]]:
@@ -66,7 +76,9 @@ def queue_run(
         "steps": _steps_json([first_step]),
     }
     try:
-        response = client.table("payment_runs").insert(payload).execute()
+        response = (
+            client.table("payment_runs").insert(payload).select(RUN_COLUMNS).execute()
+        )
     except APIError as error:
         # payment_runs_one_active_per_bill
         if error.code == UNIQUE_VIOLATION:

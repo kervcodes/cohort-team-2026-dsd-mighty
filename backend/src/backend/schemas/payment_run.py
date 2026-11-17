@@ -43,6 +43,9 @@ class PaymentRunRead(BaseModel):
     id: UUID
     bill_id: UUID
     started_by: UUID
+    # The starter's full name from app_users; None only on a row read without
+    # it (the worker's claim), never in an API response.
+    started_by_name: str | None = None
     status: PaymentRunStatus
     steps: list[PaymentRunStep]
     flag_reason: str | None = None

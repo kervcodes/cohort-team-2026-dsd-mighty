@@ -26,6 +26,19 @@ jest.mock("@/lib/api/approvals", () => ({
   decideApproval: jest.fn(),
 }));
 
+// An approved bill shows the Payment section (payment-section.test.tsx), which
+// loads the bill's payments and payment runs.
+jest.mock("@/lib/api/payments", () => ({
+  listPayments: jest.fn().mockResolvedValue([]),
+  recordPayment: jest.fn(),
+}));
+
+jest.mock("@/lib/api/payment-runs", () => ({
+  listPaymentRuns: jest.fn().mockResolvedValue([]),
+  getPaymentRun: jest.fn(),
+  startPaymentRun: jest.fn(),
+}));
+
 const mockUseAuth = useAuth as jest.Mock;
 const mockUseParams = useParams as jest.Mock;
 const mockGetBill = getBill as jest.Mock;
