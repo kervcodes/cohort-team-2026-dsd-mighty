@@ -1,7 +1,8 @@
 import type { EntityStatus } from "@/types/entity";
 import type { InvoiceStatus } from "@/types/invoice";
+import type { PaymentRunStatus } from "@/types/payment-run";
 
-type AllStatuses = InvoiceStatus | EntityStatus;
+type AllStatuses = InvoiceStatus | EntityStatus | PaymentRunStatus;
 
 const styles: Record<AllStatuses, string> = {
   draft: "bg-gray-100 text-gray-700",
@@ -13,6 +14,9 @@ const styles: Record<AllStatuses, string> = {
   exception: "bg-orange-100 text-orange-800",
   active: "bg-green-100 text-green-800",
   inactive: "bg-gray-100 text-gray-800",
+  queued: "bg-gray-100 text-gray-700",
+  running: "bg-blue-100 text-blue-800",
+  flagged: "bg-orange-100 text-orange-800",
 };
 
 export function StatusBadge({ status }: { status: AllStatuses }) {
