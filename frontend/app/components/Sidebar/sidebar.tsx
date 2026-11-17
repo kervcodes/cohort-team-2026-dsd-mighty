@@ -2,6 +2,7 @@
 import Link from "next/link";
 import {
   LuBuilding2,
+  LuClipboardCheck,
   LuFilePenLine,
   LuFilePlus,
   LuFileText,
@@ -21,6 +22,7 @@ import type { UserRole } from "@/types/user";
 const COPY = {
   home: "Home",
   invoices: "Invoices",
+  approvals: "Approvals",
   savedDrafts: "Saved Drafts",
   newInvoice: "New Invoice",
   properties: "Properties",
@@ -52,6 +54,8 @@ export default function Sidebar() {
   const isAdmin = profile?.role === "admin";
   const email = profile?.email ?? user?.email;
   const themeLabel = theme === "light" ? COPY.switchToDark : COPY.switchToLight;
+  const canReview =
+    profile?.status === "active" && (profile?.role === "approver" || profile?.role === "admin");
 
   return (
     <nav>
@@ -70,6 +74,15 @@ export default function Sidebar() {
               <span className="hidden sm:block">{COPY.invoices}</span>
             </Link>
           </li>
+
+          {canReview && (
+            <li>
+              <Link title={COPY.approvals} href="/approvals" className={ITEM}>
+                <LuClipboardCheck size={20} aria-hidden="true" />
+                <span className="hidden sm:block">{COPY.approvals}</span>
+              </Link>
+            </li>
+          )}
 
           <li>
             <Link title={COPY.savedDrafts} href="/invoices/drafts" className={ITEM}>

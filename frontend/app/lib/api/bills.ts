@@ -6,6 +6,7 @@ import type {
   BillDraftResponse,
   DashboardBill,
   DocumentUploadResponse,
+  DocumentUrlResponse,
 } from "@/types/bill";
 import type { ExtractionResult } from "@/types/extraction";
 import { apiRequest } from "./http";
@@ -99,5 +100,42 @@ export function getBillDraft(billId: string): Promise<BillDraftDetail> {
     `/bills/${billId}/draft`,
     { method: "GET", cache: "no-store" },
     { signedOut: "You must be signed in to view a draft.", failed: "Unable to load draft" },
+  );
+}
+
+export function resubmitBill(billId: string, payload: BillCreatePayload): Promise<Bill> {
+  return apiRequest<Bill>(
+    `/bills/${billId}/resubmit`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    {
+      signedOut: "You must be signed in to resubmit an invoice.",
+      failed: "Unable to resubmit invoice",
+    },
+  );
+}
+
+export function getBill(billId: string): Promise<Bill> {
+  return apiRequest<Bill>(
+    `/bills/${billId}`,
+    { method: "GET", cache: "no-store" },
+    {
+      signedOut: "You must be signed in to view this invoice.",
+      failed: "Unable to load invoice",
+    },
+  );
+}
+
+export function getBillDocument(billId: string): Promise<DocumentUrlResponse> {
+  return apiRequest<DocumentUrlResponse>(
+    `/bills/${billId}/document`,
+    { method: "GET", cache: "no-store" },
+    {
+      signedOut: "You must be signed in to view this PDF.",
+      failed: "Unable to load invoice document",
+    },
   );
 }
