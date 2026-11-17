@@ -1,0 +1,9 @@
+# Build context for payment-worker.Dockerfile: only what the image needs.
+# Everything else (tests, .venv, .env with real keys, supabase/, evals/) stays
+# out of the context and so out of every layer.
+*
+!pyproject.toml
+!uv.lock
+!src/
+**/__pycache__
+**/*.py[cod]

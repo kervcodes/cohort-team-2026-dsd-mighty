@@ -22,6 +22,11 @@ reads is checked against the selected account number.
 Selectors are labels, roles and button text from the bundle, plus a few
 structural reads (table headers, `dl` pairs) done in one `evaluate`.
 
+Memory: the worker runs on a 512 MB container (Render Starter), so Chromium
+starts with `CHROMIUM_ARGS` and at most one browser is open per process (the
+`_browser_slot` lock): a second `PlaywrightPortal` while one is open raises
+instead of starting another Chromium.
+
 Errors: every public method converts Playwright errors into `PortalError` /
 `PortalTimeout` with a message written here, raised outside the `except`
 block so no Playwright message (which could quote a typed value) rides along
@@ -32,13 +37,14 @@ anything that goes wrong before its first click that may submit the payment
 """
 
 import re
+import threading
 from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypeVar
 
+from playwright.sync_api import Browser, Locator, Page, Playwright, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import Locator, Page, Playwright, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from pydantic import SecretStr
 
@@ -57,6 +63,15 @@ from backend.payment_agent.portal import (
 )
 
 T = TypeVar("T")
+
+# Chromium flags for a small container. Docker gives /dev/shm only 64 MB and
+# Render cannot raise it (no --ipc=host or --shm-size), so Chromium writes
+# its shared memory to /tmp instead of crashing pages when /dev/shm fills.
+# It changes nothing a page can see, so it is on everywhere.
+CHROMIUM_ARGS = ("--disable-dev-shm-usage",)
+
+# Held while a PlaywrightPortal's browser is open: one Chromium per process.
+_browser_slot = threading.Lock()
 
 ACCOUNT_SELECTOR = "Property / service account"
 REVIEW_BUTTON = "Review payment"
@@ -162,17 +177,28 @@ class PlaywrightPortal:
         self._base_url = portal_url.split("#", 1)[0]
         self._timeout_ms = timeout_ms
         self._playwright: Playwright | None = None
+        if not _browser_slot.acquire(blocking=False):
+            raise PortalError(
+                "Another browser is already open in this worker; "
+                "only one runs at a time."
+            )
+        self._holds_slot = True
         failure: PortalError | None = None
         try:
             self._playwright = sync_playwright().start()
-            browser = self._playwright.chromium.launch(headless=True)
-            self._page: Page = browser.new_context().new_page()
+            self._browser: Browser = self._playwright.chromium.launch(
+                headless=True, args=list(CHROMIUM_ARGS)
+            )
+            self._page: Page = self._browser.new_context().new_page()
             self._page.set_default_timeout(timeout_ms)
         except PlaywrightError:
             failure = PortalError(
                 "Could not start the browser. Is Chromium installed "
                 "(uv run playwright install chromium)?"
             )
+        except BaseException:
+            self.close()  # never keep the slot for a browser that never started
+            raise
         if failure is not None:
             self.close()
             raise failure
@@ -190,6 +216,17 @@ class PlaywrightPortal:
             except PlaywrightError:
                 pass
             self._playwright = None
+        if self._holds_slot:
+            self._holds_slot = False
+            _browser_slot.release()
+
+    def check(self) -> str:
+        """Render a tiny page and return Chromium's version: the smoke check
+        for the worker's image (`worker --check-browser`)."""
+        self._page.set_content("<h1>Browser check</h1>")
+        if self._heading("Browser check").count() != 1:
+            raise PortalError("Chromium started but did not render a page.")
+        return self._browser.version
 
     # Error handling
 
