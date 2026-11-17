@@ -31,6 +31,7 @@ def _bill_row(submitted_by: str) -> dict:
         "bill_id": BILL_ID,
         "status": "draft",
         "document_path": None,
+        "vendor_account_picked": False,
         "created_at": "2026-11-10T00:00:00+00:00",
         "submitter": {"user_id": submitted_by, "full_name": "Test"},
     }
@@ -55,11 +56,20 @@ class Network:
                     }
                 ],
             )
+        if request.method == "GET":
+            # Reads before the write, such as the vendor account lookup that
+            # matches a bill: nothing matches.
+            return httpx.Response(200, json=[])
         submitted_by = json.loads(request.content)["submitted_by"]
         return httpx.Response(201, json=_bill_row(submitted_by))
 
     def actors(self) -> list[str | None]:
-        return [request.headers.get(ACTOR_HEADER) for request in self.requests]
+        """The actor sent with each write; the audit triggers fire on writes."""
+        return [
+            request.headers.get(ACTOR_HEADER)
+            for request in self.requests
+            if request.method != "GET"
+        ]
 
 
 @pytest.fixture
