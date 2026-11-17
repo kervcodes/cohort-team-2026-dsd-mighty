@@ -55,6 +55,7 @@ function bill(status: BillStatus): Bill {
     vendor_id: "vendor-1",
     property_id: "property-1",
     vendor_account_picked: false,
+    property_address_mismatch: false,
     submitted_by: { id: "user-analyst", full_name: "John Smith" },
     status,
     exception_reason: null,
