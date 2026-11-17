@@ -1,5 +1,5 @@
 -- Payment runs and the worker's claim function
--- (migration 20261115140000_payment_runs).
+-- (migration 20261117110000_payment_runs).
 -- Runs in one transaction that rolls back.
 
 begin;

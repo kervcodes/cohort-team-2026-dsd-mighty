@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 
 class PaymentRunStatus(StrEnum):
-    """Lifecycle of a payment run (migration 20261115140000_payment_runs)."""
+    """Lifecycle of a payment run (migration 20261117110000_payment_runs)."""
 
     queued = "queued"
     running = "running"

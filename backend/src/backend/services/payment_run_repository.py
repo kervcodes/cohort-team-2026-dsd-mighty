@@ -1,4 +1,4 @@
-"""Reads and writes `public.payment_runs` (migration 20261115140000_payment_runs).
+"""Reads and writes `public.payment_runs` (migration 20261117110000_payment_runs).
 
 The table names its key `run_id`; the API calls it `id`. The routes queue and
 read runs; the payment agent worker claims them with `claim_next_payment_run`

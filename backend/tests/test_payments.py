@@ -1,7 +1,7 @@
 """Recording and listing payments: `POST` and `GET /bills/{bill_id}/payments`.
 
 The routes run against FakeSupabase, whose `record_payment` mirrors the
-Postgres function (backend/supabase/migrations/20261115120000_record_payment.sql,
+Postgres function (backend/supabase/migrations/20261117100000_record_payment.sql,
 tested in backend/supabase/tests/record_payment.test.sql). Who may call each
 route at all is checked by the role table in test_route_permissions.py.
 """
