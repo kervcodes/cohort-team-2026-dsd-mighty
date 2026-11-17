@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/auth/AuthProvider";
 import { DataTable, type DataTableColumn } from "@/components/DataTable/DataTable";
@@ -25,7 +26,17 @@ function formatDate(iso: string) {
 }
 
 const columns: DataTableColumn<Vendor>[] = [
-  { header: "Name", cell: (vendor) => vendor.name },
+  {
+    header: "Name",
+    cell: (vendor) => (
+      <Link
+        href={`/vendors/${vendor.id}`}
+        className="rounded font-medium text-primary hover:text-primary-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {vendor.name}
+      </Link>
+    ),
+  },
   { header: "Email", cell: (vendor) => vendor.contact_email ?? COPY.notSet },
   { header: "Phone", cell: (vendor) => vendor.contact_phone ?? COPY.notSet },
   {

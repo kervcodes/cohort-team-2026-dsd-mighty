@@ -35,6 +35,7 @@ const defaultValues: InvoiceFormValues = {
   propertyAddress: "",
   accountStatus: "",
   websiteName: "",
+  vendorAccountId: "",
 };
 
 const validValues: InvoiceFormValues = {
@@ -50,6 +51,7 @@ const validValues: InvoiceFormValues = {
   propertyAddress: "12 Elm St",
   accountStatus: "unpaid",
   websiteName: "https://citypower.example.com",
+  vendorAccountId: "",
 };
 
 function fullDraft(overrides: Partial<BillDraftDetail> = {}): BillDraftDetail {
@@ -68,6 +70,8 @@ function fullDraft(overrides: Partial<BillDraftDetail> = {}): BillDraftDetail {
     property_address: "12 Elm St",
     account_status: "unpaid",
     website_name: "https://citypower.example.com",
+    vendor_account_id: null,
+    vendor_account_picked: false,
     document_path: null,
     ...overrides,
   };
@@ -141,7 +145,19 @@ describe("mapDraftToFormValues", () => {
       propertyAddress: "12 Elm St",
       accountStatus: "unpaid",
       websiteName: "https://citypower.example.com",
+      vendorAccountId: "",
     });
+  });
+
+  it("brings back only a vendor account the analyst picked", () => {
+    expect(
+      mapDraftToFormValues(fullDraft({ vendor_account_id: "acct-1", vendor_account_picked: true }))
+        .vendorAccountId,
+    ).toBe("acct-1");
+    expect(
+      mapDraftToFormValues(fullDraft({ vendor_account_id: "acct-1", vendor_account_picked: false }))
+        .vendorAccountId,
+    ).toBe("");
   });
 
   it("converts null database fields into empty form values", () => {
@@ -181,6 +197,7 @@ describe("draftPayload", () => {
       property_address: "12 Elm St",
       account_status: "unpaid",
       website_name: "https://citypower.example.com",
+      vendor_account_id: null,
     });
   });
 
@@ -198,6 +215,7 @@ describe("draftPayload", () => {
       property_address: null,
       account_status: null,
       website_name: null,
+      vendor_account_id: null,
     });
   });
 });

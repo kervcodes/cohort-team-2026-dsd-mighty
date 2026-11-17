@@ -39,6 +39,14 @@ export function listVendors(): Promise<Vendor[]> {
   );
 }
 
+export function getVendor(vendorId: string): Promise<Vendor> {
+  return apiRequest<Vendor>(
+    `/vendors/${encodeURIComponent(vendorId)}`,
+    { method: "GET" },
+    { signedOut: "You must be signed in to view vendors.", failed: "Unable to load the vendor" },
+  );
+}
+
 export function createVendor(payload: VendorCreatePayload): Promise<Vendor> {
   return apiRequest<Vendor>(
     "/vendors",

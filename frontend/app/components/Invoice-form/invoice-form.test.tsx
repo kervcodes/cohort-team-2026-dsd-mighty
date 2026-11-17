@@ -26,6 +26,12 @@ jest.mock("@/hooks/invoices/useInvoiceSubmission", () => ({
   useInvoiceSubmission: jest.fn(),
 }));
 
+// The vendor account lookup never answers here; its own tests are in
+// invoice-form-vendor-account.test.tsx.
+jest.mock("@/lib/api/vendor-account-lookup", () => ({
+  lookUpVendorAccounts: jest.fn(() => new Promise<never>(() => {})),
+}));
+
 const mockPush = jest.fn();
 const mockHandleSaveDraft = jest.fn();
 const mockEnsureDraftSaved = jest.fn();
@@ -125,6 +131,7 @@ describe("InvoiceForm rendering", () => {
     renderInvoiceForm();
 
     expect(screen.getByLabelText(/account \/ customer/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Vendor account")).toBeInTheDocument();
     expect(screen.getByLabelText(/statement \/ bill id/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/customer \/ business name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/property address/i)).toBeInTheDocument();

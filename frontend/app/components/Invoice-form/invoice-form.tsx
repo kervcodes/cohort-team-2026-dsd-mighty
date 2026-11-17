@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FileCheck, FileUp, LoaderCircle } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { type DragEvent, useLayoutEffect, useRef, useState } from "react";
+import { type DragEvent, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
 import Button from "@/components/Button";
@@ -20,6 +20,7 @@ import {
   type InvoiceFormValues,
   invoiceFormSchema,
 } from "@/lib/invoice-form-schema";
+import { VendorAccountField } from "./vendor-account-field";
 
 const bannerTones: Record<ExtractionBanner["tone"], string> = {
   success: "border-paid/30 bg-paid-bg text-paid",
@@ -206,11 +207,21 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
     return handleCreate(values);
   }
 
+  // "" leaves the bill to the server's account number match.
+  const pickVendorAccount = useCallback(
+    (vendorAccountId: string) => setValue("vendorAccountId", vendorAccountId),
+    [setValue],
+  );
+  // A vendor account picked for one account number is wrong for another:
+  // the new number is matched instead.
+  const clearVendorAccountPick = () => pickVendorAccount("");
+
   // PDF extraction lifecycle is managed by useInvoiceExtraction.
   const { reader, notes, readInvoice, resetReader, clearFieldNote, readingMessage } =
     useInvoiceExtraction({
       form: { getValues, setValue, getFieldState },
       onEdited: markEdited,
+      onAccountNumberChanged: clearVendorAccountPick,
     });
 
   const watchedValues = useWatch({ control });
@@ -312,6 +323,8 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
         markEdited();
 
         const name = "name" in target ? target.name : null;
+
+        if (name === "accountNumber") clearVendorAccountPick();
 
         if (typeof name === "string") {
           clearFieldNote(name);
@@ -448,6 +461,12 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
         >
           {(field) => <input {...field} {...register("accountNumber")} className={inputClass} />}
         </FormField>
+
+        <VendorAccountField
+          accountNumber={watchedValues.accountNumber ?? ""}
+          value={watchedValues.vendorAccountId ?? ""}
+          onChange={pickVendorAccount}
+        />
 
         <FormField
           label="Statement / Bill ID"

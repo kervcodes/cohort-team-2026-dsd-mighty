@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,6 +21,7 @@ from backend.services.bill_access import (
     default_scope,
 )
 from backend.services.bill_repository import (
+    DuplicateInvoice,
     get_editable_draft,
     get_own_bill_status,
     get_readable_bill,
@@ -28,6 +31,7 @@ from backend.services.bill_repository import (
     submit_draft,
     update_draft,
 )
+from backend.services.vendor_account_matching import UnusableVendorAccount
 from backend.supabase_client import get_admin_supabase
 
 router = APIRouter(
@@ -35,8 +39,32 @@ router = APIRouter(
     tags=["bills"],
 )
 
+DUPLICATE_INVOICE_DETAIL = (
+    "This invoice number is already in the system for this vendor account."
+)
+
+
+@contextmanager
+def bill_write_errors() -> Iterator[None]:
+    """The HTTP answers every bill write gives for a bad vendor account pick
+    (422) and for an invoice number the account already has (409). Used as a
+    decorator on each write route."""
+    try:
+        yield
+    except UnusableVendorAccount as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    except DuplicateInvoice as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=DUPLICATE_INVOICE_DETAIL,
+        ) from error
+
 
 @router.post("", response_model=BillRead, status_code=status.HTTP_201_CREATED)
+@bill_write_errors()
 def create_bill(
     bill: BillCreate,
     user: CurrentUser = Depends(require_active(*BILL_WRITERS)),
@@ -98,6 +126,7 @@ def get_bill(
     response_model=BillDraftRead,
     status_code=status.HTTP_201_CREATED,
 )
+@bill_write_errors()
 def save_new_draft(
     draft: BillDraftCreate,
     user: CurrentUser = Depends(require_active(*BILL_WRITERS)),
@@ -120,6 +149,7 @@ def save_new_draft(
     "/{bill_id}/draft",
     response_model=BillDraftRead,
 )
+@bill_write_errors()
 def update_existing_draft(
     bill_id: UUID,
     draft: BillDraftCreate,
@@ -142,6 +172,7 @@ def update_existing_draft(
 
 
 @router.post("/{bill_id}/submit", response_model=BillRead)
+@bill_write_errors()
 def submit_existing_draft(
     bill_id: UUID,
     bill: BillCreate,

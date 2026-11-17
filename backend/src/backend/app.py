@@ -1,8 +1,11 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from backend.api.approvals import router as approvals_router
 from backend.api.bill_documents import router as bill_documents_router
@@ -10,6 +13,7 @@ from backend.api.bill_extraction import router as bill_extraction_router
 from backend.api.bills import router as bills_router
 from backend.api.health import router as health_router
 from backend.api.me import router as me_router
+from backend.api.properties import router as properties_router
 from backend.api.users import router as users_router
 from backend.api.vendor_accounts import router as vendor_accounts_router
 from backend.api.vendors import router as vendors_router
@@ -47,6 +51,23 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_error_without_input(
+    _request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """FastAPI's default 422, minus the `input` it echoes back for each error.
+
+    A request body can carry a secret (a vendor portal password), and the
+    echoed input of a body-level error is the whole body. `loc` and `msg`
+    still say what is wrong.
+    """
+    errors = [
+        {key: value for key, value in error.items() if key != "input"}
+        for error in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
+
+
 # Before bills_router, so POST /bills/extract can never be taken for a
 # /bills/{bill_id} route.
 app.include_router(bill_extraction_router)
@@ -54,6 +75,7 @@ app.include_router(bills_router)
 app.include_router(approvals_router)
 app.include_router(vendors_router)
 app.include_router(vendor_accounts_router)
+app.include_router(properties_router)
 app.include_router(bill_documents_router)
 app.include_router(me_router)
 app.include_router(users_router)

@@ -23,6 +23,10 @@ type UseInvoiceSubmissionOptions = {
   setSubmitError: (message: string) => void;
 };
 
+// The submit route's 409 for a bill that is no longer a draft. Its other 409,
+// an invoice number the vendor account already has, means nothing was sent.
+const ALREADY_SUBMITTED_DETAIL = "This bill has already been submitted.";
+
 const ALREADY_SUBMITTED_MESSAGE =
   "This bill was already sent for approval with the earlier values, so your latest changes weren't saved. Open it from the dashboard to check what was sent.";
 
@@ -44,6 +48,7 @@ function createPayload(values: InvoiceFormValues): BillCreatePayload {
     property_address: values.propertyAddress,
     account_status: values.accountStatus || undefined,
     website_name: values.websiteName || undefined,
+    vendor_account_id: values.vendorAccountId || undefined,
   };
 }
 
@@ -101,7 +106,10 @@ export function useInvoiceSubmission({
     try {
       await submitBill(id, payload);
     } catch (error) {
-      const alreadySubmitted = error instanceof ApiError && error.status === 409;
+      const alreadySubmitted =
+        error instanceof ApiError &&
+        error.status === 409 &&
+        error.message === ALREADY_SUBMITTED_DETAIL;
 
       const earlier = unansweredSubmits.current;
 

@@ -49,6 +49,12 @@ jest.mock("@/lib/api/bills", () => ({
   uploadInvoicePdf: jest.fn(),
 }));
 
+// The vendor account lookup never answers here; its own tests are in
+// invoice-form-vendor-account.test.tsx.
+jest.mock("@/lib/api/vendor-account-lookup", () => ({
+  lookUpVendorAccounts: jest.fn(() => new Promise<never>(() => {})),
+}));
+
 const mockExtractBill = jest.mocked(extractBill);
 const mockSaveBillDraft = jest.mocked(saveBillDraft);
 const mockSubmitBill = jest.mocked(submitBill);

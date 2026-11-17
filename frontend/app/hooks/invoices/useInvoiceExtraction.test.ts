@@ -35,6 +35,7 @@ const defaultValues: InvoiceFormValues = {
   propertyAddress: "",
   accountStatus: "",
   websiteName: "",
+  vendorAccountId: "",
 };
 
 function pdf(name = "invoice.pdf") {

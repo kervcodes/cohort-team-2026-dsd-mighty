@@ -27,9 +27,15 @@ type ExtractionForm = Pick<
 type UseInvoiceExtractionOptions = {
   form: ExtractionForm;
   onEdited: () => void;
+  // Called when a read replaces the account number with a different one.
+  onAccountNumberChanged?: () => void;
 };
 
-export function useInvoiceExtraction({ form, onEdited }: UseInvoiceExtractionOptions) {
+export function useInvoiceExtraction({
+  form,
+  onEdited,
+  onAccountNumberChanged,
+}: UseInvoiceExtractionOptions) {
   const { getValues, setValue, getFieldState } = form;
 
   const [reader, setReader] = useState<ReaderState>({ phase: "idle" });
@@ -68,6 +74,10 @@ export function useInvoiceExtraction({ form, onEdited }: UseInvoiceExtractionOpt
 
   function applyFill(values: Partial<Record<ExtractedFormField, string>>) {
     const entries = Object.entries(values) as [ExtractedFormField, string][];
+
+    if (values.accountNumber !== undefined && values.accountNumber !== getValues("accountNumber")) {
+      onAccountNumberChanged?.();
+    }
 
     for (const [name, value] of entries) {
       setValue(name, value, {

@@ -25,6 +25,7 @@ const defaultValues: InvoiceFormValues = {
   propertyAddress: "12 Elm St",
   accountStatus: "unpaid",
   websiteName: "https://citypower.example.com",
+  vendorAccountId: "",
 };
 
 const expectedPayload: BillCreatePayload = {
@@ -52,6 +53,9 @@ function pdf(name = "invoice.pdf") {
 
 // Creates an error that passes `instanceof ApiError` without
 // depending on the ApiError constructor's argument signature.
+// The submit route's 409 detail for a bill that is no longer a draft.
+const ALREADY_SUBMITTED_DETAIL = "This bill has already been submitted.";
+
 function apiError(status: number, message: string) {
   return Object.assign(Object.create(ApiError.prototype), {
     status,
@@ -328,7 +332,7 @@ describe("useInvoiceSubmission", () => {
     it("shows the already-submitted message for a 409 on the first attempt", async () => {
       const { result, setSubmitError, onSuccess } = createHook();
 
-      mockSubmitBill.mockRejectedValue(apiError(409, "Conflict"));
+      mockSubmitBill.mockRejectedValue(apiError(409, ALREADY_SUBMITTED_DETAIL));
 
       await act(async () => {
         await result.current.handleCreate(defaultValues);
@@ -340,6 +344,24 @@ describe("useInvoiceSubmission", () => {
       );
       expect(onSuccess).not.toHaveBeenCalled();
     });
+
+    it("shows the API message for the other 409, an invoice number the vendor account already has", async () => {
+      const { result, setSubmitError, onSuccess } = createHook();
+
+      mockSubmitBill.mockRejectedValue(
+        apiError(409, "This vendor account already has a bill with this invoice number."),
+      );
+
+      await act(async () => {
+        await result.current.handleCreate(defaultValues);
+      });
+
+      expect(result.current.createStatus).toBe("error");
+      expect(setSubmitError).toHaveBeenLastCalledWith(
+        "This vendor account already has a bill with this invoice number.",
+      );
+      expect(onSuccess).not.toHaveBeenCalled();
+    });
   });
 
   describe("retrying an unanswered submission", () => {
@@ -348,7 +370,7 @@ describe("useInvoiceSubmission", () => {
 
       mockSubmitBill
         .mockRejectedValueOnce(new Error("Network connection lost."))
-        .mockRejectedValueOnce(apiError(409, "Conflict"));
+        .mockRejectedValueOnce(apiError(409, ALREADY_SUBMITTED_DETAIL));
 
       await act(async () => {
         await result.current.handleCreate(defaultValues);
@@ -372,7 +394,7 @@ describe("useInvoiceSubmission", () => {
 
       mockSubmitBill
         .mockRejectedValueOnce(new Error("Network connection lost."))
-        .mockRejectedValueOnce(apiError(409, "Conflict"));
+        .mockRejectedValueOnce(apiError(409, ALREADY_SUBMITTED_DETAIL));
 
       await act(async () => {
         await result.current.handleCreate(defaultValues);
@@ -413,7 +435,7 @@ describe("useInvoiceSubmission", () => {
         selectedFile: secondFile,
       });
 
-      mockSubmitBill.mockRejectedValueOnce(apiError(409, "Conflict"));
+      mockSubmitBill.mockRejectedValueOnce(apiError(409, ALREADY_SUBMITTED_DETAIL));
 
       await act(async () => {
         await secondHook.result.current.handleCreate(defaultValues);
@@ -431,7 +453,7 @@ describe("useInvoiceSubmission", () => {
 
       mockSubmitBill
         .mockRejectedValueOnce(apiError(404, "Not found"))
-        .mockRejectedValueOnce(apiError(409, "Conflict"));
+        .mockRejectedValueOnce(apiError(409, ALREADY_SUBMITTED_DETAIL));
 
       await act(async () => {
         await result.current.handleCreate(defaultValues);

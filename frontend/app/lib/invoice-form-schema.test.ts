@@ -18,6 +18,7 @@ const validData = {
   accountStatus: "paid",
   notes: "",
   websiteName: "",
+  vendorAccountId: "",
 };
 
 describe("invoiceFormSchema", () => {
