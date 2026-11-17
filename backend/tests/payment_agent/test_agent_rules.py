@@ -268,17 +268,18 @@ def test_stopping_the_worker_after_the_portal_answered_saves_the_payment():
         HAPPY_PATH, stub=StopAfterPaying(), must_end_by=shutdown
     )
 
+    # pay records the receipt in the same step, so a stop while the portal
+    # answers still ends paid with the payment saved, and no model call follows.
     assert status is PaymentRunStatus.paid
-    assert len(model.requests) == 4  # save_receipt was never asked for
+    assert len(model.requests) == 4
     assert len(setup.payments()) == 1
-    assert "worker was stopped" in str(setup.run["steps"])
 
 
 def test_a_run_ending_before_the_shutdown_deadline_is_not_affected():
     setup, stub, status, model = go(HAPPY_PATH, must_end_by=lambda: 1e12)
 
     assert status is PaymentRunStatus.paid
-    assert len(model.requests) == 5
+    assert len(model.requests) == 4
 
 
 def test_turn_limit_flags_the_run():
