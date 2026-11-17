@@ -317,6 +317,8 @@ def test_dashboard_returns_only_the_declared_columns(db):
         "invoice_number",
         "property_address",
         "vendor_name_raw",
+        "vendor_name",
+        "property_name",
         "invoice_date",
         "due_date",
         "amount",
