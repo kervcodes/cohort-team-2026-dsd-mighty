@@ -1,14 +1,13 @@
 """In-memory stand-in for the supabase-py client, for route tests.
 
-It applies `.eq()` / `.is_()` / `.or_()` filters the way PostgREST does, so
-tests run the real repository queries. That is what lets a test prove that
-the rules in `bill_access` keep one analyst out of another's drafts: the
-routes use the service-role client, which bypasses row-level security, so
-those filters are the only guard.
+It applies the query filters used by the repositories so tests exercise the
+real repository queries. This matters because the routes use a service-role
+client, which bypasses row-level security: bill_access filters are the
+authorization boundary for bill reads and writes.
 
-`select()` resolves embeds such as `submitter:app_users!submitted_by(...)`
+select() resolves embeds such as submitter:app_users!submitted_by(...)
 through FOREIGN_KEYS. Inserts and updates must satisfy FOREIGN_KEYS and
-UNIQUE_KEYS; a violation raises the `APIError` PostgREST sends, with the
+UNIQUE_KEYS; a violation raises the APIError PostgREST sends, with the
 Postgres error code, so the repositories' error handling runs in tests.
 
 `rpc()` runs Python twins of the Postgres functions, the `FakeSupabase._rpc_*`
@@ -17,7 +16,7 @@ plaintext secrets; each mirrors its migration, including the SQLSTATE and
 DETAIL of every refusal. Each call is one transaction, as through PostgREST:
 if the twin raises, every table row and Vault secret it changed is put back.
 
-Supports only the query shapes the repository uses. Helpers, not tests.
+Supports only the query shapes the repositories use. Helpers, not tests.
 """
 
 import re
@@ -30,12 +29,15 @@ from uuid import uuid4
 
 from postgrest.exceptions import APIError
 
-# (table, column) -> (referenced table, referenced column), as in the migrations.
+from backend.services.vendor_account_matching import same_account_number
+
+# (table, column) -> (referenced table, referenced column)
 FOREIGN_KEYS = {
     ("bills", "submitted_by"): ("app_users", "user_id"),
     ("bills", "vendor_account_id"): ("vendor_accounts", "account_id"),
     ("bills", "vendor_id"): ("vendors", "vendor_id"),
     ("bills", "property_id"): ("properties", "property_id"),
+    ("approvals", "reviewer_id"): ("app_users", "user_id"),
     ("vendor_accounts", "property_id"): ("properties", "property_id"),
     ("vendor_accounts", "vendor_id"): ("vendors", "vendor_id"),
     ("payment_runs", "bill_id"): ("bills", "bill_id"),
@@ -46,23 +48,25 @@ FOREIGN_KEYS = {
 def _columns_key(*columns: str) -> Callable[[dict[str, Any]], tuple | None]:
     def key(row: dict[str, Any]) -> tuple | None:
         values = tuple(row.get(column) for column in columns)
-        # Postgres: a null in any indexed value never conflicts.
+        # PostgreSQL: NULL in any indexed value never conflicts.
         return None if None in values else values
 
     return key
 
 
 def _bill_invoice_key(row: dict[str, Any]) -> tuple | None:
-    # bills_account_invoice_unique: (vendor_account_id,
-    # lower(btrim(invoice_number))) where vendor_account_id is not null.
-    account, invoice = row.get("vendor_account_id"), row.get("invoice_number")
+    # bills_account_invoice_unique:
+    # (vendor_account_id, lower(btrim(invoice_number)))
+    # where vendor_account_id is not null.
+    account = row.get("vendor_account_id")
+    invoice = row.get("invoice_number")
+
     if account is None or invoice is None:
         return None
-    return (account, invoice.strip(" ").lower())
+
+    return account, invoice.strip(" ").lower()
 
 
-# table -> unique index keys, as in the migrations: each gives a row's indexed
-# values, or None when the row is not in the index or holds a null.
 UNIQUE_KEYS: dict[str, list[Callable[[dict[str, Any]], tuple | None]]] = {
     "vendor_accounts": [_columns_key("property_id", "vendor_id", "account_number")],
     "bills": [_bill_invoice_key],
@@ -117,12 +121,23 @@ CHECKS: dict[str, list[tuple[str, Callable[[dict[str, Any]], bool]]]] = {
 # alias:table!fk_column(col,col)
 EMBED = re.compile(r"(\w+):(\w+)!(\w+)\(([\w,]+)\)")
 
-# The PostgREST operators `or_` accepts here: column.operator.value
 OPERATORS: dict[str, Callable[[Any, str], bool]] = {
     "eq": lambda stored, value: stored is not None and str(stored) == value,
-    # SQL: NULL <> 'x' is not true, so a null never matches neq either.
+    # SQL NULL <> 'x' is not true.
     "neq": lambda stored, value: stored is not None and str(stored) != value,
 }
+
+
+def _sql_error(message: str, code: str) -> APIError:
+    """Build the PostgREST error returned by a PostgreSQL exception."""
+    return APIError(
+        {
+            "message": message,
+            "code": code,
+            "hint": None,
+            "details": None,
+        }
+    )
 
 
 class _Result:
@@ -137,6 +152,7 @@ def _like_regex(pattern: str) -> re.Pattern[str]:
     run, `_` one character, and a backslash escapes the next character."""
     parts = []
     characters = iter(pattern)
+
     for character in characters:
         if character == "\\":
             parts.append(re.escape(next(characters, "")))
@@ -146,14 +162,32 @@ def _like_regex(pattern: str) -> re.Pattern[str]:
             parts.append(".")
         else:
             parts.append(re.escape(character))
+
     return re.compile("".join(parts), re.IGNORECASE | re.DOTALL)
 
 
 def _insert_defaults(table: str) -> dict[str, Any]:
-    """The column defaults Postgres fills in on insert, per table."""
+    """Return the defaults PostgreSQL supplies for supported tables."""
     now = datetime.now(UTC).isoformat()
+
     if table == "vendors":
-        return {"vendor_id": str(uuid4()), "created_at": now}
+        return {
+            "vendor_id": str(uuid4()),
+            "created_at": now,
+        }
+
+    if table == "approvals":
+        return {
+            "approval_id": str(uuid4()),
+            "reviewer_id": None,
+            "requested_at": now,
+            "decision_at": None,
+            "comments": None,
+            "approval_status": "pending",
+            "created_at": now,
+            "updated_at": now,
+        }
+
     if table == "vendor_accounts":
         return {
             "account_id": str(uuid4()),
@@ -163,6 +197,15 @@ def _insert_defaults(table: str) -> dict[str, Any]:
             "status": "active",
             "created_at": now,
         }
+
+    if table == "bills":
+        return {
+            "bill_id": str(uuid4()),
+            "document_path": None,
+            "vendor_account_picked": False,
+            "created_at": now,
+        }
+
     if table == "payment_runs":
         return {
             "run_id": str(uuid4()),
@@ -176,12 +219,8 @@ def _insert_defaults(table: str) -> dict[str, Any]:
             "finished_at": None,
             "updated_at": now,
         }
-    return {
-        "bill_id": str(uuid4()),
-        "document_path": None,
-        "vendor_account_picked": False,
-        "created_at": now,
-    }
+
+    raise ValueError(f"Insert defaults are not defined for table {table!r}")
 
 
 class _Query:
@@ -203,14 +242,23 @@ class _Query:
         self._single: str | None = None  # "maybe" or "one"
         self._neq_filters: list[tuple[str, Any]] = []
 
-    def select(self, *columns: str, count: str | None = None) -> "_Query":
-        # After insert/update this names the columns of the affected rows.
-        # Like PostgREST, only the named columns come back ("*" is all), so a
-        # query that forgets a column fails in tests too.
+    def select(
+        self,
+        *columns: str,
+        count: str | None = None,
+    ) -> "_Query":
+        """Select columns, including supported foreign-key embeds."""
         joined = ",".join(columns)
+
         for alias, table, fk_column, inner in EMBED.findall(joined):
             self._embeds.append((alias, table, fk_column, inner.split(",")))
-        plain = [c.strip() for c in EMBED.sub("", joined).split(",") if c.strip()]
+
+        plain = [
+            column.strip()
+            for column in EMBED.sub("", joined).split(",")
+            if column.strip()
+        ]
+
         self._columns = None if "*" in plain else plain
         assert count in (None, "exact"), f"count={count!r} unsupported"
         self._count = count == "exact"
@@ -234,10 +282,12 @@ class _Query:
 
     def or_(self, filters: str) -> "_Query":
         conditions = []
+
         for condition in filters.split(","):
             column, operator, value = condition.split(".", 2)
             assert operator in OPERATORS, f"or_ operator {operator!r} unsupported"
             conditions.append((column, operator, value))
+
         self._any_of.append(conditions)
         return self
 
@@ -256,7 +306,8 @@ class _Query:
 
     def range(self, start: int, end: int) -> "_Query":
         # supabase-py sends offset and limit, as here.
-        self._offset, self._limit = start, end - start + 1
+        self._offset = start
+        self._limit = end - start + 1
         return self
 
     def ilike(self, column: str, pattern: str) -> "_Query":
@@ -286,7 +337,8 @@ class _Query:
             )
             and all(
                 any(
-                    OPERATORS[op](row.get(column), value) for column, op, value in group
+                    OPERATORS[operator](row.get(column), value)
+                    for column, operator, value in group
                 )
                 for group in self._any_of
             )
@@ -296,21 +348,37 @@ class _Query:
         for alias, table, fk_column, inner in self._embeds:
             target, key = FOREIGN_KEYS[(self._table, fk_column)]
             assert target == table, f"{fk_column} references {target}, not {table}"
-            match = self._db.find(table, key, row.get(fk_column))
-            row[alias] = {c: match.get(c) for c in inner} if match else None
+
+            match = self._db.find(
+                table,
+                key,
+                row.get(fk_column),
+            )
+
+            row[alias] = (
+                {column: match.get(column) for column in inner} if match else None
+            )
+
         return row
 
     def _project(self, row: dict[str, Any]) -> dict[str, Any]:
         if self._columns is None:
             return row
+
         keep = set(self._columns) | {alias for alias, *_ in self._embeds}
+
         return {column: value for column, value in row.items() if column in keep}
 
-    def _check_constraints(self, row: dict[str, Any], others: list[dict]) -> None:
+    def _check_constraints(
+        self,
+        row: dict[str, Any],
+        others: list[dict[str, Any]],
+    ) -> None:
         for (table, column), (target, key) in FOREIGN_KEYS.items():
             value = row.get(column)
+
             if table == self._table and value is not None:
-                if not self._db.find(target, key, value):
+                if self._db.find(target, key, value) is None:
                     raise APIError(
                         {
                             "code": "23503",
@@ -334,6 +402,7 @@ class _Query:
                 )
         for unique_key in UNIQUE_KEYS.get(self._table, []):
             key = unique_key(row)
+
             if key is not None and any(unique_key(other) == key for other in others):
                 raise APIError(
                     {
@@ -344,44 +413,66 @@ class _Query:
 
     def execute(self) -> _Result | None:
         if self._op == "insert":
-            row = {**_insert_defaults(self._table), **(self._payload or {})}
+            row = {
+                **_insert_defaults(self._table),
+                **(self._payload or {}),
+            }
             self._check_constraints(row, self._rows)
             self._rows.append(row)
             rows = [row]
+
         else:
             rows = [row for row in self._rows if self._matches(row)]
+
             if self._op == "update":
                 # Check every row first: a failed statement changes nothing.
                 for row in rows:
                     updated = {**row, **(self._payload or {})}
                     others = [other for other in self._rows if other is not row]
                     self._check_constraints(updated, others)
+
                 for row in rows:
                     row.update(self._payload or {})
+
             if self._op == "delete":
                 for row in rows:
                     self._rows.remove(row)
                     self._db.after_delete(self._table, row)
+
             for column, desc in reversed(self._order):
-                rows.sort(key=lambda row: row.get(column) or "", reverse=desc)
+                rows.sort(
+                    key=lambda row: row.get(column) or "",
+                    reverse=desc,
+                )
+
             if self._count and self._offset > len(rows):
                 # PostgREST answers 416 when a counted page starts past the end.
                 raise APIError(
-                    {"code": "PGRST103", "message": "Requested range not satisfiable"}
+                    {
+                        "code": "PGRST103",
+                        "message": "Requested range not satisfiable",
+                    }
                 )
+
         total = len(rows)
+
         if self._op != "insert":
             end = None if self._limit is None else self._offset + self._limit
             rows = rows[self._offset : end]
 
         copies = [self._project(self._embed(dict(row))) for row in rows]
+
         if self._single == "maybe":
-            # supabase-py returns None, not an empty result, for no match.
             return _Result(copies[0]) if copies else None
+
         if self._single == "one":
             assert len(copies) == 1, f"single() matched {len(copies)} rows"
             return _Result(copies[0])
-        return _Result(copies, total if self._count else None)
+
+        return _Result(
+            copies,
+            total if self._count else None,
+        )
 
 
 def _refuse(code: str, message: str, details: str | None = None) -> APIError:
@@ -455,15 +546,36 @@ class _Bucket:
     def __init__(self, storage: "_Storage") -> None:
         self._storage = storage
 
-    def upload(self, path: str, file: bytes, file_options: Any = None) -> None:
+    def upload(
+        self,
+        path: str,
+        file: bytes,
+        file_options: Any = None,
+    ) -> None:
         if self._storage.fail_uploads:
             raise RuntimeError("storage unavailable")
+
         self._storage.objects[path] = file
 
     def remove(self, paths: list[str]) -> None:
         for path in paths:
             self._storage.objects.pop(path, None)
             self._storage.removed.append(path)
+
+    def create_signed_url(
+        self,
+        path: str,
+        expires_in: int = 300,
+    ) -> dict[str, str]:
+        if path not in self._storage.objects:
+            raise FileNotFoundError(f"Storage object not found: {path}")
+
+        return {
+            "signedURL": (
+                f"https://test-storage.example/invoices/{path}"
+                f"?token=test-token&expires_in={expires_in}"
+            )
+        }
 
 
 class _Storage:
@@ -477,7 +589,12 @@ class _Storage:
 
 
 class _Rpc:
-    def __init__(self, db: "FakeSupabase", name: str, params: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        db: "FakeSupabase",
+        name: str,
+        params: dict[str, Any],
+    ) -> None:
         self._db = db
         self._name = name
         self._params = params
@@ -485,6 +602,7 @@ class _Rpc:
     def execute(self) -> _Result:
         self._db.rpc_calls.append(self._name)
         function = getattr(self._db, f"_rpc_{self._name}")
+
         with self._db.transaction():
             return _Result(function(**self._params))
 
@@ -498,15 +616,41 @@ ACCOUNT_UPDATE_FIELDS = (
     "portal_login_email",
     "status",
 )
-ACCOUNT_CREATE_FIELDS = ("property_id", "vendor_id", *ACCOUNT_UPDATE_FIELDS)
+ACCOUNT_CREATE_FIELDS = (
+    "property_id",
+    "vendor_id",
+    *ACCOUNT_UPDATE_FIELDS,
+)
+
+
+# Bill fields accepted by the approval workflow RPC twins.
+APPROVAL_BILL_FIELDS = (
+    "account_number_raw",
+    "vendor_name_raw",
+    "invoice_number",
+    "invoice_date",
+    "due_date",
+    "amount",
+    "prev_payments",
+    "description",
+    "processing_notes",
+    "property_address",
+    "account_status",
+    "website_name",
+    "vendor_account_id",
+)
 
 
 def _invalid(message: str) -> APIError:
     return APIError({"code": "22023", "message": message})
 
 
-def _reject_unknown_fields(fields: dict[str, Any], allowed: tuple[str, ...]) -> None:
+def _reject_unknown_fields(
+    fields: dict[str, Any],
+    allowed: tuple[str, ...],
+) -> None:
     unknown = sorted(set(fields) - set(allowed))
+
     if unknown:
         raise _invalid(f"unknown vendor account fields: {', '.join(unknown)}")
 
@@ -525,7 +669,11 @@ class FakeSupabase:
     def table(self, name: str) -> _Query:
         return _Query(self, name)
 
-    def rpc(self, name: str, params: dict[str, Any]) -> _Rpc:
+    def rpc(
+        self,
+        name: str,
+        params: dict[str, Any],
+    ) -> _Rpc:
         return _Rpc(self, name, params)
 
     @contextmanager
@@ -533,30 +681,490 @@ class FakeSupabase:
         """Undo every row and Vault change if the body raises.
 
         Rows are restored in place, so a test holding a row dict sees the
-        rolled-back values.
+        rolled-back values. A table first touched inside the transaction is
+        left in place, empty.
         """
         saved_rows = {
             name: [(row, dict(row)) for row in rows]
             for name, rows in self.tables.items()
         }
         saved_vault = dict(self.vault)
+
         try:
             yield
         except BaseException:
             for name, rows in self.tables.items():
                 saved = saved_rows.get(name, [])
+
                 for row, values in saved:
                     row.clear()
                     row.update(values)
+
                 rows[:] = [row for row, _ in saved]
+
             self.vault.clear()
             self.vault.update(saved_vault)
             raise
 
-    def after_delete(self, table: str, row: dict[str, Any]) -> None:
-        # Trigger vendor_accounts_delete_portal_password.
-        if table == "vendor_accounts" and row["portal_password_secret_id"]:
-            self.vault.pop(row["portal_password_secret_id"], None)
+    def after_delete(
+        self,
+        table: str,
+        row: dict[str, Any],
+    ) -> None:
+        # Trigger behavior: deleting a vendor account removes its Vault secret.
+        if table == "vendor_accounts":
+            secret_id = row.get("portal_password_secret_id")
+
+            if secret_id:
+                self.vault.pop(secret_id, None)
+
+    def find(
+        self,
+        table: str,
+        column: str,
+        value: Any,
+    ) -> dict[str, Any] | None:
+        rows = self.tables.get(table, [])
+
+        return next(
+            (row for row in rows if row.get(column) == value),
+            None,
+        )
+
+    # ------------------------------------------------------------------
+    # Test data helpers
+    # ------------------------------------------------------------------
+
+    def add_user(
+        self,
+        user_id: str,
+        **fields: Any,
+    ) -> dict[str, Any]:
+        row = {
+            "user_id": user_id,
+            "full_name": "Test User",
+            "email": "test@example.com",
+            "role": "analyst",
+            "status": "active",
+            "created_at": datetime.now(UTC).isoformat(),
+            **fields,
+        }
+        self.table("app_users")._rows.append(row)
+        return row
+
+    def add_vendor(
+        self,
+        vendor_name: str,
+        **fields: Any,
+    ) -> dict[str, Any]:
+        row = {
+            **_insert_defaults("vendors"),
+            "vendor_name": vendor_name,
+            "contact_email": None,
+            "contact_phone": None,
+            "default_payment_method": None,
+            **fields,
+        }
+        self.table("vendors")._rows.append(row)
+        return row
+
+    def add_property(
+        self,
+        property_name: str = "Elm Court",
+        **fields: Any,
+    ) -> dict[str, Any]:
+        row = {
+            "property_id": str(uuid4()),
+            "property_name": property_name,
+            "street": "1 Main St",
+            "city": "Dallas",
+            "state": "TX",
+            "zip_code": "75201",
+            "status": "active",
+            "created_at": datetime.now(UTC).isoformat(),
+            **fields,
+        }
+        self.table("properties")._rows.append(row)
+        return row
+
+    def add_vendor_account(
+        self,
+        property_id: str,
+        vendor_id: str,
+        **fields: Any,
+    ) -> dict[str, Any]:
+        """An account row; set its password through the `update_vendor_account`
+        rpc, as the repository does."""
+        row = {
+            **_insert_defaults("vendor_accounts"),
+            "property_id": property_id,
+            "vendor_id": vendor_id,
+            "account_number": "ACC-1",
+            "account_type": "water",
+            "payment_method": "ach",
+            **fields,
+        }
+        self.table("vendor_accounts")._rows.append(row)
+        return row
+
+    def add_bill(
+        self,
+        submitted_by: str,
+        **fields: Any,
+    ) -> dict[str, Any]:
+        """Add a bill row and ensure its submitter exists."""
+        if not self.find("app_users", "user_id", submitted_by):
+            self.add_user(submitted_by)
+
+        row = {
+            "bill_id": str(uuid4()),
+            "submitted_by": submitted_by,
+            "status": "draft",
+            "document_path": None,
+            "vendor_account_picked": False,
+            "created_at": datetime.now(UTC).isoformat(),
+            **fields,
+        }
+        self.tables.setdefault("bills", []).append(row)
+        return row
+
+    def add_approval(
+        self,
+        bill_id: str,
+        **fields: Any,
+    ) -> dict[str, Any]:
+        """Add an approval record for an existing bill."""
+        row = {
+            **_insert_defaults("approvals"),
+            "bill_id": bill_id,
+            **fields,
+        }
+        self.tables.setdefault("approvals", []).append(row)
+        return row
+
+    def add_payment_run(
+        self,
+        bill_id: str,
+        started_by: str,
+        **fields: Any,
+    ) -> dict[str, Any]:
+        """A payment run row, queued unless `fields` say otherwise."""
+        row = {
+            **_insert_defaults("payment_runs"),
+            "bill_id": bill_id,
+            "started_by": started_by,
+            **fields,
+        }
+        self.table("payment_runs")._rows.append(row)
+        return row
+
+    # ------------------------------------------------------------------
+    # Approval workflow RPC twins
+    # ------------------------------------------------------------------
+
+    def _ensure_no_pending_approval(self, bill_id: str) -> None:
+        pending = next(
+            (
+                approval
+                for approval in self.tables.get("approvals", [])
+                if approval.get("bill_id") == bill_id
+                and approval.get("approval_status") == "pending"
+            ),
+            None,
+        )
+
+        if pending is not None:
+            raise _sql_error(
+                "This bill already has a pending approval.",
+                "P0001",
+            )
+
+    def _apply_approval_bill_fields(
+        self,
+        bill: dict[str, Any],
+        fields: dict[str, Any],
+    ) -> None:
+        if not isinstance(fields, dict):
+            raise _invalid("Bill fields must be a JSON object.")
+
+        unknown = sorted(set(fields) - set(APPROVAL_BILL_FIELDS))
+
+        if unknown:
+            raise _invalid(f"Unknown bill fields: {', '.join(unknown)}")
+
+        # Omitted values are preserved. Explicit nulls remain explicit nulls.
+        for field, value in fields.items():
+            bill[field] = value
+
+    def _apply_vendor_match(
+        self,
+        bill: dict[str, Any],
+        pick: str | None,
+    ) -> None:
+        """Python twin of the vendor-account match in the bill RPCs.
+
+        The number rule is the real one, imported from
+        vendor_account_matching, so the fake cannot drift from it.
+        """
+        account: dict[str, Any] | None = None
+        picked = False
+
+        if pick is not None:
+            account = self.find("vendor_accounts", "account_id", str(pick))
+
+            if account is None:
+                raise _invalid("Vendor account not found.")
+
+            if account.get("status") != "active":
+                raise _invalid("This vendor account is inactive.")
+
+            picked = True
+        else:
+            active = [
+                candidate
+                for candidate in self.tables.get("vendor_accounts", [])
+                if candidate.get("status") == "active"
+            ]
+            matches = same_account_number(active, bill.get("account_number_raw"))
+
+            if len(matches) == 1:
+                account = matches[0]
+
+        bill["vendor_account_id"] = account["account_id"] if account else None
+        bill["vendor_id"] = account["vendor_id"] if account else None
+        bill["property_id"] = account["property_id"] if account else None
+        bill["vendor_account_picked"] = picked
+
+        self._check_invoice_unique(bill)
+
+    def _check_invoice_unique(self, bill: dict[str, Any]) -> None:
+        # bills_account_invoice_unique
+        key = _bill_invoice_key(bill)
+
+        if key is None:
+            return
+
+        for other in self.tables.get("bills", []):
+            if other is not bill and _bill_invoice_key(other) == key:
+                raise APIError(
+                    {
+                        "code": "23505",
+                        "message": (
+                            "duplicate key on bills (bills_account_invoice_unique)"
+                        ),
+                    }
+                )
+
+    def _rpc_create_bill_with_approval(
+        self,
+        p_fields: dict[str, Any],
+        p_user_id: str,
+    ) -> str:
+        if not isinstance(p_fields, dict):
+            raise _invalid("Bill fields must be a JSON object.")
+
+        self._apply_approval_bill_fields({}, p_fields)
+
+        bill = self.add_bill(
+            submitted_by=p_user_id,
+            status="pending_approval",
+            **p_fields,
+        )
+
+        self._apply_vendor_match(bill, p_fields.get("vendor_account_id"))
+
+        self.add_approval(bill_id=bill["bill_id"])
+        return bill["bill_id"]
+
+    def _rpc_submit_draft_bill_with_approval(
+        self,
+        p_bill_id: str,
+        p_fields: dict[str, Any],
+        p_user_id: str,
+    ) -> str:
+        bill = self.find("bills", "bill_id", p_bill_id)
+
+        if bill is None:
+            raise _sql_error("Editable draft not found.", "P0002")
+
+        if bill["submitted_by"] != p_user_id:
+            raise _sql_error("Editable draft not found.", "42501")
+
+        if bill["status"] != "draft":
+            raise _sql_error(
+                "This bill has already been submitted.",
+                "P0001",
+            )
+
+        self._ensure_no_pending_approval(p_bill_id)
+        self._apply_approval_bill_fields(bill, p_fields)
+        self._apply_vendor_match(bill, p_fields.get("vendor_account_id"))
+
+        now = datetime.now(UTC).isoformat()
+        bill["status"] = "pending_approval"
+        bill["updated_at"] = now
+
+        self.add_approval(
+            bill_id=p_bill_id,
+            approval_status="pending",
+        )
+
+        return p_bill_id
+
+    def _rpc_resubmit_bill_with_approval(
+        self,
+        p_bill_id: str,
+        p_fields: dict[str, Any],
+        p_user_id: str,
+    ) -> str:
+        bill = self.find("bills", "bill_id", p_bill_id)
+
+        if bill is None:
+            raise _sql_error("Bill not found.", "P0002")
+
+        if bill["submitted_by"] != p_user_id:
+            raise _sql_error(
+                "You are not authorized to resubmit this bill.",
+                "42501",
+            )
+
+        if bill["status"] != "rejected":
+            raise _sql_error(
+                "Only rejected bills can be resubmitted.",
+                "P0001",
+            )
+
+        self._ensure_no_pending_approval(p_bill_id)
+        self._apply_approval_bill_fields(bill, p_fields)
+        self._apply_vendor_match(bill, p_fields.get("vendor_account_id"))
+
+        now = datetime.now(UTC).isoformat()
+        bill["status"] = "pending_approval"
+        bill["updated_at"] = now
+
+        # The previous rejected approval is retained as history.
+        self.add_approval(
+            bill_id=p_bill_id,
+            approval_status="pending",
+        )
+
+        return p_bill_id
+
+    def _rpc_decide_bill_approval(
+        self,
+        p_approval_id: str,
+        p_reviewer_id: str,
+        p_decision: str,
+        p_comments: str | None = None,
+    ) -> dict[str, Any]:
+        if p_decision not in {"approve", "reject"}:
+            raise _sql_error(
+                "Invalid approval decision.",
+                "22023",
+            )
+
+        comments = p_comments.strip() if p_comments else None
+
+        if p_decision == "reject" and not comments:
+            raise _sql_error(
+                "A comment is required when rejecting an approval.",
+                "22023",
+            )
+
+        approval = self.find(
+            "approvals",
+            "approval_id",
+            p_approval_id,
+        )
+
+        if approval is None:
+            raise _sql_error("Approval record not found.", "P0002")
+
+        if approval["approval_status"] != "pending":
+            raise _sql_error(
+                "This approval has already been decided.",
+                "P0001",
+            )
+
+        bill = self.find(
+            "bills",
+            "bill_id",
+            approval["bill_id"],
+        )
+
+        if bill is None:
+            raise _sql_error(
+                "Associated bill not found.",
+                "P0002",
+            )
+
+        if bill["status"] != "pending_approval":
+            raise _sql_error(
+                "This bill is not awaiting approval.",
+                "P0001",
+            )
+
+        reviewer = self.find(
+            "app_users",
+            "user_id",
+            p_reviewer_id,
+        )
+
+        if reviewer is None:
+            raise _sql_error(
+                "Reviewer account not found.",
+                "P0002",
+            )
+
+        if reviewer["status"] != "active":
+            raise _sql_error(
+                "Reviewer account is not active.",
+                "42501",
+            )
+
+        if reviewer["role"] not in {"approver", "admin"}:
+            raise _sql_error(
+                "User is not authorized to review approvals.",
+                "42501",
+            )
+
+        amount = bill.get("amount")
+
+        if amount is not None and float(amount) > 5000 and reviewer["role"] != "admin":
+            raise _sql_error(
+                "An admin must review bills over $5,000.",
+                "42501",
+            )
+
+        decision_at = datetime.now(UTC).isoformat()
+        approval_status = "approved" if p_decision == "approve" else "rejected"
+
+        approval.update(
+            {
+                "approval_status": approval_status,
+                "reviewer_id": p_reviewer_id,
+                "decision_at": decision_at,
+                "comments": comments,
+                "updated_at": decision_at,
+            }
+        )
+
+        bill["status"] = approval_status
+        bill["updated_at"] = decision_at
+
+        return {
+            "approval_id": p_approval_id,
+            "bill_id": approval["bill_id"],
+            "approval_status": approval_status,
+            "bill_status": approval_status,
+            "reviewer_id": p_reviewer_id,
+            "decision_at": decision_at,
+            "comments": comments,
+        }
+
+    # ------------------------------------------------------------------
+    # Payment RPC twins
+    # ------------------------------------------------------------------
 
     def _rpc_record_payment(self, **params: Any) -> dict[str, Any]:
         return _record_payment(self, params)
@@ -607,30 +1215,59 @@ class FakeSupabase:
         )
         return [dict(run)]
 
+    # ------------------------------------------------------------------
+    # Vendor-account and Vault RPC twins
+    #
     # Python twins of the SQL functions in
     # 20261115100000_vendor_portal_login.sql. Keep them in step: same checks,
     # same order, same error codes.
+    # ------------------------------------------------------------------
 
     def _locked_account(self, account_id: str) -> dict[str, Any]:
-        account = self.find("vendor_accounts", "account_id", account_id)
+        account = self.find(
+            "vendor_accounts",
+            "account_id",
+            account_id,
+        )
+
         if account is None:
             raise APIError(
-                {"code": "P0002", "message": f"vendor account {account_id} not found"}
+                {
+                    "code": "P0002",
+                    "message": f"vendor account {account_id} not found",
+                }
             )
+
         return account
 
-    def _write_vault(self, secret_id: str, password: str) -> None:
+    def _write_vault(
+        self,
+        secret_id: str,
+        password: str,
+    ) -> None:
         if self.fail_vault_writes:
-            raise APIError({"code": "XX000", "message": "vault unavailable"})
+            raise APIError(
+                {
+                    "code": "XX000",
+                    "message": "vault unavailable",
+                }
+            )
+
         self.vault[secret_id] = password
 
     # set_vendor_account_portal_password: a building block, not callable by
     # the service role, so not an `_rpc_` twin.
-    def _set_portal_password(self, account_id: str, password: str | None) -> None:
+    def _set_portal_password(
+        self,
+        account_id: str,
+        password: str | None,
+    ) -> None:
         if not password:
             raise _invalid("portal password must not be empty")
+
         account = self._locked_account(account_id)
         secret_id = account["portal_password_secret_id"]
+
         if secret_id is None:
             secret_id = str(uuid4())
             self._write_vault(secret_id, password)
@@ -642,24 +1279,36 @@ class FakeSupabase:
     def _clear_portal_password(self, account_id: str) -> None:
         account = self._locked_account(account_id)
         secret_id = account["portal_password_secret_id"]
+
         if secret_id is not None:
             # Deleting the secret nulls the id (on delete set null).
-            del self.vault[secret_id]
+            self.vault.pop(secret_id, None)
             account["portal_password_secret_id"] = None
 
     def _rpc_create_vendor_account(
-        self, p_account: dict[str, Any], p_password: str | None
+        self,
+        p_account: dict[str, Any],
+        p_password: str | None,
     ) -> list[dict[str, Any]]:
         if not isinstance(p_account, dict):
             raise _invalid("vendor account must be a JSON object")
-        _reject_unknown_fields(p_account, ACCOUNT_CREATE_FIELDS)
+
+        _reject_unknown_fields(
+            p_account,
+            ACCOUNT_CREATE_FIELDS,
+        )
+
         # A missing key reads as null, as `->>` does.
         values = {field: p_account.get(field) for field in ACCOUNT_CREATE_FIELDS}
+
         created = self.table("vendor_accounts").insert(values).execute()
+
         assert created is not None
         account_id = created.data[0]["account_id"]
+
         if p_password is not None:
             self._set_portal_password(account_id, p_password)
+
         return [dict(self._locked_account(account_id))]
 
     def _rpc_update_vendor_account(
@@ -669,36 +1318,56 @@ class FakeSupabase:
         p_password_action: str,
         p_password: str | None,
     ) -> list[dict[str, Any]]:
-        if p_password_action not in ("keep", "clear", "set"):
+        if p_password_action not in {"keep", "clear", "set"}:
             raise _invalid("portal password action must be keep, clear or set")
+
         if p_password_action != "set" and p_password is not None:
             raise _invalid("a portal password goes only with the set action")
+
         if not isinstance(p_changes, dict):
             raise _invalid("vendor account changes must be a JSON object")
-        _reject_unknown_fields(p_changes, ACCOUNT_UPDATE_FIELDS)
+
+        _reject_unknown_fields(
+            p_changes,
+            ACCOUNT_UPDATE_FIELDS,
+        )
 
         if self.find("vendor_accounts", "account_id", p_account_id) is None:
             return []
 
         if p_changes:
-            self.table("vendor_accounts").update(p_changes).eq(
-                "account_id", p_account_id
-            ).execute()
+            (
+                self.table("vendor_accounts")
+                .update(p_changes)
+                .eq("account_id", p_account_id)
+                .execute()
+            )
 
         if p_password_action == "set":
-            self._set_portal_password(p_account_id, p_password)
+            self._set_portal_password(
+                p_account_id,
+                p_password,
+            )
         elif p_password_action == "clear":
             self._clear_portal_password(p_account_id)
 
         return [dict(self._locked_account(p_account_id))]
 
     def _rpc_get_vendor_account_portal_login(
-        self, p_account_id: str
+        self,
+        p_account_id: str,
     ) -> list[dict[str, Any]]:
-        account = self.find("vendor_accounts", "account_id", p_account_id)
+        account = self.find(
+            "vendor_accounts",
+            "account_id",
+            p_account_id,
+        )
+
         if account is None:
             return []
+
         secret_id = account["portal_password_secret_id"]
+
         return [
             {
                 "portal_url": account["portal_url"],
@@ -706,99 +1375,3 @@ class FakeSupabase:
                 "portal_password": self.vault.get(secret_id) if secret_id else None,
             }
         ]
-
-    def find(self, table: str, column: str, value: Any) -> dict[str, Any] | None:
-        rows = self.tables.get(table, [])
-        return next((row for row in rows if row.get(column) == value), None)
-
-    def add_bill(self, submitted_by: str, **fields: Any) -> dict[str, Any]:
-        """A bill row; its submitter's `app_users` row is added if missing, as
-        the foreign key needs it."""
-        if not self.find("app_users", "user_id", submitted_by):
-            self.add_user(submitted_by)
-        row = {
-            "bill_id": str(uuid4()),
-            "submitted_by": submitted_by,
-            "status": "draft",
-            "document_path": None,
-            "vendor_account_picked": False,
-            "created_at": datetime.now(UTC).isoformat(),
-            **fields,
-        }
-        self.tables.setdefault("bills", []).append(row)
-        return row
-
-    def add_vendor(self, vendor_name: str, **fields: Any) -> dict[str, Any]:
-        row = {
-            "vendor_id": str(uuid4()),
-            "vendor_name": vendor_name,
-            "contact_email": None,
-            "contact_phone": None,
-            "default_payment_method": None,
-            "created_at": datetime.now(UTC).isoformat(),
-            **fields,
-        }
-        self.table("vendors")._rows.append(row)
-        return row
-
-    def add_property(self, property_name: str = "Elm Court", **fields: Any) -> dict:
-        row = {
-            "property_id": str(uuid4()),
-            "property_name": property_name,
-            "street": "1 Main St",
-            "city": "Dallas",
-            "state": "TX",
-            "zip_code": "75201",
-            "status": "active",
-            "created_at": datetime.now(UTC).isoformat(),
-            **fields,
-        }
-        self.table("properties")._rows.append(row)
-        return row
-
-    def add_vendor_account(
-        self, property_id: str, vendor_id: str, **fields: Any
-    ) -> dict[str, Any]:
-        """An account row; set its password through the `update_vendor_account`
-        rpc, as the repository does."""
-        row = {
-            **_insert_defaults("vendor_accounts"),
-            "property_id": property_id,
-            "vendor_id": vendor_id,
-            "account_number": "ACC-1",
-            "account_type": "water",
-            "payment_method": "ach",
-            **fields,
-        }
-        self.table("vendor_accounts")._rows.append(row)
-        return row
-
-    def add_payment_run(
-        self, bill_id: str, started_by: str, **fields: Any
-    ) -> dict[str, Any]:
-        """A payment run row, queued unless `fields` say otherwise."""
-        row = {
-            **_insert_defaults("payment_runs"),
-            "bill_id": bill_id,
-            "started_by": started_by,
-            **fields,
-        }
-        self.table("payment_runs")._rows.append(row)
-        return row
-
-    def add_user(
-        self,
-        user_id: str,
-        **fields: Any,
-    ) -> dict[str, Any]:
-        row = {
-            "user_id": user_id,
-            "full_name": "Test User",
-            "email": "test@example.com",
-            "role": "analyst",
-            "status": "active",
-            "created_at": datetime.now(UTC).isoformat(),
-            **fields,
-        }
-        self.table("app_users")._rows.append(row)
-        return row

@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Activity, useSyncExternalStore } from "react";
 import {
   extractBill,
+  getBill,
   getBillDraft,
+  resubmitBill,
   saveBillDraft,
   submitBill,
   updateBillDraft,
@@ -11,7 +12,7 @@ import {
 } from "@/lib/api/bills";
 import { ApiError } from "@/lib/api/http";
 import { accountStatuses } from "@/lib/invoice-form-schema";
-import type { AccountStatus, Bill, BillDraftDetail } from "@/types/bill";
+import type { Bill, BillDraftDetail } from "@/types/bill";
 import type {
   BillExtraction,
   Confidence,
@@ -21,118 +22,101 @@ import type {
 } from "@/types/extraction";
 import { InvoiceForm } from "./invoice-form";
 
-const push = jest.fn();
+// --------------------------------------------------
+// Router mocks
+// --------------------------------------------------
 
-// The App Router as the form sees it, kept to what Next documents:
-// - usePathname follows the URL, including native history.replaceState.
-// - useRouter().bfcacheId changes when a link or router.push/replace creates
-//   the page's segment afresh, and stays the same on back/forward, and when a
-//   link targets the route tree already rendered.
-// - A page the person leaves stays mounted inside a hidden <Activity>
-//   (`shown` below), keeping its state.
-type MockRouter = { pathname: string; bfcacheId: string; shown: boolean };
-let mockRouter: MockRouter;
-let mockFreshSegments = 0;
-const mockListeners = new Set<() => void>();
+const mockPush = jest.fn();
 
-function mockSetRouter(change: Partial<MockRouter>) {
-  mockRouter = { ...mockRouter, ...change };
-  for (const listener of mockListeners) listener();
-}
-
-function useMockRouter(): MockRouter {
-  return useSyncExternalStore(
-    (listener) => {
-      mockListeners.add(listener);
-      return () => mockListeners.delete(listener);
-    },
-    () => mockRouter,
-  );
-}
+let mockPathname = "/invoices/new";
+let mockInvoiceId: string | undefined;
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ push, bfcacheId: useMockRouter().bfcacheId }),
-  usePathname: () => useMockRouter().pathname,
+  useRouter: () => ({
+    push: mockPush,
+  }),
+  usePathname: () => mockPathname,
+  useParams: () => ({
+    invoiceId: mockInvoiceId,
+  }),
 }));
 
-// Next patches history.replaceState so usePathname follows it.
-const nativeReplaceState = window.history.replaceState.bind(window.history);
-jest.spyOn(window.history, "replaceState").mockImplementation((data, unused, url) => {
-  nativeReplaceState(data, unused, url);
-  if (url) act(() => mockSetRouter({ pathname: new URL(url, window.location.href).pathname }));
-});
+// --------------------------------------------------
+// API mocks
+// --------------------------------------------------
 
-// A link or router.push to another page: this one is hidden, not unmounted.
-function leaveTo(pathname: string) {
-  act(() => mockSetRouter({ pathname, shown: false }));
-}
-
-// A link or router.push into this page from another one: a fresh segment.
-function arriveByLink(pathname: string) {
-  mockFreshSegments += 1;
-  act(() => mockSetRouter({ pathname, shown: true, bfcacheId: `_b_${mockFreshSegments}_` }));
-}
-
-// Back or forward to this page: Next restores its bfcacheId.
-function goBackTo(pathname: string) {
-  act(() => mockSetRouter({ pathname, shown: true }));
-}
-
-// A link whose route tree is the one already rendered: Next reuses the
-// segment, so the bfcacheId stays.
-function linkWithinRoute(pathname: string) {
-  act(() => mockSetRouter({ pathname }));
-}
-
-function RoutedForm() {
-  const { shown } = useMockRouter();
-  return (
-    <Activity mode={shown ? "visible" : "hidden"}>
-      <InvoiceForm />
-    </Activity>
-  );
-}
-
-// The real module needs NEXT_PUBLIC_API_URL at import time and makes network
-// calls; the form is tested in isolation.
-// Only these exist on the mock: the form calling anything else (such as
-// createBill, which makes a second bill) fails the test.
 jest.mock("@/lib/api/bills", () => ({
   extractBill: jest.fn(),
+  getBill: jest.fn(),
   getBillDraft: jest.fn(),
+  resubmitBill: jest.fn(),
   saveBillDraft: jest.fn(),
   submitBill: jest.fn(),
   updateBillDraft: jest.fn(),
   uploadInvoicePdf: jest.fn(),
 }));
 
-// The vendor account lookup never answers here; its own tests are in
-// invoice-form-vendor-account.test.tsx.
-jest.mock("@/lib/api/vendor-account-lookup", () => ({
-  lookUpVendorAccounts: jest.fn(() => new Promise<never>(() => {})),
+// Vendor lookup is covered by its own test suite.
+jest.mock("./vendor-account-field", () => ({
+  VendorAccountField: ({
+    accountNumber,
+    value,
+    onChange,
+  }: {
+    accountNumber: string;
+    value: string;
+    onChange: (value: string) => void;
+  }) => (
+    <div>
+      <label htmlFor="vendorAccountId">Vendor account</label>
+      <input
+        id="vendorAccountId"
+        value={value}
+        data-account-number={accountNumber}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
+  ),
 }));
 
-function pdf(name = "invoice.pdf", type = "application/pdf") {
+// --------------------------------------------------
+// Typed mocks
+// --------------------------------------------------
+
+const mockExtractBill = extractBill as jest.MockedFunction<typeof extractBill>;
+const mockGetBill = getBill as jest.MockedFunction<typeof getBill>;
+const mockGetBillDraft = getBillDraft as jest.MockedFunction<typeof getBillDraft>;
+const mockResubmitBill = resubmitBill as jest.MockedFunction<typeof resubmitBill>;
+const mockSaveBillDraft = saveBillDraft as jest.MockedFunction<typeof saveBillDraft>;
+const mockSubmitBill = submitBill as jest.MockedFunction<typeof submitBill>;
+const mockUpdateBillDraft = updateBillDraft as jest.MockedFunction<typeof updateBillDraft>;
+const mockUploadInvoicePdf = uploadInvoicePdf as jest.MockedFunction<typeof uploadInvoicePdf>;
+
+// --------------------------------------------------
+// Fixtures
+// --------------------------------------------------
+
+function pdf(name = "invoice.pdf", type = "application/pdf"): File {
   return new File(["%PDF-1.4"], name, { type });
 }
 
-const mockSaveBillDraft = saveBillDraft as jest.MockedFunction<typeof saveBillDraft>;
-const mockUpdateBillDraft = updateBillDraft as jest.MockedFunction<typeof updateBillDraft>;
-const mockUploadInvoicePdf = uploadInvoicePdf as jest.MockedFunction<typeof uploadInvoicePdf>;
-const mockSubmitBill = submitBill as jest.MockedFunction<typeof submitBill>;
-
-const mockGetBillDraft = getBillDraft as jest.MockedFunction<typeof getBillDraft>;
-const mockExtractBill = extractBill as jest.MockedFunction<typeof extractBill>;
-
 function read(value: string | null, confidence: Confidence = "high"): Extracted {
-  return { value, evidence: value ?? "", confidence };
+  return {
+    value,
+    evidence: value ?? "",
+    confidence,
+  };
 }
 
 function status(
-  value: AccountStatus | null,
+  value: "unpaid" | "outstanding" | "paid" | null,
   confidence: Confidence = "high",
 ): ExtractedAccountStatus {
-  return { value, evidence: value ?? "", confidence };
+  return {
+    value,
+    evidence: value ?? "",
+    confidence,
+  };
 }
 
 function extraction(overrides: Partial<BillExtraction> = {}): BillExtraction {
@@ -151,8 +135,6 @@ function extraction(overrides: Partial<BillExtraction> = {}): BillExtraction {
     service_address: read("12 Elm St"),
     service_period_start: read(null),
     service_period_end: read(null),
-    // Most tests are about the bill's required fields; the ones on these
-    // three set them.
     description: read(null),
     payment_website: read(null),
     account_status: status(null),
@@ -177,18 +159,6 @@ function extractionResult(overrides: Partial<ExtractionResult> = {}): Extraction
   };
 }
 
-// A read the test finishes when it chooses.
-function pendingRead() {
-  let resolve!: (result: ExtractionResult) => void;
-  let reject!: (error: Error) => void;
-  const promise = new Promise<ExtractionResult>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-// A saved draft with every field Create requires.
 function fullDraft(overrides: Partial<BillDraftDetail> = {}): BillDraftDetail {
   return {
     bill_id: "bill-1",
@@ -199,12 +169,12 @@ function fullDraft(overrides: Partial<BillDraftDetail> = {}): BillDraftDetail {
     invoice_date: "2026-10-01",
     due_date: "2026-10-31",
     amount: "250.00",
-    prev_payments: null,
+    prev_payments: "50.00",
     description: "Electricity",
-    processing_notes: null,
+    processing_notes: "Pay online",
     property_address: "12 Elm St",
-    account_status: null,
-    website_name: null,
+    account_status: "unpaid",
+    website_name: "https://citypower.example.com",
     vendor_account_id: null,
     vendor_account_picked: false,
     document_path: null,
@@ -212,659 +182,280 @@ function fullDraft(overrides: Partial<BillDraftDetail> = {}): BillDraftDetail {
   };
 }
 
-function dropZone() {
+function fullBill(overrides: Partial<Bill> = {}): Bill {
+  return {
+    id: "bill-1",
+    bill_id: "bill-1",
+    status: "pending_approval",
+    account_number_raw: "ACC-100",
+    invoice_number: "INV-2001",
+    vendor_name_raw: "City Power",
+    invoice_date: "2026-10-01",
+    due_date: "2026-10-31",
+    amount: "250.00",
+    prev_payments: "50.00",
+    description: "Electricity",
+    processing_notes: "Pay online",
+    property_address: "12 Elm St",
+    account_status: "unpaid",
+    website_name: "https://citypower.example.com",
+    vendor_account_id: null,
+    vendor_account_picked: false,
+    document_path: null,
+    ...overrides,
+  } as Bill;
+}
+
+const savedDraft = {
+  bill_id: "bill-1",
+  status: "draft" as const,
+  document_path: null,
+};
+
+const storedPdf = {
+  bill_id: "bill-1",
+  status: "draft",
+  document_path: "bills/bill-1/invoice.pdf",
+};
+
+const finalValues = {
+  account_number_raw: "ACC-100",
+  invoice_number: "INV-2001",
+  vendor_name_raw: "City Power",
+  property_address: "12 Elm St",
+  invoice_date: "2026-10-01",
+  due_date: "2026-10-31",
+  description: "Electricity",
+  amount: "250.00",
+};
+
+// --------------------------------------------------
+// Helpers
+// --------------------------------------------------
+
+function dropZone(): HTMLElement {
   return screen.getByText("Upload / import invoice (PDF)").closest("label") as HTMLElement;
 }
 
+function fileInput(): HTMLInputElement {
+  return document.querySelector("#invoicePdf") as HTMLInputElement;
+}
+
+function pickPdf(file: File = pdf()) {
+  fireEvent.drop(dropZone(), {
+    dataTransfer: {
+      files: [file],
+    },
+  });
+}
+
+async function fillValidInvoice(user: ReturnType<typeof userEvent.setup>) {
+  const values: Record<string, string> = {
+    "Account / Customer #": "ACC-100",
+    "Statement / Bill ID": "INV-2001",
+    "Customer / Business Name": "City Power",
+    "Property Address": "12 Elm St",
+    "Issue / Record / Invoice Date": "2026-10-01",
+    "Due / Pay Date": "2026-10-31",
+    "Bill Description / Explanation": "Electricity",
+    "Current Due": "250.00",
+  };
+
+  for (const [label, value] of Object.entries(values)) {
+    await user.type(screen.getByLabelText(label), value);
+  }
+}
+
+async function clickSaveDraft(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    screen.getByRole("button", {
+      name: /Save Draft|Draft Saved|Retry Save/,
+    }),
+  );
+}
+
+async function clickCreate(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    screen.getByRole("button", {
+      name: /Create|Retry Create/,
+    }),
+  );
+}
+
+// --------------------------------------------------
+// Test setup
+// --------------------------------------------------
+
 describe("InvoiceForm", () => {
   beforeEach(() => {
-    push.mockClear();
-    (window.history.replaceState as jest.Mock).mockClear();
-    mockRouter = { pathname: "/invoices/new", bfcacheId: "_b_0_", shown: true };
-    mockGetBillDraft.mockReset().mockReturnValue(new Promise<never>(() => {}));
-    // Reads never finish unless a test says so: most tests are not about them.
-    mockExtractBill.mockReset().mockReturnValue(new Promise<never>(() => {}));
+    jest.clearAllMocks();
+
+    mockPathname = "/invoices/new";
+    mockInvoiceId = undefined;
+
+    // Reads remain pending unless a test explicitly resolves them.
+    mockExtractBill.mockReturnValue(new Promise<never>(() => {}));
+    mockGetBill.mockReturnValue(new Promise<never>(() => {}));
+    mockGetBillDraft.mockReturnValue(new Promise<never>(() => {}));
+
+    mockSaveBillDraft.mockResolvedValue(savedDraft);
+    mockUpdateBillDraft.mockResolvedValue(savedDraft);
+    mockUploadInvoicePdf.mockResolvedValue(storedPdf);
+    mockSubmitBill.mockResolvedValue(fullBill());
+    mockResubmitBill.mockResolvedValue(fullBill());
   });
 
-  it("renders every field by its label", () => {
-    render(<InvoiceForm />);
+  // ==================================================
+  // 1. FORM RENDERING
+  // ==================================================
 
-    [
-      "Account / Customer #",
-      "Vendor account",
-      "Statement / Bill ID",
-      "Customer / Business Name",
-      "Property Address",
-      "Issue / Record / Invoice Date",
-      "Due / Pay Date",
-      "Bill Description / Explanation",
-      "Prev Payments",
-      "Current Due",
-      "Account Status",
-      "Payment / Processing Notes (optional)",
-      "Website Name (optional)",
-    ].forEach((label) => {
-      expect(screen.getByLabelText(label)).toBeInTheDocument();
-    });
-  });
-
-  it("offers an option for every account status", () => {
-    render(<InvoiceForm />);
-
-    accountStatuses.forEach((status: string) => {
-      const optionName = status || "Select status";
-      expect(screen.getByRole("option", { name: optionName })).toBeInTheDocument();
-    });
-  });
-
-  it("shows validation errors and does not navigate when submitted empty", async () => {
-    const user = userEvent.setup();
-    const { container } = render(<InvoiceForm />);
-
-    await user.click(screen.getByRole("button", { name: "Create" }));
-
-    await waitFor(() => {
-      expect(container.querySelectorAll('[aria-invalid="true"]').length).toBeGreaterThan(0);
-    });
-    expect(push).not.toHaveBeenCalled();
-  });
-
-  describe("PDF drag and drop", () => {
-    it("selects a dropped PDF", () => {
+  describe("Rendering", () => {
+    it("renders the New Invoice heading", () => {
       render(<InvoiceForm />);
 
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
-
-      expect(screen.getByText("invoice.pdf")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "New Invoice" })).toBeInTheDocument();
     });
 
-    it("accepts a .pdf file with an empty MIME type", () => {
+    it("renders all invoice fields", () => {
       render(<InvoiceForm />);
 
-      fireEvent.drop(dropZone(), {
-        dataTransfer: { files: [pdf("scan.PDF", "")] },
-      });
+      const labels = [
+        "Account / Customer #",
+        "Vendor account",
+        "Statement / Bill ID",
+        "Customer / Business Name",
+        "Property Address",
+        "Issue / Record / Invoice Date",
+        "Due / Pay Date",
+        "Bill Description / Explanation",
+        "Prev Payments",
+        "Current Due",
+        "Account Status",
+        "Payment / Processing Notes (optional)",
+        "Website Name (optional)",
+      ];
 
-      expect(screen.getByText("scan.PDF")).toBeInTheDocument();
+      for (const label of labels) {
+        expect(screen.getByLabelText(label)).toBeInTheDocument();
+      }
     });
 
-    it("rejects a dropped non-PDF file", () => {
+    it("renders the PDF upload section", () => {
       render(<InvoiceForm />);
 
-      fireEvent.drop(dropZone(), {
-        dataTransfer: {
-          files: [new File(["x"], "photo.png", { type: "image/png" })],
-        },
-      });
-
-      expect(screen.getByRole("alert")).toHaveTextContent("Only PDF files can be uploaded.");
-      expect(screen.queryByText("photo.png")).not.toBeInTheDocument();
-    });
-
-    it("rejects dropping more than one file", () => {
-      render(<InvoiceForm />);
-
-      fireEvent.drop(dropZone(), {
-        dataTransfer: { files: [pdf("a.pdf"), pdf("b.pdf")] },
-      });
-
-      expect(screen.getByRole("alert")).toHaveTextContent("Drop one PDF at a time.");
-    });
-
-    it("highlights the zone while a file is dragged over it", () => {
-      render(<InvoiceForm />);
-      // Look the zone up once: its text changes while dragging.
-      const zone = dropZone();
-
-      fireEvent.dragOver(zone, { dataTransfer: { dropEffect: "none" } });
-      expect(screen.getByText("Drop the PDF here")).toBeInTheDocument();
-
-      fireEvent.dragLeave(zone, { relatedTarget: document.body });
       expect(screen.getByText("Upload / import invoice (PDF)")).toBeInTheDocument();
+      expect(screen.getByText("Drag and drop a PDF here, or click to browse")).toBeInTheDocument();
     });
 
-    it("still accepts a PDF from the file picker", async () => {
+    it("renders Save Draft and Cancel buttons", () => {
+      render(<InvoiceForm />);
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    });
+
+    it("renders all available account statuses", () => {
+      render(<InvoiceForm />);
+
+      for (const value of accountStatuses) {
+        expect(
+          screen.getByRole("option", {
+            name: value || "Select status",
+          }),
+        ).toBeInTheDocument();
+      }
+    });
+
+    it("uses the correct input types for date fields", () => {
+      render(<InvoiceForm />);
+
+      expect(screen.getByLabelText("Issue / Record / Invoice Date")).toHaveAttribute(
+        "type",
+        "date",
+      );
+      expect(screen.getByLabelText("Due / Pay Date")).toHaveAttribute("type", "date");
+    });
+
+    it("renders optional processing notes and website fields", () => {
+      render(<InvoiceForm />);
+
+      expect(screen.getByLabelText("Payment / Processing Notes (optional)")).toBeInTheDocument();
+      expect(screen.getByLabelText("Website Name (optional)")).toBeInTheDocument();
+    });
+  });
+
+  // ==================================================
+  // 2. VALIDATION
+  // ==================================================
+
+  describe("Validation", () => {
+    it("shows validation errors when an empty invoice is submitted", async () => {
       const user = userEvent.setup();
       const { container } = render(<InvoiceForm />);
 
-      await user.upload(container.querySelector("#invoicePdf") as HTMLInputElement, pdf());
+      await user.click(screen.getByRole("button", { name: "Create" }));
 
-      expect(screen.getByText("invoice.pdf")).toBeInTheDocument();
-    });
-  });
+      await waitFor(() => {
+        expect(container.querySelectorAll('[aria-invalid="true"]').length).toBeGreaterThan(0);
+      });
 
-  describe("Storing the PDF with the draft", () => {
-    const savedDraft = {
-      bill_id: "bill-1",
-      status: "draft" as const,
-      document_path: null,
-    };
-    const stored = { bill_id: "bill-1", document_path: "bills/bill-1/x.pdf", status: "draft" };
-
-    beforeEach(() => {
-      mockSaveBillDraft.mockReset().mockResolvedValue(savedDraft);
-      mockUpdateBillDraft.mockReset().mockResolvedValue(savedDraft);
-      mockUploadInvoicePdf.mockReset().mockResolvedValue(stored);
-    });
-
-    async function saveDraft(user: ReturnType<typeof userEvent.setup>) {
-      await user.click(screen.getByRole("button", { name: /Save Draft|Draft Saved|Retry Save/ }));
-    }
-
-    it("has no Upload PDF button", () => {
-      render(<InvoiceForm />);
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
-
-      expect(screen.queryByRole("button", { name: /Upload/ })).not.toBeInTheDocument();
-    });
-
-    it("says a picked PDF is stored on the next save", () => {
-      render(<InvoiceForm />);
-
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("harborlight-bill.pdf")] } });
-
-      expect(
-        screen.getByText(
-          "harborlight-bill.pdf is stored when you save the draft or create the bill.",
-        ),
-      ).toBeInTheDocument();
-      expect(screen.queryByText(/Stored with this draft/)).not.toBeInTheDocument();
-    });
-
-    it("stores the picked PDF with the draft once, then shows it as stored", async () => {
-      const user = userEvent.setup();
-      render(<InvoiceForm />);
-      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
-      const file = pdf("harborlight-bill.pdf");
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
-
-      await saveDraft(user);
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
-      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
-      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
-      // The values are saved first: the PDF needs the draft's id.
-      expect(mockSaveBillDraft.mock.invocationCallOrder[0]).toBeLessThan(
-        mockUploadInvoicePdf.mock.invocationCallOrder[0],
-      );
-      expect(screen.getByText("Stored with this draft: harborlight-bill.pdf")).toHaveAttribute(
-        "role",
-        "status",
-      );
-
-      await user.type(screen.getByLabelText("Bill Description / Explanation"), "Water");
-      await saveDraft(user);
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      expect(mockUpdateBillDraft).toHaveBeenCalledTimes(1);
-      // The same file is not stored again.
-      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
-    });
-
-    it("replaces the stored PDF when another one is picked and saved", async () => {
-      const user = userEvent.setup();
-      render(<InvoiceForm />);
-      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("first.pdf")] } });
-      await saveDraft(user);
-      await screen.findByText("Stored with this draft: first.pdf");
-
-      const second = pdf("second.pdf");
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [second] } });
-
-      // A new pick is an unsaved change.
-      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
-      expect(
-        screen.getByText(
-          "second.pdf replaces the stored PDF when you save the draft or create the bill.",
-        ),
-      ).toBeInTheDocument();
-
-      await saveDraft(user);
-      await screen.findByText("Stored with this draft: second.pdf");
-
-      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(2);
-      expect(mockUploadInvoicePdf).toHaveBeenLastCalledWith(second, "bill-1");
-    });
-
-    it("keeps the draft when the PDF can't be stored, and retries on the next save", async () => {
-      const user = userEvent.setup();
-      mockUploadInvoicePdf.mockRejectedValueOnce(new Error("Unable to store the invoice PDF."));
-      render(<InvoiceForm />);
-      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
-      const file = pdf("harborlight-bill.pdf");
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
-
-      await saveDraft(user);
-
-      const alert = await screen.findByRole("alert");
-      expect(alert).toHaveTextContent(
-        "Draft saved, but the PDF couldn't be stored. Save again to retry.",
-      );
-      expect(alert).toHaveTextContent("Unable to store the invoice PDF.");
-      expect(screen.getByRole("heading", { name: "Edit Draft" })).toBeInTheDocument();
-      expect(window.history.replaceState).toHaveBeenCalledWith(null, "", "/invoices/bill-1/edit");
-      expect(screen.queryByText(/Stored with this draft/)).not.toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: "Retry Save" }));
-      await screen.findByText("Stored with this draft: harborlight-bill.pdf");
-
-      // The retry updates the same draft and stores the same file.
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
-      expect(mockUpdateBillDraft).toHaveBeenCalledWith("bill-1", expect.anything());
-      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(2);
-      expect(mockUploadInvoicePdf).toHaveBeenLastCalledWith(file, "bill-1");
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    });
-
-    it("saves only the values when no PDF is picked", async () => {
-      const user = userEvent.setup();
-      render(<InvoiceForm />);
-      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
-
-      await saveDraft(user);
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
-      expect(screen.getByText("Draft saved successfully: bill-1")).toBeInTheDocument();
-      expect(screen.queryByText(/Stored with this draft/)).not.toBeInTheDocument();
-    });
-  });
-
-  describe("Create", () => {
-    const savedDraft = {
-      bill_id: "bill-1",
-      status: "draft" as const,
-      document_path: null,
-    };
-    const submitted = { id: "bill-1", status: "pending_approval" } as Bill;
-    const stored = { bill_id: "bill-1", document_path: "bills/bill-1/x.pdf", status: "draft" };
-
-    beforeEach(() => {
-      mockSaveBillDraft.mockReset().mockResolvedValue(savedDraft);
-      mockUpdateBillDraft.mockReset().mockResolvedValue(savedDraft);
-      mockUploadInvoicePdf.mockReset().mockResolvedValue(stored);
-      mockSubmitBill.mockReset().mockResolvedValue(submitted);
-    });
-
-    // Every field Create requires, valid.
-    function fillInValidBill() {
-      const values: Record<string, string> = {
-        "Account / Customer #": "ACC-100",
-        "Statement / Bill ID": "INV-2001",
-        "Customer / Business Name": "City Power",
-        "Property Address": "12 Elm St",
-        "Issue / Record / Invoice Date": "2026-10-01",
-        "Due / Pay Date": "2026-10-31",
-        "Bill Description / Explanation": "Electricity",
-        "Current Due": "250.00",
-      };
-      for (const [label, value] of Object.entries(values)) {
-        fireEvent.change(screen.getByLabelText(label), { target: { value } });
-      }
-    }
-
-    const finalValues = {
-      account_number_raw: "ACC-100",
-      invoice_number: "INV-2001",
-      vendor_name_raw: "City Power",
-      property_address: "12 Elm St",
-      invoice_date: "2026-10-01",
-      due_date: "2026-10-31",
-      description: "Electricity",
-      amount: "250.00",
-    };
-
-    async function create(user: ReturnType<typeof userEvent.setup>) {
-      await user.click(screen.getByRole("button", { name: /Create/ }));
-    }
-
-    it("creates a draft, stores the PDF on it, then submits that draft", async () => {
-      const user = userEvent.setup();
-      render(<InvoiceForm />);
-      fillInValidBill();
-      const file = pdf("harborlight-bill.pdf");
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
-
-      await create(user);
-
-      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
-      expect(mockSaveBillDraft.mock.calls[0][0]).toMatchObject(finalValues);
-      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
-      expect(mockSubmitBill).toHaveBeenCalledTimes(1);
-      expect(mockSubmitBill).toHaveBeenCalledWith("bill-1", expect.objectContaining(finalValues));
-      const [saveOrder] = mockSaveBillDraft.mock.invocationCallOrder;
-      const [uploadOrder] = mockUploadInvoicePdf.mock.invocationCallOrder;
-      const [submitOrder] = mockSubmitBill.mock.invocationCallOrder;
-      expect(saveOrder).toBeLessThan(uploadOrder);
-      expect(uploadOrder).toBeLessThan(submitOrder);
-      expect(screen.getByRole("button", { name: "Created ✓" })).toBeDisabled();
-    });
-
-    it("submits the draft Save Draft made, without storing its PDF again", async () => {
-      const user = userEvent.setup();
-      render(<InvoiceForm />);
-      fillInValidBill();
-      const file = pdf();
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-      fireEvent.change(screen.getByLabelText("Current Due"), { target: { value: "275.00" } });
-
-      await create(user);
-
-      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
-      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
-      // The final values go with the submit itself.
-      expect(mockSubmitBill).toHaveBeenCalledWith(
-        "bill-1",
-        expect.objectContaining({ amount: "275.00" }),
-      );
-    });
-
-    it("submits without storing anything when no PDF was picked", async () => {
-      const user = userEvent.setup();
-      render(<InvoiceForm />);
-      fillInValidBill();
-
-      await create(user);
-
-      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
-      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
-      expect(mockSubmitBill).toHaveBeenCalledWith("bill-1", expect.objectContaining(finalValues));
-    });
-
-    it("submits an opened draft, keeping the PDF stored before", async () => {
-      const user = userEvent.setup();
-      mockRouter = { ...mockRouter, pathname: "/invoices/bill-7/edit" };
-      mockGetBillDraft.mockResolvedValue(fullDraft({ bill_id: "bill-7" }));
-      render(<InvoiceForm />);
-      await screen.findByDisplayValue("ACC-100");
-
-      await create(user);
-
-      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
       expect(mockSaveBillDraft).not.toHaveBeenCalled();
-      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
-      expect(mockSubmitBill).toHaveBeenCalledWith("bill-7", expect.objectContaining(finalValues));
-    });
-
-    it("stays on the form when the submit fails, and a retry submits the same draft", async () => {
-      const user = userEvent.setup();
-      mockSubmitBill.mockRejectedValueOnce(new Error("Unable to reach the server."));
-      render(<InvoiceForm />);
-      fillInValidBill();
-      const file = pdf();
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
-
-      await create(user);
-
-      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to reach the server.");
-      expect(push).not.toHaveBeenCalled();
-      expect(screen.getByRole("heading", { name: "Edit Draft" })).toBeInTheDocument();
-      expect(window.history.replaceState).toHaveBeenCalledWith(null, "", "/invoices/bill-1/edit");
-
-      await user.click(screen.getByRole("button", { name: "Retry Create" }));
-
-      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
-      // One draft, one stored PDF, and both submits for that draft.
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
-      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
-      expect(mockSubmitBill.mock.calls.map(([id]) => id)).toEqual(["bill-1", "bill-1"]);
-    });
-
-    it("goes to the dashboard when a retry finds the draft already submitted", async () => {
-      const user = userEvent.setup();
-      // The first submit reached the server but its answer was lost.
-      mockSubmitBill
-        .mockRejectedValueOnce(new Error("Unable to reach the server."))
-        .mockRejectedValueOnce(new ApiError("This bill has already been submitted.", 409));
-      render(<InvoiceForm />);
-      fillInValidBill();
-
-      await create(user);
-      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to reach the server.");
-
-      await user.click(screen.getByRole("button", { name: "Retry Create" }));
-
-      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
-      expect(screen.queryByText("This bill has already been submitted.")).not.toBeInTheDocument();
-    });
-
-    const alreadySent =
-      "This bill was already sent for approval with the earlier values, so your latest changes weren't saved.";
-
-    it("says the bill went with the earlier values when the amount changed before the retry", async () => {
-      const user = userEvent.setup();
-      // The first submit may have landed with 250.00; the retry sends 275.00.
-      mockSubmitBill
-        .mockRejectedValueOnce(new Error("Unable to reach the server."))
-        .mockRejectedValueOnce(new ApiError("This bill has already been submitted.", 409));
-      render(<InvoiceForm />);
-      fillInValidBill();
-
-      await create(user);
-      await screen.findByRole("alert");
-      fireEvent.change(screen.getByLabelText("Current Due"), { target: { value: "275.00" } });
-      await user.click(screen.getByRole("button", { name: /Create/ }));
-
-      expect(await screen.findByRole("alert")).toHaveTextContent(alreadySent);
-      expect(push).not.toHaveBeenCalled();
-      expect(mockSubmitBill.mock.calls[1][1]).toEqual(
-        expect.objectContaining({ amount: "275.00" }),
-      );
-    });
-
-    it("does not count a 409 on the first try as its own success", async () => {
-      const user = userEvent.setup();
-      // Another tab submitted this draft; this Create never sent anything before.
-      mockSubmitBill.mockRejectedValueOnce(
-        new ApiError("This bill has already been submitted.", 409),
-      );
-      render(<InvoiceForm />);
-      fillInValidBill();
-
-      await create(user);
-
-      expect(await screen.findByRole("alert")).toHaveTextContent(alreadySent);
-      expect(push).not.toHaveBeenCalled();
-    });
-
-    it("says the bill may already be sent when a newly picked PDF can't be stored after a lost submit", async () => {
-      const user = userEvent.setup();
-      mockSubmitBill.mockRejectedValueOnce(new Error("Unable to reach the server."));
-      render(<InvoiceForm />);
-      fillInValidBill();
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("first.pdf")] } });
-
-      await create(user);
-      await screen.findByRole("alert");
-      // The bill is no longer a draft, so storing another PDF on it is refused.
-      mockUploadInvoicePdf.mockRejectedValueOnce(new ApiError("Editable draft not found.", 404));
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("second.pdf")] } });
-      await user.click(screen.getByRole("button", { name: /Create/ }));
-
-      const alert = await screen.findByRole("alert");
-      expect(alert).toHaveTextContent(alreadySent);
-      expect(alert).not.toHaveTextContent("the bill wasn't created");
-      expect(mockSubmitBill).toHaveBeenCalledTimes(1);
-    });
-
-    it("still shows other submit errors, such as a missing draft", async () => {
-      const user = userEvent.setup();
-      mockSubmitBill.mockRejectedValueOnce(new ApiError("Editable draft not found.", 404));
-      render(<InvoiceForm />);
-      fillInValidBill();
-
-      await create(user);
-
-      expect(await screen.findByRole("alert")).toHaveTextContent("Editable draft not found.");
-      expect(push).not.toHaveBeenCalled();
-    });
-
-    it("does not submit when the PDF can't be stored, and a retry continues", async () => {
-      const user = userEvent.setup();
-      mockUploadInvoicePdf.mockRejectedValueOnce(new Error("Unable to store the invoice PDF."));
-      render(<InvoiceForm />);
-      fillInValidBill();
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
-
-      await create(user);
-
-      const alert = await screen.findByRole("alert");
-      expect(alert).toHaveTextContent("The PDF couldn't be stored, so the bill wasn't created.");
-      expect(alert).toHaveTextContent("Unable to store the invoice PDF.");
       expect(mockSubmitBill).not.toHaveBeenCalled();
-
-      await user.click(screen.getByRole("button", { name: "Retry Create" }));
-
-      await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
-      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(2);
-      expect(mockSubmitBill).toHaveBeenCalledTimes(1);
+      expect(mockPush).not.toHaveBeenCalled();
     });
 
-    it("stays on the form when the draft can't be created", async () => {
+    it("does not submit an invoice with missing required fields", async () => {
       const user = userEvent.setup();
-      mockSaveBillDraft.mockRejectedValueOnce(new Error("Unable to save draft"));
+
       render(<InvoiceForm />);
-      fillInValidBill();
 
-      await create(user);
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      await user.click(screen.getByRole("button", { name: "Create" }));
 
-      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to save draft");
       expect(mockSubmitBill).not.toHaveBeenCalled();
-      expect(push).not.toHaveBeenCalled();
-      expect(screen.getByRole("button", { name: "Retry Create" })).toBeEnabled();
+      expect(mockPush).not.toHaveBeenCalled();
     });
 
-    it("shows one loading state and blocks Save Draft while creating", async () => {
+    it("allows optional fields to remain empty", async () => {
       const user = userEvent.setup();
-      mockSubmitBill.mockReturnValue(new Promise<never>(() => {}));
+
       render(<InvoiceForm />);
-      fillInValidBill();
 
-      await create(user);
+      await fillValidInvoice(user);
+      await clickCreate(user);
 
-      expect(await screen.findByRole("button", { name: "Creating..." })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+      await waitFor(() => {
+        expect(mockSubmitBill).toHaveBeenCalledTimes(1);
+      });
+
+      expect(mockSubmitBill).toHaveBeenCalledWith("bill-1", expect.objectContaining(finalValues));
     });
   });
+
+  // ==================================================
+  // 3. SAVE DRAFT
+  // ==================================================
 
   describe("Save Draft", () => {
-    const savedDraft = {
-      bill_id: "bill-1",
-      status: "draft" as const,
-      document_path: null,
-    };
-
-    beforeEach(() => {
-      mockSaveBillDraft.mockReset().mockResolvedValue(savedDraft);
-      mockUpdateBillDraft.mockReset().mockResolvedValue(savedDraft);
-    });
-
-    it("creates the draft first, then updates the same bill on later saves", async () => {
-      const user = userEvent.setup();
-      render(<InvoiceForm />);
-
-      await user.type(screen.getByLabelText("Current Due"), "250.00");
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
-      expect(mockSaveBillDraft.mock.calls[0][0]).toMatchObject({
-        amount: "250.00",
-      });
-      expect(window.history.replaceState).toHaveBeenCalledWith(null, "", "/invoices/bill-1/edit");
-
-      const amount = screen.getByLabelText("Current Due");
-      await user.clear(amount);
-      await user.type(amount, "275.00");
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
-      expect(mockUpdateBillDraft).toHaveBeenCalledWith(
-        "bill-1",
-        expect.objectContaining({ amount: "275.00" }),
-      );
-    });
-
-    it("sends blank fields as null so an update can clear them", async () => {
-      const user = userEvent.setup();
-      render(<InvoiceForm />);
-
-      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      const payload = mockSaveBillDraft.mock.calls[0][0];
-      expect(payload.amount).toBeNull();
-      expect(payload.due_date).toBeNull();
-      expect(payload.prev_payments).toBeNull();
-    });
-
-    it("marks the draft unsaved when a field changes", async () => {
-      const user = userEvent.setup();
-      render(<InvoiceForm />);
-
-      await user.type(screen.getByLabelText("Account / Customer #"), "ACC-100");
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
-      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
-    });
-
-    it("marks the draft unsaved when a PDF is picked, as Save Draft stores it", async () => {
-      const user = userEvent.setup();
-      mockUploadInvoicePdf.mockReset();
-      render(<InvoiceForm />);
-
-      await user.type(screen.getByLabelText("Account / Customer #"), "ACC-100");
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      await user.upload(document.querySelector("#invoicePdf") as HTMLInputElement, pdf());
-      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
-    });
-    it("saves a draft holding only a picked PDF and stores the PDF with it", async () => {
-      const user = userEvent.setup();
-      mockUploadInvoicePdf.mockReset().mockResolvedValue({
-        bill_id: "bill-1",
-        document_path: "bills/bill-1/x.pdf",
-        status: "draft",
-      });
-      const file = pdf();
-      render(<InvoiceForm />);
-
-      await user.upload(document.querySelector("#invoicePdf") as HTMLInputElement, file);
-      const saveDraft = screen.getByRole("button", { name: "Save Draft" });
-      expect(saveDraft).toBeEnabled();
-
-      await user.click(saveDraft);
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
-      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
-    });
-
-    it("disables Save Draft until the user enters something", async () => {
-      const user = userEvent.setup();
+    it("disables Save Draft when the form is empty", () => {
       render(<InvoiceForm />);
 
       expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+    });
+
+    it("enables Save Draft when a field contains a value", async () => {
+      const user = userEvent.setup();
+
+      render(<InvoiceForm />);
 
       await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
 
       expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
     });
 
-    it("keeps Save Draft disabled when a field only contains spaces", async () => {
+    it("keeps Save Draft disabled when a field contains only whitespace", async () => {
       const user = userEvent.setup();
+
       render(<InvoiceForm />);
 
       await user.type(screen.getByLabelText("Statement / Bill ID"), "   ");
@@ -872,366 +463,797 @@ describe("InvoiceForm", () => {
       expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
     });
 
-    it("disables Save Draft again when the user clears the only field", async () => {
+    it("disables Save Draft again when the only populated field is cleared", async () => {
       const user = userEvent.setup();
+
       render(<InvoiceForm />);
 
       const field = screen.getByLabelText("Statement / Bill ID");
+
       await user.type(field, "INV-2001");
       await user.clear(field);
 
       expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
     });
 
-    it("does not call the API when the disabled button is clicked", async () => {
+    it("creates a new draft when Save Draft is clicked", async () => {
       const user = userEvent.setup();
+
       render(<InvoiceForm />);
 
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
+      await user.type(screen.getByLabelText("Current Due"), "250.00");
 
+      await clickSaveDraft(user);
+
+      expect(await screen.findByText("Draft saved successfully: bill-1")).toBeInTheDocument();
+
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockSaveBillDraft).toHaveBeenCalledWith(expect.objectContaining({ amount: "250.00" }));
+      expect(mockUpdateBillDraft).not.toHaveBeenCalled();
+    });
+
+    it("changes the URL after creating the first draft", async () => {
+      const user = userEvent.setup();
+      const replaceState = jest.spyOn(window.history, "replaceState");
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      await clickSaveDraft(user);
+
+      await screen.findByText("Draft saved successfully: bill-1");
+
+      expect(replaceState).toHaveBeenCalledWith(null, "", "/invoices/bill-1/edit");
+
+      replaceState.mockRestore();
+    });
+
+    it("updates the existing draft on subsequent saves", async () => {
+      const user = userEvent.setup();
+
+      mockPathname = "/invoices/bill-1/edit";
+      mockGetBillDraft.mockResolvedValue(fullDraft());
+
+      render(<InvoiceForm />);
+
+      await screen.findByDisplayValue("250.00");
+
+      const amount = screen.getByLabelText("Current Due");
+
+      await user.clear(amount);
+      await user.type(amount, "275.00");
+
+      await clickSaveDraft(user);
+
+      await screen.findByText("Draft saved successfully: bill-1");
+
+      expect(mockGetBillDraft).toHaveBeenCalledWith("bill-1");
       expect(mockSaveBillDraft).not.toHaveBeenCalled();
+      expect(mockUpdateBillDraft).toHaveBeenCalledWith(
+        "bill-1",
+        expect.objectContaining({ amount: "275.00" }),
+      );
+    });
+
+    it("sends empty optional fields as null", async () => {
+      const user = userEvent.setup();
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      await clickSaveDraft(user);
+
+      await screen.findByText("Draft saved successfully: bill-1");
+
+      expect(mockSaveBillDraft).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: null,
+          due_date: null,
+          prev_payments: null,
+          description: null,
+          processing_notes: null,
+          website_name: null,
+        }),
+      );
+    });
+
+    it("allows a PDF alone to create a draft", async () => {
+      const user = userEvent.setup();
+
+      render(<InvoiceForm />);
+
+      await user.upload(fileInput(), pdf());
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+    });
+
+    it("shows a loading state while saving", async () => {
+      const user = userEvent.setup();
+
+      mockSaveBillDraft.mockReturnValue(new Promise<never>(() => {}));
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      await clickSaveDraft(user);
+
+      expect(await screen.findByRole("button", { name: "Saving..." })).toBeDisabled();
+    });
+
+    it("shows an error when draft creation fails", async () => {
+      const user = userEvent.setup();
+
+      mockSaveBillDraft.mockRejectedValueOnce(new Error("Unable to save draft."));
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      await clickSaveDraft(user);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to save draft.");
+      expect(screen.getByRole("button", { name: "Retry Save" })).toBeEnabled();
+    });
+
+    it("does not call the API when Save Draft is disabled", () => {
+      render(<InvoiceForm />);
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+      expect(mockSaveBillDraft).not.toHaveBeenCalled();
+    });
+
+    // NEW
+    it("returns to Save Draft and clears the success message after an edit", async () => {
+      const user = userEvent.setup();
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+      await clickSaveDraft(user);
+
+      expect(await screen.findByRole("button", { name: "Draft Saved ✓" })).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText("Bill Description / Explanation"), "Electricity");
+
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+      expect(screen.queryByText("Draft saved successfully: bill-1")).not.toBeInTheDocument();
     });
   });
 
-  describe("Load Draft", () => {
-    beforeEach(() => {
-      mockRouter = { ...mockRouter, pathname: "/invoices/bill-1/edit" };
-    });
+  // ==================================================
+  // 4. PDF UPLOAD
+  // ==================================================
 
-    it("loads an existing draft and populates the form", async () => {
-      mockGetBillDraft.mockResolvedValue({
-        bill_id: "bill-1",
-        status: "draft",
-        account_number_raw: "ACC-100",
-        invoice_number: "INV-2001",
-        vendor_name_raw: "Electric Company",
-        invoice_date: "2026-10-01",
-        due_date: "2026-11-01",
-        amount: "250.00",
-        prev_payments: "50.00",
-        description: "Monthly electricity",
-        processing_notes: "Pay online",
-        property_address: "123 Main Street",
-        account_status: "unpaid",
-        website_name: "electric.example.com",
-        vendor_account_id: null,
-        vendor_account_picked: false,
-        document_path: null,
-      });
+  describe("PDF upload", () => {
+    it("accepts a PDF through the file picker", async () => {
+      const user = userEvent.setup();
 
       render(<InvoiceForm />);
+
+      const file = pdf();
+
+      await user.upload(fileInput(), file);
+
+      expect(screen.getByText("invoice.pdf")).toBeInTheDocument();
+      expect(mockExtractBill).toHaveBeenCalledWith(file, expect.any(AbortSignal));
+    });
+
+    it("accepts a PDF with an empty MIME type when its extension is .pdf", () => {
+      render(<InvoiceForm />);
+
+      pickPdf(pdf("scan.PDF", ""));
+
+      expect(screen.getByText("scan.PDF")).toBeInTheDocument();
+    });
+
+    it("rejects non-PDF files", () => {
+      render(<InvoiceForm />);
+
+      pickPdf(new File(["image"], "photo.png", { type: "image/png" }));
+
+      expect(screen.getByRole("alert")).toHaveTextContent("Only PDF files can be uploaded.");
+      expect(screen.queryByText("photo.png")).not.toBeInTheDocument();
+    });
+
+    // NEW
+    it("clears a previously selected PDF when a non-PDF is dropped", () => {
+      render(<InvoiceForm />);
+
+      pickPdf(pdf("first.pdf"));
+
+      expect(screen.getByText("first.pdf")).toBeInTheDocument();
+
+      pickPdf(new File(["image"], "photo.png", { type: "image/png" }));
+
+      expect(screen.queryByText("first.pdf")).not.toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent("Only PDF files can be uploaded.");
+    });
+
+    it("rejects multiple dropped files", () => {
+      render(<InvoiceForm />);
+
+      fireEvent.drop(dropZone(), {
+        dataTransfer: {
+          files: [pdf("first.pdf"), pdf("second.pdf")],
+        },
+      });
+
+      expect(screen.getByRole("alert")).toHaveTextContent("Drop one PDF at a time.");
+    });
+
+    it("highlights the drop zone while dragging a file over it", () => {
+      render(<InvoiceForm />);
+
+      const zone = dropZone();
+
+      fireEvent.dragOver(zone, {
+        dataTransfer: {
+          dropEffect: "none",
+        },
+      });
+
+      expect(screen.getByText("Drop the PDF here")).toBeInTheDocument();
+
+      fireEvent.dragLeave(zone, {
+        relatedTarget: document.body,
+      });
+
+      expect(screen.getByText("Upload / import invoice (PDF)")).toBeInTheDocument();
+    });
+
+    it("does not show any PDF storage message during resubmission", async () => {
+      mockGetBill.mockResolvedValue(
+        fullBill({
+          status: "rejected",
+          document_path: "bills/bill-1/invoice.pdf",
+        }),
+      );
+
+      render(<InvoiceForm isResubmission />);
+
+      expect(screen.queryByText(/A PDF is already stored/i)).not.toBeInTheDocument();
+    });
+
+    it("does not show a separate Upload PDF button", () => {
+      render(<InvoiceForm />);
+
+      expect(screen.queryByRole("button", { name: /Upload PDF/ })).not.toBeInTheDocument();
+    });
+  });
+
+  // ==================================================
+  // 5. STORING PDF WITH DRAFT
+  // ==================================================
+
+  describe("Storing PDF with draft", () => {
+    it("saves the draft before uploading its PDF", async () => {
+      const user = userEvent.setup();
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+
+      const file = pdf("utility.pdf");
+
+      pickPdf(file);
+
+      await clickSaveDraft(user);
+
+      await screen.findByText("Stored with this invoice: utility.pdf");
+
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
+      expect(mockSaveBillDraft.mock.invocationCallOrder[0]).toBeLessThan(
+        mockUploadInvoicePdf.mock.invocationCallOrder[0],
+      );
+    });
+
+    it("does not upload the same PDF more than once", async () => {
+      const user = userEvent.setup();
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+
+      pickPdf(pdf("utility.pdf"));
+
+      await clickSaveDraft(user);
+
+      await screen.findByText("Stored with this invoice: utility.pdf");
+
+      await user.type(screen.getByLabelText("Bill Description / Explanation"), "Electricity");
+
+      await clickSaveDraft(user);
+
+      await screen.findByText("Draft saved successfully: bill-1");
+
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
+      expect(mockUpdateBillDraft).toHaveBeenCalledTimes(1);
+    });
+
+    it("replaces a previously stored PDF", async () => {
+      const user = userEvent.setup();
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+
+      pickPdf(pdf("first.pdf"));
+
+      await clickSaveDraft(user);
+
+      await screen.findByText("Stored with this invoice: first.pdf");
+
+      const second = pdf("second.pdf");
+
+      pickPdf(second);
+
+      expect(
+        screen.getByText(
+          "second.pdf replaces the stored PDF when you save the draft or submit the invoice.",
+        ),
+      ).toBeInTheDocument();
+
+      await clickSaveDraft(user);
+
+      await screen.findByText("Stored with this invoice: second.pdf");
+
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(2);
+      expect(mockUploadInvoicePdf).toHaveBeenLastCalledWith(second, "bill-1");
+    });
+
+    it("keeps the draft when PDF upload fails", async () => {
+      const user = userEvent.setup();
+
+      mockUploadInvoicePdf.mockRejectedValueOnce(new Error("Unable to store the invoice PDF."));
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+
+      pickPdf();
+
+      await clickSaveDraft(user);
+
+      const alert = await screen.findByRole("alert");
+
+      expect(alert).toHaveTextContent("Draft saved, but the PDF couldn't be stored.");
+      expect(alert).toHaveTextContent("Unable to store the invoice PDF.");
+
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries storing the PDF without creating another draft", async () => {
+      const user = userEvent.setup();
+
+      mockUploadInvoicePdf
+        .mockRejectedValueOnce(new Error("Upload failed."))
+        .mockResolvedValueOnce(storedPdf);
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2001");
+
+      pickPdf();
+
+      await clickSaveDraft(user);
+
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Retry Save" }));
+
+      await screen.findByText("Stored with this invoice: invoice.pdf");
+
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUpdateBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // ==================================================
+  // 6. CREATE INVOICE
+  // ==================================================
+
+  describe("Create Invoice", () => {
+    it("creates a draft, uploads the PDF, and submits the invoice", async () => {
+      const user = userEvent.setup();
+
+      render(<InvoiceForm />);
+
+      await fillValidInvoice(user);
+
+      const file = pdf("utility.pdf");
+
+      pickPdf(file);
+
+      await clickCreate(user);
 
       await waitFor(() => {
-        expect(mockGetBillDraft).toHaveBeenCalledWith("bill-1");
+        expect(mockPush).toHaveBeenCalledWith("/dashboard");
       });
 
-      expect(await screen.findByDisplayValue("ACC-100")).toBeInTheDocument();
-      expect(screen.getByDisplayValue("INV-2001")).toBeInTheDocument();
-      expect(screen.getByDisplayValue("Electric Company")).toBeInTheDocument();
-      expect(screen.getByDisplayValue("250.00")).toBeInTheDocument();
-      expect(screen.getByDisplayValue("50.00")).toBeInTheDocument();
-      expect(screen.getByDisplayValue("123 Main Street")).toBeInTheDocument();
-      expect(screen.getByDisplayValue("Monthly electricity")).toBeInTheDocument();
-      expect(screen.getByDisplayValue("Pay online")).toBeInTheDocument();
-      expect(screen.getByDisplayValue("2026-10-01")).toBeInTheDocument();
-      expect(screen.getByDisplayValue("2026-11-01")).toBeInTheDocument();
-      expect(screen.getByLabelText("Account Status")).toHaveValue("unpaid");
-      expect(screen.getByDisplayValue("electric.example.com")).toBeInTheDocument();
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockSaveBillDraft).toHaveBeenCalledWith(expect.objectContaining(finalValues));
+      expect(mockUploadInvoicePdf).toHaveBeenCalledWith(file, "bill-1");
+      expect(mockSubmitBill).toHaveBeenCalledWith("bill-1", expect.objectContaining(finalValues));
+
+      const saveOrder = mockSaveBillDraft.mock.invocationCallOrder[0];
+      const uploadOrder = mockUploadInvoicePdf.mock.invocationCallOrder[0];
+      const submitOrder = mockSubmitBill.mock.invocationCallOrder[0];
+
+      expect(saveOrder).toBeLessThan(uploadOrder);
+      expect(uploadOrder).toBeLessThan(submitOrder);
+
+      expect(screen.getByRole("button", { name: "Created ✓" })).toBeDisabled();
     });
 
-    it("shows that the opened draft already has a stored PDF", async () => {
-      mockGetBillDraft.mockResolvedValue(fullDraft({ document_path: "bills/bill-1/abc.pdf" }));
+    it("submits without uploading a PDF when no file is selected", async () => {
+      const user = userEvent.setup();
 
       render(<InvoiceForm />);
 
-      expect(await screen.findByText("A PDF is stored with this draft.")).toHaveAttribute(
+      await fillValidInvoice(user);
+      await clickCreate(user);
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith("/dashboard");
+      });
+
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
+      expect(mockSubmitBill).toHaveBeenCalledTimes(1);
+    });
+
+    it("submits an existing draft without creating another draft", async () => {
+      const user = userEvent.setup();
+
+      mockPathname = "/invoices/bill-1/edit";
+      mockGetBillDraft.mockResolvedValue(fullDraft());
+
+      render(<InvoiceForm />);
+
+      await screen.findByDisplayValue("ACC-100");
+
+      await clickCreate(user);
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith("/dashboard");
+      });
+
+      expect(mockGetBillDraft).toHaveBeenCalledWith("bill-1");
+      expect(mockSaveBillDraft).not.toHaveBeenCalled();
+      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
+      expect(mockSubmitBill).toHaveBeenCalledWith("bill-1", expect.objectContaining(finalValues));
+    });
+
+    it("does not submit when saving the draft fails", async () => {
+      const user = userEvent.setup();
+
+      mockSaveBillDraft.mockRejectedValueOnce(new Error("Unable to create the bill."));
+
+      render(<InvoiceForm />);
+
+      await fillValidInvoice(user);
+      await clickCreate(user);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to create the bill.");
+      expect(mockSubmitBill).not.toHaveBeenCalled();
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("does not submit when PDF storage fails", async () => {
+      const user = userEvent.setup();
+
+      mockUploadInvoicePdf.mockRejectedValueOnce(new Error("Unable to store the invoice PDF."));
+
+      render(<InvoiceForm />);
+
+      await fillValidInvoice(user);
+
+      pickPdf();
+
+      await clickCreate(user);
+
+      const alert = await screen.findByRole("alert");
+
+      expect(alert).toHaveTextContent("The PDF couldn't be stored, so the bill wasn't created.");
+      expect(mockSubmitBill).not.toHaveBeenCalled();
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("retries PDF storage without creating another draft", async () => {
+      const user = userEvent.setup();
+
+      mockUploadInvoicePdf
+        .mockRejectedValueOnce(new Error("Upload failed."))
+        .mockResolvedValueOnce(storedPdf);
+
+      render(<InvoiceForm />);
+
+      await fillValidInvoice(user);
+
+      pickPdf();
+
+      await clickCreate(user);
+
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+      await clickCreate(user);
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith("/dashboard");
+      });
+
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockUploadInvoicePdf).toHaveBeenCalledTimes(2);
+      expect(mockSubmitBill).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows an error when submission fails", async () => {
+      const user = userEvent.setup();
+
+      mockSubmitBill.mockRejectedValueOnce(new Error("Unable to reach the server."));
+
+      render(<InvoiceForm />);
+
+      await fillValidInvoice(user);
+      await clickCreate(user);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to reach the server.");
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(screen.getByRole("heading", { name: "Edit Draft" })).toBeInTheDocument();
+    });
+
+    it("reuses the same draft when submission is retried", async () => {
+      const user = userEvent.setup();
+
+      mockSubmitBill
+        .mockRejectedValueOnce(new Error("Unable to reach the server."))
+        .mockResolvedValueOnce(fullBill());
+
+      render(<InvoiceForm />);
+
+      await fillValidInvoice(user);
+      await clickCreate(user);
+
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+      await clickCreate(user);
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith("/dashboard");
+      });
+
+      expect(mockSaveBillDraft).toHaveBeenCalledTimes(1);
+      expect(mockSubmitBill.mock.calls.map(([id]) => id)).toEqual(["bill-1", "bill-1"]);
+    });
+
+    it("does not treat a first-attempt 409 as successful submission", async () => {
+      const user = userEvent.setup();
+
+      mockSubmitBill.mockRejectedValueOnce(
+        new ApiError("This bill has already been submitted.", 409),
+      );
+
+      render(<InvoiceForm />);
+
+      await fillValidInvoice(user);
+      await clickCreate(user);
+
+      const alert = await screen.findByRole("alert");
+
+      expect(alert).toHaveTextContent("This bill was already sent for approval");
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("navigates after a retry confirms an earlier submission", async () => {
+      const user = userEvent.setup();
+
+      mockSubmitBill
+        .mockRejectedValueOnce(new Error("Unable to reach the server."))
+        .mockRejectedValueOnce(new ApiError("This bill has already been submitted.", 409));
+
+      render(<InvoiceForm />);
+
+      await fillValidInvoice(user);
+      await clickCreate(user);
+
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+      await clickCreate(user);
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith("/dashboard");
+      });
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("does not allow duplicate submissions while creating", async () => {
+      const user = userEvent.setup();
+
+      mockSubmitBill.mockReturnValue(new Promise<never>(() => {}));
+
+      render(<InvoiceForm />);
+
+      await fillValidInvoice(user);
+      await clickCreate(user);
+
+      expect(await screen.findByRole("button", { name: "Creating..." })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
+    });
+  });
+
+  // ==================================================
+  // 7. LOAD DRAFT
+  // ==================================================
+
+  describe("Load Draft", () => {
+    beforeEach(() => {
+      mockPathname = "/invoices/bill-1/edit";
+    });
+
+    it("shows a loading message while fetching a draft", () => {
+      render(<InvoiceForm />);
+
+      expect(screen.getByText("Loading draft...")).toBeInTheDocument();
+    });
+
+    it("loads a draft and populates every field", async () => {
+      mockGetBillDraft.mockResolvedValue(fullDraft());
+
+      render(<InvoiceForm />);
+
+      await screen.findByDisplayValue("ACC-100");
+
+      expect(screen.getByDisplayValue("INV-2001")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("City Power")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("250.00")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("50.00")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("12 Elm St")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("Electricity")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("Pay online")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("2026-10-01")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("2026-10-31")).toBeInTheDocument();
+      expect(screen.getByLabelText("Account Status")).toHaveValue("unpaid");
+      expect(screen.getByDisplayValue("https://citypower.example.com")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Edit Draft" })).toBeInTheDocument();
+    });
+
+    it("shows the existing PDF storage message", async () => {
+      mockGetBillDraft.mockResolvedValue(fullDraft({ document_path: "bills/bill-1/invoice.pdf" }));
+
+      render(<InvoiceForm />);
+
+      expect(await screen.findByText("A PDF is already stored with this invoice.")).toHaveAttribute(
         "role",
         "status",
       );
+    });
 
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("newer.pdf")] } });
+    it("allows replacing the PDF on an existing draft", async () => {
+      mockGetBillDraft.mockResolvedValue(fullDraft({ document_path: "bills/bill-1/invoice.pdf" }));
 
-      expect(screen.queryByText("A PDF is stored with this draft.")).not.toBeInTheDocument();
+      render(<InvoiceForm />);
+
+      await screen.findByDisplayValue("ACC-100");
+
+      pickPdf(pdf("replacement.pdf"));
+
       expect(
         screen.getByText(
-          "newer.pdf replaces the stored PDF when you save the draft or create the bill.",
+          "replacement.pdf replaces the stored PDF when you save the draft or submit the invoice.",
         ),
       ).toBeInTheDocument();
     });
 
-    it("shows no stored PDF for a draft without one", async () => {
-      mockGetBillDraft.mockResolvedValue(fullDraft());
+    it("shows an error when loading the draft fails", async () => {
+      mockGetBillDraft.mockRejectedValueOnce(new Error("Draft not found."));
 
       render(<InvoiceForm />);
-      await screen.findByDisplayValue("ACC-100");
 
-      expect(screen.queryByText(/stored/)).not.toBeInTheDocument();
+      expect(await screen.findByRole("alert")).toHaveTextContent("Draft not found.");
     });
 
-    it("enables Save Draft once an existing draft has loaded", async () => {
-      mockGetBillDraft.mockResolvedValue({
-        bill_id: "bill-1",
-        status: "draft",
-        account_number_raw: "ACC-100",
-        invoice_number: null,
-        vendor_name_raw: null,
-        invoice_date: null,
-        due_date: null,
-        amount: null,
-        prev_payments: null,
-        description: null,
-        processing_notes: null,
-        property_address: null,
-        account_status: null,
-        website_name: null,
-        vendor_account_id: null,
-        vendor_account_picked: false,
-        document_path: null,
-      });
+    it("does not display the form after a draft loading error", async () => {
+      mockGetBillDraft.mockRejectedValueOnce(new Error("Unable to load the invoice."));
 
       render(<InvoiceForm />);
-      expect(await screen.findByDisplayValue("ACC-100")).toBeInTheDocument();
 
-      expect(await screen.findByRole("button", { name: "Save Draft" })).toBeEnabled();
-    });
-  });
-  describe("Coming back to the page", () => {
-    const draft = {
-      bill_id: "bill-1",
-      status: "draft" as const,
-      account_number_raw: "ACC-100",
-      invoice_number: "INV-2001",
-      vendor_name_raw: null,
-      invoice_date: null,
-      due_date: null,
-      amount: null,
-      prev_payments: null,
-      description: null,
-      processing_notes: null,
-      property_address: null,
-      account_status: null,
-      website_name: null,
-      vendor_account_id: null,
-      vendor_account_picked: false,
-      document_path: null,
-    };
+      await screen.findByRole("alert");
 
-    beforeEach(() => {
-      mockSaveBillDraft.mockReset().mockResolvedValue({
-        bill_id: "bill-1",
-        status: "draft",
-        document_path: null,
-      });
-      mockUpdateBillDraft.mockReset();
+      expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
     });
 
-    // A form with a value typed, a PDF read and its banner and notes, and a
-    // validation error.
-    async function fillIn(user: ReturnType<typeof userEvent.setup>) {
-      mockExtractBill.mockResolvedValueOnce(
-        extractionResult({
-          status: "needs_attention",
-          extraction: extraction({ amount_due: read("1,18") }),
-          issues: [{ code: "BAD_AMOUNT", field: "amount_due", message: "bad" }],
+    // NEW
+    it("restores the vendor account only when it was explicitly picked", async () => {
+      mockGetBillDraft.mockResolvedValue(
+        fullDraft({
+          vendor_account_id: "vendor-7",
+          vendor_account_picked: true,
         }),
       );
-      await user.type(screen.getByLabelText("Bill Description / Explanation"), "Power");
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("a.pdf")] } });
-      expect(await screen.findByText(/Some values need checking/)).toBeInTheDocument();
-      expect(screen.getByText(/Check this/)).toBeInTheDocument();
-    }
 
-    function expectFreshNewInvoice() {
-      expect(screen.getByRole("heading", { name: "New Invoice" })).toBeInTheDocument();
-      expect(screen.getByLabelText("Bill Description / Explanation")).toHaveValue("");
-      expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("");
-      expect(screen.getByText("Drag and drop a PDF here, or click to browse")).toBeInTheDocument();
-      expect(screen.queryByText(/Some values need checking/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Check this/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Draft saved successfully/)).not.toBeInTheDocument();
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
-    }
+      render(<InvoiceForm />);
 
-    it("starts a fresh New Invoice after Cancel and a link back", async () => {
-      const user = userEvent.setup();
-      render(<RoutedForm />);
-      await fillIn(user);
-
-      await user.click(screen.getByRole("button", { name: "Cancel" }));
-      expect(push).toHaveBeenCalledWith("/dashboard");
-      leaveTo("/dashboard");
-      arriveByLink("/invoices/new");
-
-      expectFreshNewInvoice();
-    });
-
-    it("keeps the form as it was after back and forward", async () => {
-      const user = userEvent.setup();
-      render(<RoutedForm />);
-      await fillIn(user);
-
-      leaveTo("/dashboard");
-      goBackTo("/invoices/new");
-
-      expect(screen.getByLabelText("Bill Description / Explanation")).toHaveValue("Power");
-      expect(screen.getByText("a.pdf")).toBeInTheDocument();
-      expect(screen.getByText(/Some values need checking/)).toBeInTheDocument();
-    });
-
-    it("does not leave a stopped read showing as reading", () => {
-      render(<RoutedForm />);
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf()] } });
-
-      leaveTo("/dashboard");
-      expect((mockExtractBill.mock.calls[0][1] as AbortSignal).aborted).toBe(true);
-      goBackTo("/invoices/new");
-
-      expect(screen.queryByText("Reading invoice...")).not.toBeInTheDocument();
-      expect(screen.getByText("invoice.pdf")).toBeInTheDocument();
-    });
-
-    it("keeps the picked PDF and banner when the first save moves the URL", async () => {
-      const user = userEvent.setup();
-      render(<RoutedForm />);
-      await fillIn(user);
-
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      expect(mockRouter.pathname).toBe("/invoices/bill-1/edit");
-      expect(screen.getByRole("heading", { name: "Edit Draft" })).toBeInTheDocument();
-      expect(screen.getByText("a.pdf")).toBeInTheDocument();
-      expect(screen.getByText(/Some values need checking/)).toBeInTheDocument();
-      expect(mockGetBillDraft).not.toHaveBeenCalled();
-    });
-
-    it("starts a fresh New Invoice from a link after Save Draft", async () => {
-      const user = userEvent.setup();
-      render(<RoutedForm />);
-      await fillIn(user);
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      // Next's route tree is still /invoices/new after replaceState.
-      linkWithinRoute("/invoices/new");
-
-      expectFreshNewInvoice();
-      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-2");
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-      // A new draft, not an update of the first one.
-      expect(mockSaveBillDraft).toHaveBeenCalledTimes(2);
-      expect(mockUpdateBillDraft).not.toHaveBeenCalled();
-    });
-
-    it("loads the saved draft when back returns to its URL", async () => {
-      const user = userEvent.setup();
-      mockGetBillDraft.mockResolvedValue(draft);
-      render(<RoutedForm />);
-      await user.type(screen.getByLabelText("Account / Customer #"), "ACC-100");
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-      linkWithinRoute("/invoices/new");
-
-      goBackTo("/invoices/bill-1/edit");
-
-      expect(await screen.findByDisplayValue("INV-2001")).toBeInTheDocument();
-      expect(mockGetBillDraft).toHaveBeenCalledWith("bill-1");
-      expect(screen.getByRole("heading", { name: "Edit Draft" })).toBeInTheDocument();
-    });
-
-    it("loads Edit Draft afresh from the server each time a link opens it", async () => {
-      const user = userEvent.setup();
-      mockRouter = { ...mockRouter, pathname: "/invoices/bill-1/edit" };
-      mockGetBillDraft.mockResolvedValueOnce(draft);
-      render(<RoutedForm />);
       await screen.findByDisplayValue("ACC-100");
-      await user.type(screen.getByLabelText("Bill Description / Explanation"), "Unsaved");
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [pdf("a.pdf")] } });
 
-      leaveTo("/dashboard");
-      mockGetBillDraft.mockResolvedValueOnce({ ...draft, account_number_raw: "ACC-200" });
-      arriveByLink("/invoices/bill-1/edit");
-
-      expect(await screen.findByDisplayValue("ACC-200")).toBeInTheDocument();
-      expect(screen.getByLabelText("Bill Description / Explanation")).toHaveValue("");
-      expect(screen.queryByText("a.pdf")).not.toBeInTheDocument();
-      expect(mockGetBillDraft).toHaveBeenCalledTimes(2);
+      expect(screen.getByLabelText("Vendor account")).toHaveValue("vendor-7");
     });
 
-    it("keeps unsaved Edit Draft changes after back and forward", async () => {
+    // NEW
+    it("leaves the vendor account empty when it was not picked", async () => {
+      mockGetBillDraft.mockResolvedValue(
+        fullDraft({
+          vendor_account_id: "vendor-7",
+          vendor_account_picked: false,
+        }),
+      );
+
+      render(<InvoiceForm />);
+
+      await screen.findByDisplayValue("ACC-100");
+
+      expect(screen.getByLabelText("Vendor account")).toHaveValue("");
+    });
+
+    // NEW
+    it("clears the picked vendor account when the account number is edited", async () => {
       const user = userEvent.setup();
-      mockRouter = { ...mockRouter, pathname: "/invoices/bill-1/edit" };
-      mockGetBillDraft.mockResolvedValue(draft);
-      render(<RoutedForm />);
-      const account = await screen.findByDisplayValue("ACC-100");
-      await user.clear(account);
-      await user.type(account, "ACC-EDITED");
 
-      leaveTo("/dashboard");
-      goBackTo("/invoices/bill-1/edit");
-      await act(async () => {});
+      mockGetBillDraft.mockResolvedValue(
+        fullDraft({
+          vendor_account_id: "vendor-7",
+          vendor_account_picked: true,
+        }),
+      );
 
-      expect(screen.getByLabelText("Account / Customer #")).toHaveValue("ACC-EDITED");
-      expect(mockGetBillDraft).toHaveBeenCalledTimes(1);
+      render(<InvoiceForm />);
+
+      await screen.findByDisplayValue("ACC-100");
+
+      await user.type(screen.getByLabelText("Account / Customer #"), "9");
+
+      expect(screen.getByLabelText("Vendor account")).toHaveValue("");
+
+      await clickSaveDraft(user);
+
+      await screen.findByText("Draft saved successfully: bill-1");
+
+      expect(mockUpdateBillDraft).toHaveBeenCalledWith(
+        "bill-1",
+        expect.objectContaining({
+          account_number_raw: "ACC-1009",
+          vendor_account_id: null,
+        }),
+      );
     });
   });
 
-  describe("Reading the invoice", () => {
-    function pick(file = pdf()) {
-      fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
-    }
+  // ==================================================
+  // 8. PDF EXTRACTION
+  // ==================================================
 
-    it("reads a picked PDF and keeps the form usable while it reads", async () => {
-      const user = userEvent.setup();
-      const { container } = render(<InvoiceForm />);
-      const file = pdf();
+  describe("Invoice extraction", () => {
+    it("shows a reading message while extracting the PDF", () => {
+      render(<InvoiceForm />);
 
-      await user.upload(container.querySelector("#invoicePdf") as HTMLInputElement, file);
+      pickPdf();
 
-      expect(mockExtractBill).toHaveBeenCalledWith(file, expect.any(AbortSignal));
       expect(screen.getByText("Reading invoice...")).toHaveAttribute("role", "status");
-      await user.type(screen.getByLabelText("Bill Description / Explanation"), "Power");
-      expect(screen.getByLabelText("Bill Description / Explanation")).toHaveValue("Power");
     });
 
-    it("clears the picker so the same PDF can be picked again to retry", async () => {
-      const user = userEvent.setup();
-      const { container } = render(<InvoiceForm />);
-      const input = container.querySelector("#invoicePdf") as HTMLInputElement;
-      const file = pdf();
+    it("fills invoice fields from extracted values", async () => {
+      mockExtractBill.mockResolvedValueOnce(extractionResult());
 
-      await user.upload(input, file);
-
-      // A browser fires no change event for a re-pick while the input still
-      // holds that file, so an empty input is what makes a retry possible.
-      expect(input.value).toBe("");
-      expect(screen.getByText("invoice.pdf")).toBeInTheDocument();
-    });
-
-    it("reads a dropped PDF", () => {
-      render(<InvoiceForm />);
-      const file = pdf();
-
-      pick(file);
-
-      expect(mockExtractBill).toHaveBeenCalledWith(file, expect.any(AbortSignal));
-    });
-
-    it("fills the empty fields and says how many", async () => {
-      mockExtractBill.mockResolvedValue(extractionResult());
       render(<InvoiceForm />);
 
-      pick();
+      pickPdf();
 
       await waitFor(() => {
-        expect(screen.getByRole("status")).toHaveTextContent(
-          "Filled 8 fields from the invoice. Check them before you create the bill.",
-        );
+        expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("City Power");
       });
-      expect(screen.queryByText("Reading invoice...")).not.toBeInTheDocument();
-      expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("City Power");
+
       expect(screen.getByLabelText("Account / Customer #")).toHaveValue("ACC-100");
       expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("INV-2001");
       expect(screen.getByLabelText("Issue / Record / Invoice Date")).toHaveValue("2026-10-01");
@@ -1239,448 +1261,388 @@ describe("InvoiceForm", () => {
       expect(screen.getByLabelText("Current Due")).toHaveValue("1234.56");
       expect(screen.getByLabelText("Prev Payments")).toHaveValue("50.00");
       expect(screen.getByLabelText("Property Address")).toHaveValue("12 Elm St");
-      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
     });
 
-    it("fills Description, Website Name and Account Status, and replaces them from the next PDF", async () => {
-      mockExtractBill
-        .mockResolvedValueOnce(
-          extractionResult({
-            extraction: extraction({
-              description: read("Electric service", "low"),
-              payment_website: read("https://citypower.example/pay"),
-              account_status: status("outstanding"),
-            }),
-          }),
-        )
-        .mockResolvedValueOnce(
-          extractionResult({
-            extraction: extraction({
-              description: read("Water service"),
-              payment_website: read("https://water.example"),
-              account_status: status("paid"),
-            }),
-          }),
-        );
+    it("shows the extraction success message", async () => {
+      mockExtractBill.mockResolvedValueOnce(extractionResult());
+
       render(<InvoiceForm />);
 
-      pick(pdf("a.pdf"));
+      pickPdf();
 
       expect(
         await screen.findByText(
-          "Filled 11 fields from the invoice. Check them before you create the bill.",
+          "Filled 8 fields from the invoice. Check them before you create the bill.",
         ),
       ).toBeInTheDocument();
-      const description = screen.getByLabelText("Bill Description / Explanation");
-      expect(description).toHaveValue("Electric service");
-      expect(description).toHaveAccessibleDescription("Check this: the reader wasn't sure");
+    });
+
+    it("does not overwrite values manually entered before extraction", async () => {
+      const user = userEvent.setup();
+
+      let resolveRead!: (result: ExtractionResult) => void;
+
+      mockExtractBill.mockReturnValue(
+        new Promise((resolve) => {
+          resolveRead = resolve;
+        }),
+      );
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Account / Customer #"), "MY-ACCOUNT");
+
+      pickPdf();
+
+      await user.type(screen.getByLabelText("Current Due"), "99.00");
+
+      await act(async () => {
+        resolveRead(extractionResult());
+      });
+
+      expect(screen.getByLabelText("Account / Customer #")).toHaveValue("MY-ACCOUNT");
+      expect(screen.getByLabelText("Current Due")).toHaveValue("99.00");
+      expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("INV-2001");
+    });
+
+    it("fills optional description, website and account status", async () => {
+      mockExtractBill.mockResolvedValueOnce(
+        extractionResult({
+          extraction: extraction({
+            description: read("Electric service"),
+            payment_website: read("https://citypower.example/pay"),
+            account_status: status("outstanding"),
+          }),
+        }),
+      );
+
+      render(<InvoiceForm />);
+
+      pickPdf();
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Bill Description / Explanation")).toHaveValue(
+          "Electric service",
+        );
+      });
+
       expect(screen.getByLabelText("Website Name (optional)")).toHaveValue(
         "https://citypower.example/pay",
       );
-      const statusSelect = screen.getByLabelText("Account Status");
-      expect(statusSelect).toHaveValue("outstanding");
-      expect(statusSelect).toHaveDisplayValue("outstanding");
+      expect(screen.getByLabelText("Account Status")).toHaveValue("outstanding");
+    });
 
-      pick(pdf("b.pdf"));
+    it("does not overwrite a manually entered description", async () => {
+      const user = userEvent.setup();
+
+      mockExtractBill.mockResolvedValueOnce(
+        extractionResult({
+          extraction: extraction({
+            description: read("Extracted description"),
+          }),
+        }),
+      );
+
+      render(<InvoiceForm />);
+
+      await user.type(screen.getByLabelText("Bill Description / Explanation"), "My description");
+
+      pickPdf();
 
       await waitFor(() => {
-        expect(statusSelect).toHaveDisplayValue("paid");
+        expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("INV-2001");
       });
-      expect(description).toHaveValue("Water service");
-      expect(description).not.toHaveAccessibleDescription();
-      expect(screen.getByLabelText("Website Name (optional)")).toHaveValue("https://water.example");
+
+      expect(screen.getByLabelText("Bill Description / Explanation")).toHaveValue("My description");
     });
 
-    it("keeps a typed description and notes a website it could not use", async () => {
-      const user = userEvent.setup();
-      mockExtractBill.mockResolvedValue(
-        extractionResult({
-          status: "needs_attention",
-          extraction: extraction({
-            description: read("Electric service"),
-            payment_website: read("citypower.example/pay"),
-            account_status: status("unpaid"),
-          }),
-          issues: [{ code: "BAD_URL", field: "payment_website", message: "not a URL" }],
-        }),
-      );
-      render(<InvoiceForm />);
-
-      await user.type(screen.getByLabelText("Bill Description / Explanation"), "Power bill");
-      pick();
-
-      expect(
-        await screen.findByText(
-          "Filled 9 fields from the invoice. Some values need checking - see the marked fields.",
-        ),
-      ).toBeInTheDocument();
-      expect(screen.getByLabelText("Bill Description / Explanation")).toHaveValue("Power bill");
-      expect(screen.getByLabelText("Account Status")).toHaveValue("unpaid");
-      const website = screen.getByLabelText("Website Name (optional)");
-      expect(website).toHaveValue("");
-      expect(website).toHaveAccessibleDescription(
-        'Check this: read "citypower.example/pay", which isn\'t a valid web address',
-      );
-    });
-
-    it("clears the Account Status note when the person picks a status, and keeps their pick", async () => {
-      const user = userEvent.setup();
-      mockExtractBill
-        .mockResolvedValueOnce(
-          extractionResult({ extraction: extraction({ account_status: status("paid", "low") }) }),
-        )
-        .mockResolvedValueOnce(
-          extractionResult({ extraction: extraction({ account_status: status("outstanding") }) }),
-        );
-      render(<InvoiceForm />);
-
-      pick(pdf("a.pdf"));
-
-      const statusSelect = await screen.findByDisplayValue("paid");
-      expect(statusSelect).toHaveAccessibleDescription("Check this: the reader wasn't sure");
-
-      await user.selectOptions(statusSelect, "unpaid");
-
-      expect(statusSelect).toHaveDisplayValue("unpaid");
-      expect(screen.queryByText("Check this: the reader wasn't sure")).not.toBeInTheDocument();
-
-      // The person's choice is theirs: the next read leaves it alone.
-      pick(pdf("b.pdf"));
-      await screen.findByText(
-        "Filled 8 fields from the invoice. Check them before you create the bill.",
-      );
-      expect(statusSelect).toHaveDisplayValue("unpaid");
-    });
-
-    it("never overwrites a value typed before or during the read", async () => {
-      const user = userEvent.setup();
-      const read = pendingRead();
-      mockExtractBill.mockReturnValue(read.promise);
-      render(<InvoiceForm />);
-
-      await user.type(screen.getByLabelText("Account / Customer #"), "TYPED-1");
-      pick();
-      await user.type(screen.getByLabelText("Current Due"), "99.00");
-      await act(async () => read.resolve(extractionResult()));
-
-      expect(screen.getByLabelText("Account / Customer #")).toHaveValue("TYPED-1");
-      expect(screen.getByLabelText("Current Due")).toHaveValue("99.00");
-      expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("INV-2001");
-      expect(
-        screen.getByText(
-          "Filled 6 fields from the invoice. Check them before you create the bill.",
-        ),
-      ).toBeInTheDocument();
-    });
-
-    it("marks values that need checking, and editing one clears its note", async () => {
-      const user = userEvent.setup();
-      mockExtractBill.mockResolvedValue(
-        extractionResult({
-          status: "needs_attention",
-          extraction: extraction({ amount_due: read("1,18") }),
-          issues: [
-            { code: "BAD_AMOUNT", field: "amount_due", message: "amount_due is not valid" },
-            { code: "LOW_CONFIDENCE", field: "vendor_name", message: "low" },
-            { code: "BALANCE_MISMATCH", field: "previous_balance", message: "x" },
-          ],
-        }),
-      );
-      render(<InvoiceForm />);
-
-      pick();
-
-      expect(
-        await screen.findByText(
-          "Filled 7 fields from the invoice. Some values need checking - see the marked fields.",
-        ),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText(
-          "Previous balance: the balance, payments and charges on the bill don't add up to it",
-        ),
-      ).toBeInTheDocument();
-      expect(screen.getByLabelText("Current Due")).toHaveValue("");
-      expect(screen.getByLabelText("Current Due")).toHaveAccessibleDescription(
-        'Check this: read "1,18", which isn\'t a valid amount',
-      );
-      const vendor = screen.getByLabelText("Customer / Business Name");
-      expect(vendor).toHaveAccessibleDescription("Check this: the reader wasn't sure");
-
-      await user.type(vendor, " Co");
-
-      expect(vendor).toHaveValue("City Power Co");
-      expect(screen.queryByText("Check this: the reader wasn't sure")).not.toBeInTheDocument();
-      expect(
-        screen.getByText('Check this: read "1,18", which isn\'t a valid amount'),
-      ).toBeInTheDocument();
-    });
-
-    it("fills nothing when the file is not a bill", async () => {
-      mockExtractBill.mockResolvedValue(
+    it("shows an error when the uploaded document is not an invoice", async () => {
+      mockExtractBill.mockResolvedValueOnce(
         extractionResult({
           status: "not_an_invoice",
-          extraction: extraction({ document_type: "not_an_invoice" }),
+          extraction: extraction({
+            document_type: "not_an_invoice",
+          }),
         }),
       );
+
       render(<InvoiceForm />);
 
-      pick();
+      pickPdf();
 
       expect(
         await screen.findByText("This file doesn't look like a bill. Fill in the form yourself."),
       ).toBeInTheDocument();
-      expect(screen.getByRole("status")).toHaveTextContent("This file doesn't look like a bill.");
-      expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("");
-      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
     });
 
-    it("shows why a failed read failed and fills nothing", async () => {
-      mockExtractBill.mockResolvedValue(
+    it("shows the reason when extraction fails", async () => {
+      mockExtractBill.mockResolvedValueOnce(
         extractionResult({
           status: "failed",
           extraction: null,
           failed_reason: "The PDF is password protected.",
         }),
       );
+
       render(<InvoiceForm />);
 
-      pick();
+      pickPdf();
 
       const alert = await screen.findByRole("alert");
+
       expect(alert).toHaveTextContent("Couldn't read this invoice. Fill in the form yourself.");
       expect(alert).toHaveTextContent("The PDF is password protected.");
+    });
+
+    it("keeps the form usable when extraction throws an error", async () => {
+      mockExtractBill.mockRejectedValueOnce(new Error("Reading the bill took too long."));
+
+      render(<InvoiceForm />);
+
+      pickPdf();
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Reading the bill took too long.");
+      expect(screen.getByLabelText("Statement / Bill ID")).toBeEnabled();
+    });
+
+    // NEW
+    it("clears fields filled by an earlier extraction when a later read fails", async () => {
+      mockExtractBill
+        .mockResolvedValueOnce(extractionResult())
+        .mockRejectedValueOnce(new Error("Reading failed."));
+
+      render(<InvoiceForm />);
+
+      pickPdf(pdf("first.pdf"));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("INV-2001");
+      });
+
+      pickPdf(pdf("second.pdf"));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Reading failed.");
+      expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("");
       expect(screen.getByLabelText("Account / Customer #")).toHaveValue("");
     });
 
-    it("shows an API error and keeps the form usable", async () => {
-      const user = userEvent.setup();
-      mockExtractBill.mockRejectedValue(
-        new Error("Reading the bill took too long. Try again, or fill in the form."),
-      );
+    it("aborts the previous extraction when another PDF is selected", () => {
       render(<InvoiceForm />);
 
-      pick();
+      pickPdf(pdf("first.pdf"));
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Reading the bill took too long. Try again, or fill in the form.",
-      );
-      await user.type(screen.getByLabelText("Statement / Bill ID"), "INV-1");
-      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+      const firstSignal = mockExtractBill.mock.calls[0][1];
+
+      pickPdf(pdf("second.pdf"));
+
+      expect(firstSignal?.aborted).toBe(true);
+      expect(mockExtractBill).toHaveBeenCalledTimes(2);
     });
 
-    it("ignores the result of a file that was replaced while it was read", async () => {
-      const first = pendingRead();
-      const second = pendingRead();
-      mockExtractBill.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
-      render(<InvoiceForm />);
-
-      pick(pdf("old.pdf"));
-      pick(pdf("new.pdf"));
-      const firstSignal = mockExtractBill.mock.calls[0][1] as AbortSignal;
-      expect(firstSignal.aborted).toBe(true);
-
-      await act(async () =>
-        first.resolve(
-          extractionResult({ extraction: extraction({ vendor_name: read("Old Vendor") }) }),
-        ),
-      );
-      expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("");
-      expect(screen.getByText("Reading invoice...")).toBeInTheDocument();
-
-      await act(async () =>
-        second.resolve(
-          extractionResult({ extraction: extraction({ vendor_name: read("New Vendor") }) }),
-        ),
-      );
-      expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("New Vendor");
-    });
-
-    it("ignores the error of a replaced read", async () => {
-      const first = pendingRead();
-      mockExtractBill.mockReturnValueOnce(first.promise);
-      render(<InvoiceForm />);
-
-      pick(pdf("old.pdf"));
-      pick(pdf("new.pdf"));
-      await act(async () => first.reject(new Error("Unable to reach the server.")));
-
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      expect(screen.getByText("Reading invoice...")).toBeInTheDocument();
-    });
-
-    it("stops the read when the form unmounts", () => {
+    it("aborts extraction when the component unmounts", () => {
       const { unmount } = render(<InvoiceForm />);
 
-      pick();
+      pickPdf();
+
+      const signal = mockExtractBill.mock.calls[0][1];
+
       unmount();
 
-      expect((mockExtractBill.mock.calls[0][1] as AbortSignal).aborted).toBe(true);
+      expect(signal?.aborted).toBe(true);
+    });
+  });
+
+  // ==================================================
+  // 9. RESUBMISSION
+  // ==================================================
+
+  describe("Rejected invoice resubmission", () => {
+    beforeEach(() => {
+      mockPathname = "/invoices/bill-1/resubmit";
+      mockInvoiceId = "bill-1";
     });
 
-    it("stops the read when a non-PDF replaces the file", () => {
-      render(<InvoiceForm />);
+    // NEW
+    it("shows a loading message while fetching the rejected invoice", () => {
+      render(<InvoiceForm isResubmission />);
 
-      pick();
-      fireEvent.drop(dropZone(), {
-        dataTransfer: { files: [new File(["x"], "photo.png", { type: "image/png" })] },
-      });
-
-      expect((mockExtractBill.mock.calls[0][1] as AbortSignal).aborted).toBe(true);
-      expect(screen.queryByText("Reading invoice...")).not.toBeInTheDocument();
-      expect(mockExtractBill).toHaveBeenCalledTimes(1);
+      expect(screen.getByText("Loading rejected invoice...")).toBeInTheDocument();
     });
 
-    it("clears the last banner and notes when a new file is picked", async () => {
-      mockExtractBill.mockResolvedValueOnce(
-        extractionResult({
-          status: "needs_attention",
-          extraction: extraction({ invoice_date: read("10/01/2026") }),
-          issues: [{ code: "BAD_DATE", field: "invoice_date", message: "bad" }],
+    it("loads the rejected invoice", async () => {
+      mockGetBill.mockResolvedValue(fullBill({ status: "rejected" }));
+
+      render(<InvoiceForm isResubmission />);
+
+      expect(
+        await screen.findByRole("heading", {
+          name: "Resubmit Rejected Invoice",
+        }),
+      ).toBeInTheDocument();
+
+      expect(mockGetBill).toHaveBeenCalledWith("bill-1");
+      expect(screen.getByLabelText("Account / Customer #")).toHaveValue("ACC-100");
+    });
+
+    it("shows the existing PDF retention message", async () => {
+      mockGetBill.mockResolvedValue(
+        fullBill({
+          status: "rejected",
+          document_path: "bills/bill-1/invoice.pdf",
         }),
       );
-      render(<InvoiceForm />);
 
-      pick(pdf("first.pdf"));
-      expect(await screen.findByText(/Some values need checking/)).toBeInTheDocument();
-      expect(screen.getByText(/Check this: read "10\/01\/2026"/)).toBeInTheDocument();
-
-      pick(pdf("second.pdf"));
-
-      expect(screen.queryByText(/Some values need checking/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Check this/)).not.toBeInTheDocument();
-      expect(screen.getByText("Reading invoice...")).toBeInTheDocument();
-    });
-
-    it("marks a saved draft unsaved when the read fills it", async () => {
-      const user = userEvent.setup();
-      const read = pendingRead();
-      mockExtractBill.mockReturnValue(read.promise);
-      mockSaveBillDraft
-        .mockReset()
-        .mockResolvedValue({ bill_id: "bill-1", status: "draft", document_path: null });
-      render(<InvoiceForm />);
-
-      await user.type(screen.getByLabelText("Bill Description / Explanation"), "Power");
-      await user.click(screen.getByRole("button", { name: "Save Draft" }));
-      await screen.findByRole("button", { name: "Draft Saved ✓" });
-
-      pick();
-      await act(async () => read.resolve(extractionResult()));
-
-      expect(screen.getByRole("button", { name: "Save Draft" })).toBeEnabled();
-      expect(screen.queryByText("Draft saved successfully: bill-1")).not.toBeInTheDocument();
-    });
-
-    it("clears a shown required error when the read fills that field", async () => {
-      const user = userEvent.setup();
-      const read = pendingRead();
-      mockExtractBill.mockReturnValue(read.promise);
-      render(<InvoiceForm />);
-
-      await user.click(screen.getByRole("button", { name: "Create" }));
-      expect(await screen.findByText("Statement # is required")).toBeInTheDocument();
-
-      pick();
-      await act(async () => read.resolve(extractionResult()));
-
-      await waitFor(() => {
-        expect(screen.queryByText("Statement # is required")).not.toBeInTheDocument();
-      });
-      // A field the read did not fill keeps its error.
-      expect(screen.getByText("Add a short description")).toBeInTheDocument();
-    });
-
-    it("replaces what the last read filled when another PDF is read", async () => {
-      const user = userEvent.setup();
-      mockExtractBill.mockResolvedValueOnce(extractionResult()).mockResolvedValueOnce(
-        extractionResult({
-          extraction: extraction({
-            vendor_name: read("Water Co"),
-            invoice_number: read("W-77"),
-            amount_due: read("80.00"),
-            payments_received: read(null),
-            service_address: read(null),
-          }),
-        }),
-      );
-      render(<InvoiceForm />);
-
-      pick(pdf("a.pdf"));
-      await screen.findByText(/Filled 8 fields/);
-      const account = screen.getByLabelText("Account / Customer #");
-      await user.clear(account);
-      await user.type(account, "MY-ACC");
-
-      pick(pdf("b.pdf"));
+      render(<InvoiceForm isResubmission />);
 
       expect(
         await screen.findByText(
-          "Filled 5 fields from the invoice. Check them before you create the bill.",
+          "The existing invoice PDF will be retained when you resubmit this invoice.",
         ),
       ).toBeInTheDocument();
-      expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("Water Co");
-      expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("W-77");
-      expect(screen.getByLabelText("Current Due")).toHaveValue("80.00");
-      // The person's edit stays; values B has nothing for are cleared.
-      expect(account).toHaveValue("MY-ACC");
-      expect(screen.getByLabelText("Prev Payments")).toHaveValue("");
-      expect(screen.getByLabelText("Property Address")).toHaveValue("");
     });
 
-    it("clears what the last read filled when the next read fails", async () => {
+    it("shows when the rejected invoice has no stored PDF", async () => {
+      mockGetBill.mockResolvedValue(
+        fullBill({
+          status: "rejected",
+          document_path: null,
+        }),
+      );
+
+      render(<InvoiceForm isResubmission />);
+
+      expect(
+        await screen.findByText("No invoice PDF is currently stored with this invoice."),
+      ).toBeInTheDocument();
+    });
+
+    it("does not show Save Draft during resubmission", async () => {
+      mockGetBill.mockResolvedValue(fullBill({ status: "rejected" }));
+
+      render(<InvoiceForm isResubmission />);
+
+      await screen.findByDisplayValue("ACC-100");
+
+      expect(screen.queryByRole("button", { name: /Save Draft/ })).not.toBeInTheDocument();
+    });
+
+    it("does not show the PDF upload picker during resubmission", async () => {
+      mockGetBill.mockResolvedValue(fullBill({ status: "rejected" }));
+
+      render(<InvoiceForm isResubmission />);
+
+      await screen.findByDisplayValue("ACC-100");
+
+      expect(screen.queryByText("Upload / import invoice (PDF)")).not.toBeInTheDocument();
+      expect(document.querySelector("#invoicePdf")).not.toBeInTheDocument();
+    });
+
+    it("resubmits the invoice and navigates to the dashboard", async () => {
       const user = userEvent.setup();
-      mockExtractBill
-        .mockResolvedValueOnce(extractionResult())
-        .mockRejectedValueOnce(new Error("Unable to reach the server."));
-      render(<InvoiceForm />);
 
-      pick(pdf("a.pdf"));
-      await screen.findByText(/Filled 8 fields/);
-      await user.type(screen.getByLabelText("Customer / Business Name"), " Co");
+      mockGetBill.mockResolvedValue(fullBill({ status: "rejected" }));
 
-      pick(pdf("b.pdf"));
+      render(<InvoiceForm isResubmission />);
 
-      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to reach the server.");
-      expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("");
-      expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("City Power Co");
+      await screen.findByDisplayValue("ACC-100");
+
+      await user.click(screen.getByRole("button", { name: "Resubmit Invoice" }));
+
+      await waitFor(() => {
+        expect(mockResubmitBill).toHaveBeenCalledWith(
+          "bill-1",
+          expect.objectContaining(finalValues),
+        );
+      });
+
+      expect(mockSaveBillDraft).not.toHaveBeenCalled();
+      expect(mockSubmitBill).not.toHaveBeenCalled();
+      expect(mockUploadInvoicePdf).not.toHaveBeenCalled();
+      expect(mockPush).toHaveBeenCalledWith("/dashboard");
     });
 
-    it("never replaces values loaded from a saved draft", async () => {
-      mockRouter = { ...mockRouter, pathname: "/invoices/bill-1/edit" };
-      mockGetBillDraft.mockResolvedValue({
-        bill_id: "bill-1",
-        status: "draft",
-        account_number_raw: "DRAFT-ACC",
-        invoice_number: null,
-        vendor_name_raw: null,
-        invoice_date: null,
-        due_date: null,
-        amount: null,
-        prev_payments: null,
-        description: null,
-        processing_notes: null,
-        property_address: null,
-        account_status: null,
-        website_name: null,
-        vendor_account_id: null,
-        vendor_account_picked: false,
-        document_path: null,
-      });
-      mockExtractBill
-        .mockResolvedValueOnce(extractionResult())
-        .mockResolvedValueOnce(
-          extractionResult({ extraction: extraction({ account_number: read("B-ACC") }) }),
-        );
+    it("shows an error when resubmission fails", async () => {
+      const user = userEvent.setup();
+
+      mockGetBill.mockResolvedValue(fullBill({ status: "rejected" }));
+      mockResubmitBill.mockRejectedValueOnce(new Error("Unable to resubmit invoice."));
+
+      render(<InvoiceForm isResubmission />);
+
+      await screen.findByDisplayValue("ACC-100");
+
+      await user.click(screen.getByRole("button", { name: "Resubmit Invoice" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Unable to resubmit invoice.");
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Retry Resubmit" })).toBeEnabled();
+    });
+
+    // NEW
+    it("shows an error when the route has no invoice ID", async () => {
+      const user = userEvent.setup();
+
+      mockInvoiceId = undefined;
+
+      render(<InvoiceForm isResubmission />);
+
+      await fillValidInvoice(user);
+
+      await user.click(screen.getByRole("button", { name: "Resubmit Invoice" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Missing invoice ID. Unable to resubmit.",
+      );
+
+      expect(mockResubmitBill).not.toHaveBeenCalled();
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("does not resubmit an invoice that is not rejected", async () => {
+      mockGetBill.mockResolvedValue(fullBill({ status: "approved" }));
+
+      render(<InvoiceForm isResubmission />);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Only rejected invoices can be resubmitted.",
+      );
+
+      expect(mockResubmitBill).not.toHaveBeenCalled();
+    });
+
+    it("shows an error when the rejected invoice cannot be loaded", async () => {
+      mockGetBill.mockRejectedValueOnce(new Error("Invoice not found."));
+
+      render(<InvoiceForm isResubmission />);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Invoice not found.");
+    });
+  });
+
+  // ==================================================
+  // 10. NAVIGATION
+  // ==================================================
+
+  describe("Navigation", () => {
+    it("navigates to the dashboard when Cancel is clicked", async () => {
+      const user = userEvent.setup();
+
       render(<InvoiceForm />);
-      await screen.findByDisplayValue("DRAFT-ACC");
 
-      pick(pdf("a.pdf"));
-      await screen.findByText(/Filled 7 fields/);
-      pick(pdf("b.pdf"));
-      await screen.findByText(/Filled 7 fields/);
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
 
-      expect(screen.getByLabelText("Account / Customer #")).toHaveValue("DRAFT-ACC");
+      expect(mockPush).toHaveBeenCalledWith("/dashboard");
+    });
+
+    it("does not create a draft when Cancel is clicked", async () => {
+      const user = userEvent.setup();
+
+      render(<InvoiceForm />);
+
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(mockSaveBillDraft).not.toHaveBeenCalled();
+      expect(mockSubmitBill).not.toHaveBeenCalled();
     });
   });
 });

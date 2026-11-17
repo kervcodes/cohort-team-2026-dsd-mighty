@@ -106,13 +106,25 @@ export default function DashboardPage() {
           Bill &amp; Invoice
         </h1>
 
-        <Link
-          href="/invoices/new"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-        >
-          <Plus className="h-4 w-4" />
-          New Invoice
-        </Link>
+        <div className="flex items-center gap-3">
+          {profile?.status === "active" &&
+            (profile.role === "approver" || profile.role === "admin") && (
+              <Link
+                href="/approvals"
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-surface-secondary"
+              >
+                Approvals
+              </Link>
+            )}
+
+          <Link
+            href="/invoices/new"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            <Plus className="h-4 w-4" />
+            New Invoice
+          </Link>
+        </div>
       </div>
 
       {loading && (
