@@ -7,17 +7,22 @@ routes use the service-role client, which bypasses row-level security, so
 those filters are the only guard.
 
 `select()` resolves embeds such as `submitter:app_users!submitted_by(...)`
-through FOREIGN_KEYS, and an insert must satisfy those foreign keys, as in
-Postgres. Plain columns are not projected: every stored column comes back.
+through FOREIGN_KEYS. Inserts and updates must satisfy FOREIGN_KEYS and
+UNIQUE_KEYS; a violation raises the `APIError` PostgREST sends, with the
+Postgres error code, so the repositories' error handling runs in tests.
 
-`rpc()` runs Python twins of the Postgres functions in RPCS; each mirrors its
-migration, including the SQLSTATE and DETAIL of every refusal.
+`rpc()` runs Python twins of the SQL functions the repositories call, with
+Vault as a dict of plaintext secrets. Each call is one transaction, as through
+PostgREST: if the twin raises, every table row and Vault secret it changed is
+put back. The twins in RPCS mirror their migrations, including the SQLSTATE
+and DETAIL of every refusal.
 
 Supports only the query shapes the repository uses. Helpers, not tests.
 """
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -26,7 +31,40 @@ from uuid import uuid4
 from postgrest.exceptions import APIError
 
 # (table, column) -> (referenced table, referenced column), as in the migrations.
-FOREIGN_KEYS = {("bills", "submitted_by"): ("app_users", "user_id")}
+FOREIGN_KEYS = {
+    ("bills", "submitted_by"): ("app_users", "user_id"),
+    ("bills", "vendor_account_id"): ("vendor_accounts", "account_id"),
+    ("bills", "vendor_id"): ("vendors", "vendor_id"),
+    ("bills", "property_id"): ("properties", "property_id"),
+    ("vendor_accounts", "property_id"): ("properties", "property_id"),
+    ("vendor_accounts", "vendor_id"): ("vendors", "vendor_id"),
+}
+
+
+def _columns_key(*columns: str) -> Callable[[dict[str, Any]], tuple | None]:
+    def key(row: dict[str, Any]) -> tuple | None:
+        values = tuple(row.get(column) for column in columns)
+        # Postgres: a null in any indexed value never conflicts.
+        return None if None in values else values
+
+    return key
+
+
+def _bill_invoice_key(row: dict[str, Any]) -> tuple | None:
+    # bills_account_invoice_unique: (vendor_account_id,
+    # lower(btrim(invoice_number))) where vendor_account_id is not null.
+    account, invoice = row.get("vendor_account_id"), row.get("invoice_number")
+    if account is None or invoice is None:
+        return None
+    return (account, invoice.strip(" ").lower())
+
+
+# table -> unique index keys, as in the migrations: each gives a row's indexed
+# values, or None when the row is not in the index or holds a null.
+UNIQUE_KEYS: dict[str, list[Callable[[dict[str, Any]], tuple | None]]] = {
+    "vendor_accounts": [_columns_key("property_id", "vendor_id", "account_number")],
+    "bills": [_bill_invoice_key],
+}
 
 # alias:table!fk_column(col,col)
 EMBED = re.compile(r"(\w+):(\w+)!(\w+)\(([\w,]+)\)")
@@ -40,8 +78,27 @@ OPERATORS: dict[str, Callable[[Any, str], bool]] = {
 
 
 class _Result:
-    def __init__(self, data: Any) -> None:
+    def __init__(self, data: Any, count: int | None = None) -> None:
         self.data = data
+        # Set only when the query asked for count="exact", as in supabase-py.
+        self.count = count
+
+
+def _like_regex(pattern: str) -> re.Pattern[str]:
+    """A Postgres LIKE pattern as a regex: `%` and PostgREST's `*` match any
+    run, `_` one character, and a backslash escapes the next character."""
+    parts = []
+    characters = iter(pattern)
+    for character in characters:
+        if character == "\\":
+            parts.append(re.escape(next(characters, "")))
+        elif character in "%*":
+            parts.append(".*")
+        elif character == "_":
+            parts.append(".")
+        else:
+            parts.append(re.escape(character))
+    return re.compile("".join(parts), re.IGNORECASE | re.DOTALL)
 
 
 def _insert_defaults(table: str) -> dict[str, Any]:
@@ -49,7 +106,21 @@ def _insert_defaults(table: str) -> dict[str, Any]:
     now = datetime.now(UTC).isoformat()
     if table == "vendors":
         return {"vendor_id": str(uuid4()), "created_at": now}
-    return {"bill_id": str(uuid4()), "document_path": None, "created_at": now}
+    if table == "vendor_accounts":
+        return {
+            "account_id": str(uuid4()),
+            "portal_url": None,
+            "portal_login_email": None,
+            "portal_password_secret_id": None,
+            "status": "active",
+            "created_at": now,
+        }
+    return {
+        "bill_id": str(uuid4()),
+        "document_path": None,
+        "vendor_account_picked": False,
+        "created_at": now,
+    }
 
 
 class _Query:
@@ -63,12 +134,15 @@ class _Query:
         self._any_of: list[list[tuple[str, str, str]]] = []
         self._embeds: list[tuple[str, str, str, list[str]]] = []
         self._columns: list[str] | None = None  # None: every column
-        self._order: tuple[str, bool] | None = None
+        self._order: list[tuple[str, bool]] = []
         self._limit: int | None = None
+        self._offset = 0
+        self._count = False
+        self._likes: list[tuple[str, re.Pattern[str]]] = []
         self._single: str | None = None  # "maybe" or "one"
         self._neq_filters: list[tuple[str, Any]] = []
 
-    def select(self, *columns: str) -> "_Query":
+    def select(self, *columns: str, count: str | None = None) -> "_Query":
         # After insert/update this names the columns of the affected rows.
         # Like PostgREST, only the named columns come back ("*" is all), so a
         # query that forgets a column fails in tests too.
@@ -77,6 +151,8 @@ class _Query:
             self._embeds.append((alias, table, fk_column, inner.split(",")))
         plain = [c.strip() for c in EMBED.sub("", joined).split(",") if c.strip()]
         self._columns = None if "*" in plain else plain
+        assert count in (None, "exact"), f"count={count!r} unsupported"
+        self._count = count == "exact"
         return self
 
     def insert(self, payload: dict[str, Any]) -> "_Query":
@@ -85,6 +161,10 @@ class _Query:
 
     def update(self, payload: dict[str, Any]) -> "_Query":
         self._op, self._payload = "update", payload
+        return self
+
+    def delete(self) -> "_Query":
+        self._op = "delete"
         return self
 
     def eq(self, column: str, value: Any) -> "_Query":
@@ -106,11 +186,20 @@ class _Query:
         return self
 
     def order(self, column: str, desc: bool = False) -> "_Query":
-        self._order = (column, desc)
+        self._order.append((column, desc))
         return self
 
     def limit(self, count: int) -> "_Query":
         self._limit = count
+        return self
+
+    def range(self, start: int, end: int) -> "_Query":
+        # supabase-py sends offset and limit, as here.
+        self._offset, self._limit = start, end - start + 1
+        return self
+
+    def ilike(self, column: str, pattern: str) -> "_Query":
+        self._likes.append((column, _like_regex(pattern)))
         return self
 
     def maybe_single(self) -> "_Query":
@@ -129,6 +218,11 @@ class _Query:
         return (
             all(row.get(column) == value for column, value in self._filters)
             and all(row.get(column) != value for column, value in self._neq_filters)
+            and all(
+                isinstance(row.get(column), str)
+                and pattern.fullmatch(row[column]) is not None
+                for column, pattern in self._likes
+            )
             and all(
                 any(
                     OPERATORS[op](row.get(column), value) for column, op, value in group
@@ -151,30 +245,58 @@ class _Query:
         keep = set(self._columns) | {alias for alias, *_ in self._embeds}
         return {column: value for column, value in row.items() if column in keep}
 
-    def _check_foreign_keys(self, row: dict[str, Any]) -> None:
+    def _check_constraints(self, row: dict[str, Any], others: list[dict]) -> None:
         for (table, column), (target, key) in FOREIGN_KEYS.items():
             value = row.get(column)
             if table == self._table and value is not None:
-                assert self._db.find(target, key, value), (
-                    f"insert violates foreign key {table}.{column} -> {target}"
+                if not self._db.find(target, key, value):
+                    raise APIError(
+                        {
+                            "code": "23503",
+                            "message": f"{table}.{column} violates foreign key",
+                        }
+                    )
+        for unique_key in UNIQUE_KEYS.get(self._table, []):
+            key = unique_key(row)
+            if key is not None and any(unique_key(other) == key for other in others):
+                raise APIError(
+                    {
+                        "code": "23505",
+                        "message": f"duplicate key on {self._table} {key}",
+                    }
                 )
 
     def execute(self) -> _Result | None:
         if self._op == "insert":
             row = {**_insert_defaults(self._table), **(self._payload or {})}
-            self._check_foreign_keys(row)
+            self._check_constraints(row, self._rows)
             self._rows.append(row)
             rows = [row]
         else:
             rows = [row for row in self._rows if self._matches(row)]
             if self._op == "update":
+                # Check every row first: a failed statement changes nothing.
+                for row in rows:
+                    updated = {**row, **(self._payload or {})}
+                    others = [other for other in self._rows if other is not row]
+                    self._check_constraints(updated, others)
                 for row in rows:
                     row.update(self._payload or {})
-            if self._order:
-                column, desc = self._order
+            if self._op == "delete":
+                for row in rows:
+                    self._rows.remove(row)
+                    self._db.after_delete(self._table, row)
+            for column, desc in reversed(self._order):
                 rows.sort(key=lambda row: row.get(column) or "", reverse=desc)
-            if self._limit is not None:
-                rows = rows[: self._limit]
+            if self._count and self._offset > len(rows):
+                # PostgREST answers 416 when a counted page starts past the end.
+                raise APIError(
+                    {"code": "PGRST103", "message": "Requested range not satisfiable"}
+                )
+        total = len(rows)
+        if self._op != "insert":
+            end = None if self._limit is None else self._offset + self._limit
+            rows = rows[self._offset : end]
 
         copies = [self._project(self._embed(dict(row))) for row in rows]
         if self._single == "maybe":
@@ -183,7 +305,7 @@ class _Query:
         if self._single == "one":
             assert len(copies) == 1, f"single() matched {len(copies)} rows"
             return _Result(copies[0])
-        return _Result(copies)
+        return _Result(copies, total if self._count else None)
 
 
 def _refuse(code: str, message: str, details: str | None = None) -> APIError:
@@ -258,15 +380,6 @@ RPCS: dict[str, Callable[["FakeSupabase", dict[str, Any]], Any]] = {
 }
 
 
-class _Rpc:
-    def __init__(self, db: "FakeSupabase", name: str, params: dict[str, Any]):
-        self._db, self._name, self._params = db, name, params
-
-    def execute(self) -> _Result:
-        # PostgREST answers a function returning one row with that row.
-        return _Result(RPCS[self._name](self._db, self._params))
-
-
 class _Bucket:
     def __init__(self, storage: "_Storage") -> None:
         self._storage = storage
@@ -292,17 +405,187 @@ class _Storage:
         return _Bucket(self)
 
 
+class _Rpc:
+    def __init__(self, db: "FakeSupabase", name: str, params: dict[str, Any]) -> None:
+        self._db = db
+        self._name = name
+        self._params = params
+
+    def execute(self) -> _Result:
+        with self._db.transaction():
+            if self._name in RPCS:
+                # PostgREST answers a function returning one row with that row.
+                return _Result(RPCS[self._name](self._db, self._params))
+            function = getattr(self._db, f"_rpc_{self._name}")
+            return _Result(function(**self._params))
+
+
+# Columns the account functions accept, as in the SQL functions' allow-lists.
+ACCOUNT_UPDATE_FIELDS = (
+    "account_number",
+    "account_type",
+    "payment_method",
+    "portal_url",
+    "portal_login_email",
+    "status",
+)
+ACCOUNT_CREATE_FIELDS = ("property_id", "vendor_id", *ACCOUNT_UPDATE_FIELDS)
+
+
+def _invalid(message: str) -> APIError:
+    return APIError({"code": "22023", "message": message})
+
+
+def _reject_unknown_fields(fields: dict[str, Any], allowed: tuple[str, ...]) -> None:
+    unknown = sorted(set(fields) - set(allowed))
+    if unknown:
+        raise _invalid(f"unknown vendor account fields: {', '.join(unknown)}")
+
+
 class FakeSupabase:
     def __init__(self) -> None:
         self.tables: dict[str, list[dict[str, Any]]] = {}
         self.storage = _Storage()
+        # Vault: secret id -> plaintext. The real one stores ciphertext.
+        self.vault: dict[str, str] = {}
+        # Vault writes raise, as when Vault is unavailable mid-transaction.
+        self.fail_vault_writes = False
 
     def table(self, name: str) -> _Query:
         return _Query(self, name)
 
     def rpc(self, name: str, params: dict[str, Any]) -> _Rpc:
-        assert name in RPCS, f"no fake for function {name!r}"
         return _Rpc(self, name, params)
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Undo every row and Vault change if the body raises.
+
+        Rows are restored in place, so a test holding a row dict sees the
+        rolled-back values.
+        """
+        saved_rows = {
+            name: [(row, dict(row)) for row in rows]
+            for name, rows in self.tables.items()
+        }
+        saved_vault = dict(self.vault)
+        try:
+            yield
+        except BaseException:
+            for name, rows in self.tables.items():
+                saved = saved_rows.get(name, [])
+                for row, values in saved:
+                    row.clear()
+                    row.update(values)
+                rows[:] = [row for row, _ in saved]
+            self.vault.clear()
+            self.vault.update(saved_vault)
+            raise
+
+    def after_delete(self, table: str, row: dict[str, Any]) -> None:
+        # Trigger vendor_accounts_delete_portal_password.
+        if table == "vendor_accounts" and row["portal_password_secret_id"]:
+            self.vault.pop(row["portal_password_secret_id"], None)
+
+    # Python twins of the SQL functions in
+    # 20261115100000_vendor_portal_login.sql. Keep them in step: same checks,
+    # same order, same error codes.
+
+    def _locked_account(self, account_id: str) -> dict[str, Any]:
+        account = self.find("vendor_accounts", "account_id", account_id)
+        if account is None:
+            raise APIError(
+                {"code": "P0002", "message": f"vendor account {account_id} not found"}
+            )
+        return account
+
+    def _write_vault(self, secret_id: str, password: str) -> None:
+        if self.fail_vault_writes:
+            raise APIError({"code": "XX000", "message": "vault unavailable"})
+        self.vault[secret_id] = password
+
+    # set_vendor_account_portal_password: a building block, not callable by
+    # the service role, so not an `_rpc_` twin.
+    def _set_portal_password(self, account_id: str, password: str | None) -> None:
+        if not password:
+            raise _invalid("portal password must not be empty")
+        account = self._locked_account(account_id)
+        secret_id = account["portal_password_secret_id"]
+        if secret_id is None:
+            secret_id = str(uuid4())
+            self._write_vault(secret_id, password)
+            account["portal_password_secret_id"] = secret_id
+        else:
+            self._write_vault(secret_id, password)
+
+    # clear_vendor_account_portal_password: a building block too.
+    def _clear_portal_password(self, account_id: str) -> None:
+        account = self._locked_account(account_id)
+        secret_id = account["portal_password_secret_id"]
+        if secret_id is not None:
+            # Deleting the secret nulls the id (on delete set null).
+            del self.vault[secret_id]
+            account["portal_password_secret_id"] = None
+
+    def _rpc_create_vendor_account(
+        self, p_account: dict[str, Any], p_password: str | None
+    ) -> list[dict[str, Any]]:
+        if not isinstance(p_account, dict):
+            raise _invalid("vendor account must be a JSON object")
+        _reject_unknown_fields(p_account, ACCOUNT_CREATE_FIELDS)
+        # A missing key reads as null, as `->>` does.
+        values = {field: p_account.get(field) for field in ACCOUNT_CREATE_FIELDS}
+        created = self.table("vendor_accounts").insert(values).execute()
+        assert created is not None
+        account_id = created.data[0]["account_id"]
+        if p_password is not None:
+            self._set_portal_password(account_id, p_password)
+        return [dict(self._locked_account(account_id))]
+
+    def _rpc_update_vendor_account(
+        self,
+        p_account_id: str,
+        p_changes: dict[str, Any],
+        p_password_action: str,
+        p_password: str | None,
+    ) -> list[dict[str, Any]]:
+        if p_password_action not in ("keep", "clear", "set"):
+            raise _invalid("portal password action must be keep, clear or set")
+        if p_password_action != "set" and p_password is not None:
+            raise _invalid("a portal password goes only with the set action")
+        if not isinstance(p_changes, dict):
+            raise _invalid("vendor account changes must be a JSON object")
+        _reject_unknown_fields(p_changes, ACCOUNT_UPDATE_FIELDS)
+
+        if self.find("vendor_accounts", "account_id", p_account_id) is None:
+            return []
+
+        if p_changes:
+            self.table("vendor_accounts").update(p_changes).eq(
+                "account_id", p_account_id
+            ).execute()
+
+        if p_password_action == "set":
+            self._set_portal_password(p_account_id, p_password)
+        elif p_password_action == "clear":
+            self._clear_portal_password(p_account_id)
+
+        return [dict(self._locked_account(p_account_id))]
+
+    def _rpc_get_vendor_account_portal_login(
+        self, p_account_id: str
+    ) -> list[dict[str, Any]]:
+        account = self.find("vendor_accounts", "account_id", p_account_id)
+        if account is None:
+            return []
+        secret_id = account["portal_password_secret_id"]
+        return [
+            {
+                "portal_url": account["portal_url"],
+                "portal_login_email": account["portal_login_email"],
+                "portal_password": self.vault.get(secret_id) if secret_id else None,
+            }
+        ]
 
     def find(self, table: str, column: str, value: Any) -> dict[str, Any] | None:
         rows = self.tables.get(table, [])
@@ -318,6 +601,7 @@ class FakeSupabase:
             "submitted_by": submitted_by,
             "status": "draft",
             "document_path": None,
+            "vendor_account_picked": False,
             "created_at": datetime.now(UTC).isoformat(),
             **fields,
         }
@@ -335,6 +619,38 @@ class FakeSupabase:
             **fields,
         }
         self.table("vendors")._rows.append(row)
+        return row
+
+    def add_property(self, property_name: str = "Elm Court", **fields: Any) -> dict:
+        row = {
+            "property_id": str(uuid4()),
+            "property_name": property_name,
+            "street": "1 Main St",
+            "city": "Dallas",
+            "state": "TX",
+            "zip_code": "75201",
+            "status": "active",
+            "created_at": datetime.now(UTC).isoformat(),
+            **fields,
+        }
+        self.table("properties")._rows.append(row)
+        return row
+
+    def add_vendor_account(
+        self, property_id: str, vendor_id: str, **fields: Any
+    ) -> dict[str, Any]:
+        """An account row; set its password through the `update_vendor_account`
+        rpc, as the repository does."""
+        row = {
+            **_insert_defaults("vendor_accounts"),
+            "property_id": property_id,
+            "vendor_id": vendor_id,
+            "account_number": "ACC-1",
+            "account_type": "water",
+            "payment_method": "ach",
+            **fields,
+        }
+        self.table("vendor_accounts")._rows.append(row)
         return row
 
     def add_user(

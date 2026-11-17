@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FileCheck, FileUp, LoaderCircle } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type DragEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import Button from "@/components/Button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
@@ -34,11 +34,16 @@ import {
   invoiceFormSchema,
 } from "@/lib/invoice-form-schema";
 import type { BillCreatePayload, BillDraftDetail, BillDraftPayload } from "@/types/bill";
+import { VendorAccountField } from "./vendor-account-field";
 
 type ActionStatus = "idle" | "loading" | "success" | "error";
 
 // What a Create attempt sent: the payload as JSON and the picked PDF.
 type UnansweredSubmit = { payload: string; pdf: File | null };
+
+// The submit route's 409 for a bill that is no longer a draft. Its other 409,
+// an invoice number the vendor account already has, means nothing was sent.
+const ALREADY_SUBMITTED_DETAIL = "This bill has already been submitted.";
 
 const ALREADY_SUBMITTED_MESSAGE =
   "This bill was already sent for approval with the earlier values, so your latest changes weren't saved. Open it from the dashboard to check what was sent.";
@@ -125,6 +130,10 @@ function mapDraftToFormValues(draft: BillDraftDetail): InvoiceFormValues {
     propertyAddress: draft.property_address ?? "",
     accountStatus: draft.account_status ?? "",
     websiteName: draft.website_name ?? "",
+    // Only the analyst's own pick comes back as one. An account the number
+    // found is left to the server, which matches the number again on save,
+    // so an account added or changed since is taken into account.
+    vendorAccountId: draft.vendor_account_picked ? (draft.vendor_account_id ?? "") : "",
   };
 }
 
@@ -144,6 +153,7 @@ function draftPayload(values: InvoiceDraftFormValues): BillDraftPayload {
     property_address: values.propertyAddress || null,
     account_status: values.accountStatus || null,
     website_name: values.websiteName || null,
+    vendor_account_id: values.vendorAccountId || null,
   };
 }
 
@@ -162,6 +172,7 @@ function createPayload(values: InvoiceFormValues): BillCreatePayload {
     property_address: values.propertyAddress,
     account_status: values.accountStatus || undefined,
     website_name: values.websiteName || undefined,
+    vendor_account_id: values.vendorAccountId || undefined,
   };
 }
 
@@ -280,6 +291,15 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
 
   const watchedValues = useWatch({ control });
 
+  // "" leaves the bill to the server's account number match.
+  const pickVendorAccount = useCallback(
+    (vendorAccountId: string) => setValue("vendorAccountId", vendorAccountId),
+    [setValue],
+  );
+  // A vendor account picked for one account number is wrong for another:
+  // the new number is matched instead.
+  const clearVendorAccountPick = () => pickVendorAccount("");
+
   const hasAnyInput =
     selectedFile !== null ||
     Object.values(watchedValues).some((value) => typeof value === "string" && value.trim() !== "");
@@ -358,7 +378,10 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
       // attempt sent exactly these values and this PDF. Otherwise (values
       // edited before the retry, or another tab submitted it) the bill went
       // with other values, so say so instead of reporting success.
-      const alreadySubmitted = error instanceof ApiError && error.status === 409;
+      const alreadySubmitted =
+        error instanceof ApiError &&
+        error.status === 409 &&
+        error.message === ALREADY_SUBMITTED_DETAIL;
       const earlier = unansweredSubmits.current;
       const sameAsEarlier =
         earlier.length > 0 &&
@@ -461,6 +484,9 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
 
   function applyFill(values: Partial<Record<ExtractedFormField, string>>) {
     const entries = Object.entries(values) as [ExtractedFormField, string][];
+    if (values.accountNumber !== undefined && values.accountNumber !== getValues("accountNumber")) {
+      clearVendorAccountPick();
+    }
     for (const [name, value] of entries) {
       // Re-validate only a field already showing an error, so a filled
       // value clears "required" without new errors appearing before Create.
@@ -618,6 +644,7 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
         // Editing a field marked "Check this" settles it, and makes its
         // value the person's: no later read replaces it.
         const name = "name" in target ? target.name : null;
+        if (name === "accountNumber") clearVendorAccountPick();
         if (typeof name === "string") {
           readerFilled.current.delete(name as ExtractedFormField);
           setNotes((current) =>
@@ -758,6 +785,12 @@ function InvoiceFormVisit({ initialDraftId, onDraftCreated }: InvoiceFormVisitPr
         >
           {(field) => <input {...field} {...register("accountNumber")} className={inputClass} />}
         </FormField>
+
+        <VendorAccountField
+          accountNumber={watchedValues.accountNumber ?? ""}
+          value={watchedValues.vendorAccountId ?? ""}
+          onChange={pickVendorAccount}
+        />
 
         <FormField
           label="Statement / Bill ID"

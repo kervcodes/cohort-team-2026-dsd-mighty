@@ -36,3 +36,12 @@ class PropertyUpdate(BaseModel):
     property_name: str | None = Field(default=None, min_length=1, max_length=200)
     address: Address | None = None
     status: ActiveStatus | None = None
+
+
+class PagePropertyRead(BaseModel):
+    """One page of properties; `total` counts every match, not just this page."""
+
+    items: list[PropertyRead]
+    total: int
+    skip: int
+    limit: int
