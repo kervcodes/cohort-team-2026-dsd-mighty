@@ -1,4 +1,4 @@
-import type { BillStatus } from "@/lib/api/bills";
+import type { BillStatus } from "@/types/bill";
 
 export type InvoiceStatus = BillStatus;
 

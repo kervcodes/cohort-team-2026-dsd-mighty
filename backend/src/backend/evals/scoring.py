@@ -5,7 +5,11 @@ Pure functions: an answer key (`expected/<bill>.json` as a dict) and an
 
 - Strings match after trimming and collapsing whitespace; dates and amounts
   match by parsed value (`parse_date`, `parse_amount`, so "1180.5" equals
-  "1180.50"); an expected null must come back null.
+  "1180.50"); `payment_website` matches exactly after trimming and
+  `account_status` exactly; an expected null must come back null.
+- `description` is free text (`FREE_TEXT_FIELDS`): it matches after trimming,
+  collapsing whitespace, ignoring case and a trailing period, and is reported
+  on its own, outside the field counts and "required fields correct".
 - A failed extraction has no values, so every expected non-null field is wrong
   (but never silent: the person sees `failed`).
 - Line items are compared as a multiset of parsed amounts; descriptions are
@@ -27,6 +31,7 @@ from backend.extraction.schema import (
     AMOUNT_FIELDS,
     DATE_FIELDS,
     FIELD_NAMES,
+    FREE_TEXT_FIELDS,
     REQUIRED_FIELDS,
     ExtractionResult,
     ExtractionStatus,
@@ -34,7 +39,10 @@ from backend.extraction.schema import (
     parse_date,
 )
 
-SCORED_FIELDS = ("document_type", *FIELD_NAMES)
+SCORED_FIELDS = (
+    "document_type",
+    *(name for name in FIELD_NAMES if name not in FREE_TEXT_FIELDS),
+)
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -48,15 +56,24 @@ def _parsed(parse: Callable[[str], object], text: str) -> object:
     return ("unparsed", text) if value is None else value
 
 
+def normalize_free_text(text: str) -> str:
+    """Trimmed, whitespace collapsed, case folded, without a trailing period."""
+    return normalize_string(text).casefold().removesuffix(".").rstrip()
+
+
 def value_matches(name: str, expected: str | None, actual: str | None) -> bool:
     if expected is None or actual is None:
         return expected is None and actual is None
+    if name in FREE_TEXT_FIELDS:
+        return normalize_free_text(expected) == normalize_free_text(actual)
+    if name == "payment_website":
+        return expected.strip() == actual.strip()
+    if name in ("document_type", "account_status"):
+        return expected == actual
     if name in DATE_FIELDS:
         return _parsed(parse_date, expected) == _parsed(parse_date, actual)
     if name in AMOUNT_FIELDS:
         return _parsed(parse_amount, expected) == _parsed(parse_amount, actual)
-    if name == "document_type":
-        return expected == actual
     return normalize_string(expected) == normalize_string(actual)
 
 
@@ -64,10 +81,11 @@ def actual_values(result: ExtractionResult) -> dict[str, str | None]:
     """Field values from the result; all None when there is no extraction."""
     extraction = result.extraction
     if extraction is None:
-        return dict.fromkeys(SCORED_FIELDS)
+        return dict.fromkeys(("document_type", *FIELD_NAMES))
     values: dict[str, str | None] = {"document_type": extraction.document_type.value}
     for name in FIELD_NAMES:
-        values[name] = getattr(extraction, name).value
+        value = getattr(extraction, name).value
+        values[name] = None if value is None else str(value)  # an enum as text
     return values
 
 
@@ -100,6 +118,7 @@ class BillScore:
     caught: tuple[str, ...]  # expected issue codes present in the result
     line_items_match: bool
     line_item_descriptions_missed: tuple[str, ...]  # reported, not scored
+    free_text_misses: tuple[FieldMiss, ...]  # reported, not scored
     cost_usd: float
     latency_ms: int
 
@@ -122,11 +141,14 @@ def score_bill(
     flagged_fields = {issue.field for issue in result.issues}
     failed = result.status == ExtractionStatus.failed
 
-    misses = tuple(
-        FieldMiss(name, expected[name], actual[name], name in flagged_fields)
-        for name in SCORED_FIELDS
-        if not value_matches(name, expected[name], actual[name])
-    )
+    def misses_in(names: Sequence[str]) -> tuple[FieldMiss, ...]:
+        return tuple(
+            FieldMiss(name, expected[name], actual[name], name in flagged_fields)
+            for name in names
+            if not value_matches(name, expected[name], actual[name])
+        )
+
+    misses = misses_in(SCORED_FIELDS)
     missed = {miss.field for miss in misses}
     silent = (
         ()
@@ -170,6 +192,7 @@ def score_bill(
                 ).elements()
             )
         ),
+        free_text_misses=misses_in(FREE_TEXT_FIELDS),
         cost_usd=(result.cost_usd or 0.0) if cost_usd is None else cost_usd,
         latency_ms=(result.latency_ms or 0) if latency_ms is None else latency_ms,
     )
@@ -200,6 +223,7 @@ class Summary:
     status_matches: int
     failed: int
     line_items_matches: int
+    free_text_matches: dict[str, int]  # bills whose value matched, per field
     cost_median: float
     cost_p95: float
     latency_median_ms: float
@@ -234,6 +258,12 @@ def summarize(scores: Sequence[BillScore]) -> Summary:
         status_matches=sum(s.status_match for s in scores),
         failed=sum(s.status == ExtractionStatus.failed for s in scores),
         line_items_matches=sum(s.line_items_match for s in scores),
+        free_text_matches={
+            name: sum(
+                name not in {miss.field for miss in s.free_text_misses} for s in scores
+            )
+            for name in FREE_TEXT_FIELDS
+        },
         cost_median=statistics.median(costs) if costs else 0.0,
         cost_p95=percentile(costs, 95),
         latency_median_ms=statistics.median(latencies) if latencies else 0.0,

@@ -5,10 +5,11 @@ from datetime import date
 from typing import Any
 
 import pytest
-from bill_factory import clean_extraction, ex, not_an_invoice
+from bill_factory import clean_extraction, ex, not_an_invoice, null, status
 
 from backend.evals import run
 from backend.evals.scoring import (
+    normalize_free_text,
     normalize_string,
     percentile,
     score_bill,
@@ -44,6 +45,9 @@ KEY: dict[str, Any] = {
     "service_address": "2110 Example Ave, Dallas, TX 75201",
     "service_period_start": "2026-09-13",
     "service_period_end": "2026-10-12",
+    "description": "Commercial water and sewer service",
+    "payment_website": "https://pay.brightwater.example/bills",
+    "account_status": "unpaid",
     "expected_issues": [],
     "expected_status": "ready_for_review",
 }
@@ -114,6 +118,47 @@ def test_dates_and_amounts_with_another_value_do_not_match(name: str, expected, 
     assert not value_matches(name, expected, actual)
 
 
+def test_payment_website_matches_exactly_after_trimming():
+    url = "https://pay.example/bills"
+    assert value_matches("payment_website", url, f"  {url}\n")
+    assert not value_matches("payment_website", url, f"{url}/")
+    assert not value_matches("payment_website", url, "http://pay.example/bills")
+    assert not value_matches("payment_website", url, "HTTPS://PAY.EXAMPLE/BILLS")
+
+
+def test_account_status_matches_exactly():
+    assert value_matches("account_status", "unpaid", "unpaid")
+    assert not value_matches("account_status", "unpaid", "paid")
+    assert not value_matches("account_status", "unpaid", "outstanding")
+    assert not value_matches("account_status", "unpaid", None)
+
+
+@pytest.mark.parametrize(
+    "actual",
+    [
+        "Commercial water and sewer service",
+        "  commercial WATER and\nsewer service. ",
+        "Commercial water and sewer service.",
+    ],
+)
+def test_description_matches_ignoring_case_spacing_and_a_final_period(actual: str):
+    assert value_matches("description", "Commercial water and sewer service", actual)
+
+
+@pytest.mark.parametrize(
+    "actual", ["Commercial water service", "Water and sewer", "", None]
+)
+def test_description_with_other_words_does_not_match(actual):
+    assert not value_matches(
+        "description", "Commercial water and sewer service", actual
+    )
+
+
+def test_free_text_normalisation():
+    assert normalize_free_text("  Monthly  Plan. ") == "monthly plan"
+    assert normalize_free_text("Inc..") == "inc."  # only one final period
+
+
 def test_expected_null_must_come_back_null():
     assert value_matches("service_address", None, None)
     assert not value_matches("service_address", None, "2110 Example Ave")
@@ -127,11 +172,13 @@ def test_expected_null_must_come_back_null():
 def test_a_perfect_clean_bill():
     score = score_bill("b", KEY, result(cost_usd=0.001, latency_ms=1200))
     assert score.misses == ()
-    assert score.fields_correct == score.fields_total == 13  # 12 values + type
+    # 14 values + type; the description is reported apart
+    assert score.fields_correct == score.fields_total == 15
     assert score.required_correct == score.required_total == 6
     assert score.silent_errors == ()
     assert score.status_match and score.is_clean
     assert score.line_items_match
+    assert score.free_text_misses == ()
     assert (score.cost_usd, score.latency_ms) == (0.001, 1200)
 
 
@@ -169,8 +216,37 @@ def test_a_wrong_optional_field_is_not_a_required_error():
     extraction = clean_extraction(service_period_end=ex("2026-10-13"))
     score = score_bill("b", KEY, result(extraction))
     assert score.required_correct == 6
-    assert score.fields_correct == 12
+    assert score.fields_correct == 14
     assert score.silent_errors == ()
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong"),
+    [
+        ("payment_website", ex("https://pay.brightwater.example/bills/")),
+        ("account_status", status("paid", "PAID")),
+        ("account_status", status(None)),
+    ],
+)
+def test_a_wrong_website_or_status_is_a_field_miss_but_not_required(field, wrong):
+    score = score_bill("b", KEY, result(clean_extraction(**{field: wrong})))
+    assert [m.field for m in score.misses] == [field]
+    assert score.fields_correct == 14
+    assert score.required_correct == 6
+    assert score.silent_errors == ()
+
+
+def test_a_wrong_description_is_reported_apart_from_the_field_counts():
+    extraction = clean_extraction(description=ex("Water service"))
+    score = score_bill("b", KEY, result(extraction))
+    assert score.misses == ()
+    assert score.fields_correct == score.fields_total == 15
+    assert score.required_correct == 6
+    assert [(m.field, m.expected, m.actual) for m in score.free_text_misses] == [
+        ("description", "Commercial water and sewer service", "Water service")
+    ]
+    missing = score_bill("b", KEY, result(clean_extraction(description=null())))
+    assert [m.field for m in missing.free_text_misses] == ["description"]
 
 
 def test_a_failed_extraction_gets_every_value_wrong_but_none_silent():
@@ -178,6 +254,7 @@ def test_a_failed_extraction_gets_every_value_wrong_but_none_silent():
     score = score_bill("b", KEY, failed)
     assert score.required_correct == 0
     assert score.fields_correct == 0
+    assert [m.field for m in score.free_text_misses] == ["description"]
     assert score.silent_errors == ()
     assert score.failed_reason == "model timeout"
     assert not score.status_match
@@ -193,11 +270,14 @@ def test_not_an_invoice_key_scores_null_fields_as_correct():
         **{name: None for name in ("previous_balance", "payments_received")},
         **{name: None for name in ("current_charges", "service_address")},
         **{name: None for name in ("service_period_start", "service_period_end")},
+        **{name: None for name in ("description", "payment_website")},
+        account_status=None,
     )
     score = score_bill(
         "letter", letter_key, result(not_an_invoice(), ExtractionStatus.not_an_invoice)
     )
     assert score.misses == ()
+    assert score.free_text_misses == ()
     assert score.status_match
     assert not score.is_clean
 
@@ -294,8 +374,16 @@ def test_summary_measures():
         expected_issues=["BALANCE_MISMATCH"], expected_status="needs_attention"
     )
     scores = [
-        # clean and right
-        score_bill("a", KEY, result(cost_usd=0.001, latency_ms=1000)),
+        # clean and right except the description, which is only reported
+        score_bill(
+            "a",
+            KEY,
+            result(
+                clean_extraction(description=ex("Water")),
+                cost_usd=0.001,
+                latency_ms=1000,
+            ),
+        ),
         # clean but held, with a flagged wrong amount
         score_bill(
             "b",
@@ -335,6 +423,7 @@ def test_summary_measures():
     assert summary.status_matches == 2  # a and c
     assert summary.failed == 1
     assert summary.line_items_matches == 4
+    assert summary.free_text_matches == {"description": 3}  # not a, not e (failed)
     assert summary.cost_median == pytest.approx(0.002)
     assert summary.cost_p95 == pytest.approx(0.004)
     assert summary.latency_median_ms == 2000
@@ -443,3 +532,17 @@ def test_details_show_silent_and_flagged_misses(capsys: pytest.CaptureFixture[st
     run.print_details("m", [run.BillRun(bill, wrong, (wrong,), score)])
     out = capsys.readouterr().out
     assert "account_number: expected '88-2110-4471', got 'x' (SILENT)" in out
+
+
+def test_details_and_table_report_the_description(capsys: pytest.CaptureFixture):
+    wrong = result(clean_extraction(description=ex("Water")))
+    bill = run.find_bills("dev", "gen-electric-clean*")[0]
+    score = score_bill(bill.name, KEY, wrong)
+    run.print_details("m", [run.BillRun(bill, wrong, (wrong,), score)])
+    run.print_table({"m": summarize([score])})
+    out = capsys.readouterr().out
+    assert (
+        "    description: expected 'Commercial water and sewer service', "
+        "got 'Water' (reported, not scored)"
+    ) in out
+    assert "description matches (reported, not scored)  0/1" in out

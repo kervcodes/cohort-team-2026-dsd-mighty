@@ -14,15 +14,20 @@ type FormFieldProps = {
   htmlFor: string;
   error?: string;
   hint?: string;
+  // A warning under the control, such as a value to double-check.
+  note?: string;
   children: ReactNode | ((control: FieldControlProps) => ReactNode);
 };
 
-export function FormField({ label, htmlFor, error, hint, children }: FormFieldProps) {
+export function FormField({ label, htmlFor, error, hint, note, children }: FormFieldProps) {
   const errorId = `${htmlFor}-error`;
   const hintId = `${htmlFor}-hint`;
+  const noteId = `${htmlFor}-note`;
 
   const describedBy =
-    [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ") || undefined;
+    [hint ? hintId : null, note ? noteId : null, error ? errorId : null]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
   const control: FieldControlProps = {
     id: htmlFor,
@@ -44,6 +49,12 @@ export function FormField({ label, htmlFor, error, hint, children }: FormFieldPr
       </div>
 
       {typeof children === "function" ? children(control) : children}
+
+      {note && (
+        <p id={noteId} className="text-xs text-due-soon">
+          {note}
+        </p>
+      )}
 
       {error && (
         <p id={errorId} className="text-xs text-overdue">

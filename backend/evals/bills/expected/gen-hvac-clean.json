@@ -34,6 +34,9 @@
   "service_address": "125 Industrial Way, Springfield, IL 62701",
   "service_period_start": null,
   "service_period_end": null,
+  "description": "Seasonal furnace tune-up and igniter replacement",
+  "payment_website": "https://pay.bluestem-hvac.example",
+  "account_status": "unpaid",
   "expected_issues": [],
   "expected_status": "ready_for_review",
   "case": "Clean 1-page contractor invoice with line items, subtotal, tax and total"

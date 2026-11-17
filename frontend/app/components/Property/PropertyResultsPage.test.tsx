@@ -11,7 +11,7 @@ const mockUseAuth = useAuth as jest.Mock;
 
 function createProperty(overrides: Partial<Property> = {}): Property {
   return {
-    property_id: "123456789012",
+    property_id: "123456789011",
     property_name: "Test Property",
     street: "123 Main Street",
     city: "New York",

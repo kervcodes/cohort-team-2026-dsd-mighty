@@ -25,6 +25,7 @@ from backend.extraction.schema import (
     AMOUNT_FIELDS,
     DATE_FIELDS,
     FIELD_NAMES,
+    FREE_TEXT_FIELDS,
     REQUIRED_FIELDS,
     BillExtraction,
     Confidence,
@@ -36,6 +37,7 @@ from backend.extraction.schema import (
     fits_money,
     parse_amount,
     parse_date,
+    parse_url,
 )
 
 MAX_PAST_YEARS = 1
@@ -79,14 +81,29 @@ def _amount_fields(extraction: BillExtraction) -> list[tuple[str, Extracted]]:
     return fields
 
 
+def _fold(text: str) -> str:
+    """NFKC (folds ligatures such as the fi and fl characters) and casefold."""
+    folded = unicodedata.normalize("NFKC", text).casefold()
+    return unicodedata.normalize("NFKC", folded)
+
+
 def normalize_for_match(text: str) -> str:
     """NFKC (folds ligatures such as the fi and fl characters), casefold, no whitespace.
 
     Whitespace is removed rather than collapsed because PDF text layers split and
     join words inconsistently ("Account\\nNumber" vs "AccountNumber").
     """
-    folded = unicodedata.normalize("NFKC", text).casefold()
-    return _WHITESPACE_RE.sub("", unicodedata.normalize("NFKC", folded))
+    return _WHITESPACE_RE.sub("", _fold(text))
+
+
+def _found_as_words(evidence: str, text_layer: str) -> bool:
+    """`evidence` is in `text_layer` like `normalize_for_match` finds it, and it
+    neither starts nor ends inside a word: "PAID" is not found in "UNPAID"."""
+    chars = normalize_for_match(evidence)
+    if not chars:
+        return False
+    pattern = r"\s*".join(re.escape(char) for char in chars)
+    return re.search(rf"(?<!\w){pattern}(?!\w)", _fold(text_layer)) is not None
 
 
 def has_text_layer(text_layer: str | None) -> bool:
@@ -207,6 +224,20 @@ def check_amounts(extraction: BillExtraction) -> list[Issue]:
     return issues
 
 
+def check_url(extraction: BillExtraction) -> list[Issue]:
+    """`payment_website`, when present, is an absolute http(s) URL with a host."""
+    field = extraction.payment_website
+    if _present(field) and parse_url(field.value) is None:
+        return [
+            _issue(
+                IssueCode.BAD_URL,
+                "payment_website",
+                "payment_website is not an http or https web address",
+            )
+        ]
+    return []
+
+
 def check_line_items_total(extraction: BillExtraction) -> list[Issue]:
     """Line items add up to `current_charges`, when both exist.
 
@@ -265,6 +296,8 @@ def check_evidence(extraction: BillExtraction, text_layer: str | None) -> list[I
 
     Skipped (no issues) when there is no text layer. A non-null value with empty
     evidence is not found: an empty string would otherwise match everything.
+    `account_status` evidence must also start and end on word boundaries, so a
+    status read as "PAID" is not found in a bill that prints "UNPAID".
     """
     if not has_text_layer(text_layer):
         return []
@@ -274,8 +307,12 @@ def check_evidence(extraction: BillExtraction, text_layer: str | None) -> list[I
     for name, field in extraction.iter_fields():
         if not _present(field):
             continue
-        needle = normalize_for_match(field.evidence)
-        if not needle or needle not in haystack:
+        if name == "account_status":
+            found = _found_as_words(field.evidence, text_layer)
+        else:
+            needle = normalize_for_match(field.evidence)
+            found = bool(needle) and needle in haystack
+        if not found:
             issues.append(
                 _issue(
                     IssueCode.EVIDENCE_NOT_FOUND,
@@ -371,9 +408,16 @@ def evidence_numbers(text: str) -> set[Decimal]:
     return found
 
 
+def _status_in_evidence(status: str, evidence: str) -> bool:
+    """The status as a whole word: "paid" is not shown by "UNPAID"."""
+    return re.search(rf"\b{re.escape(status)}\b", _fold(evidence)) is not None
+
+
 def _value_in_evidence(name: str, value: str, evidence: str) -> bool | None:
     """Whether `evidence` shows `value`; None when the value itself does not
     parse (BAD_DATE or BAD_AMOUNT reports that instead)."""
+    if name == "account_status":
+        return _status_in_evidence(value, evidence)
     if name in DATE_FIELDS:
         day = parse_date(value)
         return None if day is None else day in evidence_dates(evidence)
@@ -387,7 +431,8 @@ def check_evidence_matches_value(extraction: BillExtraction) -> list[Issue]:
     """Every non-null value is what its own evidence shows.
 
     Runs with or without a text layer, so it also covers photos. Strings: the
-    value is inside the evidence (normalised like EVIDENCE_NOT_FOUND). Amounts:
+    value is inside the evidence (normalised like EVIDENCE_NOT_FOUND). Account
+    status: the status is a whole word of the evidence. Amounts:
     a number in the evidence equals the absolute value (payments print as
     negative). Dates: a date in the evidence, in a common format, equals the
     value. Empty evidence never matches.
@@ -434,6 +479,7 @@ def run_checks(
         *check_due_before_invoice(extraction),
         *check_dates_in_range(extraction, today),
         *check_amounts(extraction),
+        *check_url(extraction),
         *check_line_items_total(extraction),
         *check_balance(extraction),
         *check_evidence(extraction, text_layer),
@@ -467,9 +513,11 @@ def _comparable(name: str, field: Extracted) -> object:
 def check_models_agree(first: BillExtraction, second: BillExtraction) -> list[Issue]:
     """One MODELS_DISAGREE per field the two extractions read differently.
 
-    `document_type` and every top-level field are compared; line items as a
-    multiset of amounts (order and descriptions aside), with one issue on
-    `line_items`. Null against a value is a disagreement.
+    `document_type` and every top-level field but the free text
+    (`FREE_TEXT_FIELDS`: two faithful readings of a description can differ in
+    wording) are compared; line items as a multiset of amounts (order and
+    descriptions aside), with one issue on `line_items`. Null against a value
+    is a disagreement.
     """
     issues = []
     if first.document_type != second.document_type:
@@ -481,6 +529,8 @@ def check_models_agree(first: BillExtraction, second: BillExtraction) -> list[Is
             )
         )
     for name in FIELD_NAMES:
+        if name in FREE_TEXT_FIELDS:
+            continue
         if _comparable(name, getattr(first, name)) != _comparable(
             name, getattr(second, name)
         ):

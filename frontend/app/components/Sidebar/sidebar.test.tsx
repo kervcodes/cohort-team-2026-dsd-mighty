@@ -232,6 +232,26 @@ describe("Sidebar", () => {
     });
   });
 
+  describe("footer", () => {
+    it("has no Settings link, because there is no Settings page yet", () => {
+      signIn(profileWithRole("admin"));
+      render(<Sidebar />);
+
+      expect(screen.queryByRole("link", { name: "Settings" })).not.toBeInTheDocument();
+      const hrefs = screen.getAllByRole("link").map((link) => link.getAttribute("href"));
+      expect(hrefs).not.toContain("/settings");
+    });
+
+    it("still shows the theme toggle and Sign Out", () => {
+      signIn(profileWithRole("analyst"));
+      render(<Sidebar />);
+
+      expect(screen.getByRole("button", { name: "Switch to dark mode" })).toBeInTheDocument();
+      expect(screen.getByText("Dark Mode")).toBeInTheDocument();
+      expect(signOutButton()).toBeInTheDocument();
+    });
+  });
+
   describe("admin links", () => {
     it("are shown, and Home goes to /admin, for an admin", () => {
       signIn(profileWithRole("admin"));

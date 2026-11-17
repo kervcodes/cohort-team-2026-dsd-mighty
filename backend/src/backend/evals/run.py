@@ -168,6 +168,10 @@ def summary_rows(summary: Summary) -> list[tuple[str, str]]:
         ("failed", str(s.failed)),
         ("line items match (amounts)", f"{s.line_items_matches}/{s.bills}"),
         ("all fields correct", _pct(s.field_accuracy)),
+        *(
+            (f"{name} matches (reported, not scored)", f"{count}/{s.bills}")
+            for name, count in s.free_text_matches.items()
+        ),
         ("cost per bill median / p95", f"${s.cost_median:.4f} / ${s.cost_p95:.4f}"),
         (
             "latency median / p95",
@@ -208,7 +212,7 @@ def print_details(spec: str, runs: Sequence[BillRun]) -> None:
             notes.append(f"planted not caught: {', '.join(missed_codes)}")
         if not s.line_items_match:
             notes.append("line item amounts differ")
-        if not (s.misses or notes):
+        if not (s.misses or s.free_text_misses or notes):
             continue
         printed = True
         print(f"  {s.bill}: {'; '.join(notes)}" if notes else f"  {s.bill}:")
@@ -221,6 +225,9 @@ def print_details(spec: str, runs: Sequence[BillRun]) -> None:
                 tag = "not flagged"
             got = f"expected {miss.expected!r}, got {miss.actual!r}"
             print(f"    {miss.field}: {got} ({tag})")
+        for miss in s.free_text_misses:
+            got = f"expected {miss.expected!r}, got {miss.actual!r}"
+            print(f"    {miss.field}: {got} (reported, not scored)")
         for description in s.line_item_descriptions_missed:
             print(f"    line item description not matched: {description!r}")
     if not printed:

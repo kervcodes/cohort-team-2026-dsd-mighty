@@ -12,6 +12,7 @@ from backend.extraction.schema import (
     Confidence,
     DocumentType,
     Extracted,
+    ExtractedAccountStatus,
     LineItem,
 )
 
@@ -23,6 +24,7 @@ Statement date: 2026-10-20          Invoice # BW-4471-2611
 Account Number 88-2110-4471
 Service address: 2110 Example Ave, Dallas, TX 75201
 Service period 2026-09-13 to 2026-10-12
+Service description: Commercial water and sewer service
 Previous balance 1520.00
 Payment received 1520.00
 Water service 5000.00
@@ -30,6 +32,8 @@ Sewer service 680.00
 Current charges 5680.00
 Due date 2026-11-10
 Total amount due 5680.00
+Status: UNPAID
+Pay online at https://pay.brightwater.example/bills
 """
 
 
@@ -46,6 +50,19 @@ def ex(
 
 def null() -> Extracted:
     return ex(None)
+
+
+def status(
+    value: str | None,
+    evidence: str | None = None,
+    confidence: Confidence = Confidence.high,
+) -> ExtractedAccountStatus:
+    """An `account_status` field; evidence defaults to the value itself."""
+    if evidence is None:
+        evidence = value or ""
+    return ExtractedAccountStatus.model_validate(
+        {"value": value, "evidence": evidence, "confidence": confidence}
+    )
 
 
 def clean_extraction(**overrides: Any) -> BillExtraction:
@@ -74,6 +91,9 @@ def clean_extraction(**overrides: Any) -> BillExtraction:
         "service_address": ex("2110 Example Ave, Dallas, TX 75201"),
         "service_period_start": ex("2026-09-13"),
         "service_period_end": ex("2026-10-12"),
+        "description": ex("Commercial water and sewer service"),
+        "payment_website": ex("https://pay.brightwater.example/bills"),
+        "account_status": status("unpaid", "Status: UNPAID"),
     }
     fields.update(overrides)
     return BillExtraction(**fields)
@@ -95,6 +115,9 @@ def not_an_invoice() -> BillExtraction:
         service_address=null(),
         service_period_start=null(),
         service_period_end=null(),
+        description=null(),
+        payment_website=null(),
+        account_status=status(None),
     )
 
 

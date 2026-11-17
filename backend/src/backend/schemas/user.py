@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from backend.schemas.common import ActiveStatus
 
@@ -21,6 +21,10 @@ class UserSummary(BaseModel):
 
 
 class UserRead(UserSummary):
+    id: UUID = Field(
+        validation_alias="user_id",
+        serialization_alias="user_id",
+    )
     email: EmailStr
     role: UserRole
     status: ActiveStatus
@@ -45,6 +49,17 @@ class UserSelfUpdate(BaseModel):
 class UserAdminUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    full_name: str | None = Field(default=None, min_length=1, max_length=200)
     role: UserRole | None = None
     status: ActiveStatus | None = None
+
+    @model_validator(mode="after")
+    def validate_update(self):
+        if not self.model_fields_set:
+            raise ValueError("At least one field must be provided.")
+
+        if "role" in self.model_fields_set and self.role is None:
+            raise ValueError("Role cannot be null.")
+
+        if "status" in self.model_fields_set and self.status is None:
+            raise ValueError("Status cannot be null.")
+        return self

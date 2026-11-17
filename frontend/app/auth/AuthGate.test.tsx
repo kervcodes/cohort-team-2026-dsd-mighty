@@ -67,30 +67,71 @@ describe("AuthGate", () => {
     authState({ user, profile: profileWithStatus("active") });
     renderGate();
 
-    expect(screen.getByText("App content")).toBeInTheDocument();
+    expect(screen.getByText("App content")).toBeVisible();
     expect(screen.queryByText("Waiting for approval")).not.toBeInTheDocument();
   });
 
-  it("lets a signed-out visitor through to the login and signup pages", () => {
-    authState({ user: null });
-    renderGate();
-
-    expect(screen.getByText("App content")).toBeInTheDocument();
-  });
-
-  it("keeps rendering the app while the account is loading", () => {
+  it("shows the loading screen, not the app, while the account is loading", () => {
     authState({ user, loading: true });
     renderGate();
 
-    expect(screen.getByText("App content")).toBeInTheDocument();
-    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading your account...");
+    expect(screen.getByText("App content")).not.toBeVisible();
+  });
+
+  it("shows the loading screen, not the app, before auth is known", () => {
+    // AuthProvider's first state, so the server render and hydration show this too.
+    authState({ user: null, loading: true });
+    renderGate();
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading your account...");
+    expect(screen.getByText("App content")).not.toBeVisible();
+  });
+
+  it("shows the app once an active profile arrives", () => {
+    authState({ user, loading: true });
+    const { rerender } = renderGate();
+    expect(screen.getByText("App content")).not.toBeVisible();
+
+    authState({ user, profile: profileWithStatus("active") });
+    rerender(
+      <AuthGate>
+        <p>{APP_CONTENT}</p>
+      </AuthGate>,
+    );
+
+    expect(screen.getByText("App content")).toBeVisible();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("never shows the app to an inactive user, from loading to the waiting screen", () => {
+    authState({ user, loading: true });
+    const { rerender } = renderGate();
+    expect(screen.getByText("App content")).not.toBeVisible();
+
+    authState({ user, profile: profileWithStatus("inactive") });
+    rerender(
+      <AuthGate>
+        <p>{APP_CONTENT}</p>
+      </AuthGate>,
+    );
+
+    expect(screen.getByText("App content")).not.toBeVisible();
+    expect(screen.getByRole("heading", { name: "Waiting for approval" })).toBeInTheDocument();
+  });
+
+  it("leaves a signed-out visitor to the proxy and sign-out redirects", () => {
+    authState({ user: null });
+    renderGate();
+
+    expect(screen.getByText("App content")).toBeVisible();
   });
 
   it("shows the waiting-for-approval screen, not the app, to an inactive user", () => {
     authState({ user, profile: profileWithStatus("inactive") });
     renderGate();
 
-    expect(screen.queryByText("App content")).not.toBeInTheDocument();
+    expect(screen.getByText("App content")).not.toBeVisible();
     expect(screen.getByRole("heading", { name: "Waiting for approval" })).toBeInTheDocument();
     expect(screen.getByText(/An admin needs to approve it/)).toBeInTheDocument();
     expect(screen.getByText("jane@example.test")).toBeInTheDocument();
@@ -125,7 +166,7 @@ describe("AuthGate", () => {
     authState({ user, profileError: "Account not found. Contact an admin." });
     renderGate();
 
-    expect(screen.queryByText("App content")).not.toBeInTheDocument();
+    expect(screen.getByText("App content")).not.toBeVisible();
     expect(
       screen.getByRole("heading", { name: "We couldn't load your account" }),
     ).toBeInTheDocument();

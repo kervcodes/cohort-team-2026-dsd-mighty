@@ -9,6 +9,7 @@ from bill_factory import (
     ex,
     not_an_invoice,
     null,
+    status,
 )
 
 from backend.extraction.checks import (
@@ -24,6 +25,7 @@ from backend.extraction.checks import (
     check_low_confidence,
     check_missing_required,
     check_models_agree,
+    check_url,
     evidence_dates,
     evidence_numbers,
     has_text_layer,
@@ -33,6 +35,8 @@ from backend.extraction.checks import (
 from backend.extraction.schema import (
     BillExtraction,
     Confidence,
+    DocumentType,
+    Extracted,
     IssueCode,
     LineItem,
 )
@@ -40,6 +44,13 @@ from backend.extraction.schema import (
 
 def codes(issues):
     return [(issue.code, issue.field) for issue in issues]
+
+
+def only(**fields: Extracted) -> BillExtraction:
+    """An invoice with every field null but `fields`."""
+    return not_an_invoice().model_copy(
+        update={"document_type": DocumentType.invoice, **fields}
+    )
 
 
 def items(*amounts: str | None) -> list[LineItem]:
@@ -99,6 +110,10 @@ TRIGGERS: dict[IssueCode, tuple[BillExtraction, str]] = {
         "service_period_start",
     ),
     IssueCode.BAD_AMOUNT: (clean_extraction(amount_due=ex("0.00")), "amount_due"),
+    IssueCode.BAD_URL: (
+        clean_extraction(payment_website=ex("pay.brightwater.example/bills")),
+        "payment_website",
+    ),
     IssueCode.LINE_ITEMS_MISMATCH: (
         clean_extraction(line_items=items("5000.00", "679.99")),
         "current_charges",
@@ -176,10 +191,19 @@ def test_blank_required_value_counts_as_missing():
         "service_address",
         "service_period_start",
         "service_period_end",
+        "description",
+        "payment_website",
     ],
 )
 def test_optional_field_may_be_null(field: str):
     assert check_missing_required(clean_extraction(**{field: null()})) == []
+
+
+def test_bill_without_description_website_or_status_has_no_issues():
+    extraction = clean_extraction(
+        description=null(), payment_website=null(), account_status=status(None)
+    )
+    assert run_checks(extraction, text_layer=TEXT_LAYER, today=TODAY) == []
 
 
 # --- BAD_DATE -----------------------------------------------------------------
@@ -416,6 +440,51 @@ def test_null_amounts_are_not_bad_amounts():
     assert check_amounts(extraction) == []
 
 
+# --- BAD_URL ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://pay.brightwater.example/bills",
+        "http://pay.brightwater.example",
+        "HTTPS://Pay.Brightwater.example/bills?ref=BW-4471#pay",
+        "https://harborlight-utility-demo.vercel.app",
+        "https://pay.brightwater.example:8443/bills",
+        " https://pay.brightwater.example ",
+    ],
+)
+def test_http_and_https_urls_pass(url: str):
+    assert check_url(clean_extraction(payment_website=ex(url))) == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "pay.brightwater.example",
+        "www.brightwater.example/pay",
+        "ftp://pay.brightwater.example",
+        "mailto:billing@brightwater.example",
+        "billing@brightwater.example",
+        "javascript:alert(1)",
+        "https://",
+        "https:///bills",
+        "https://pay brightwater.example",
+        "http://[::1",
+        "https://pay.brightwater.example:port",
+    ],
+)
+def test_anything_but_an_http_or_https_url_is_a_bad_url(url: str):
+    assert codes(check_url(clean_extraction(payment_website=ex(url)))) == [
+        (IssueCode.BAD_URL, "payment_website")
+    ]
+
+
+@pytest.mark.parametrize("website", [null(), ex("  ", "x")])
+def test_missing_website_is_not_a_bad_url(website):
+    assert check_url(clean_extraction(payment_website=website)) == []
+
+
 # --- LINE_ITEMS_MISMATCH ------------------------------------------------------
 
 
@@ -585,39 +654,15 @@ def test_evidence_matches_ignoring_case_and_whitespace(evidence: str):
 
 def test_text_layer_whitespace_and_case_are_normalised_too():
     layer = "BRIGHTWATER\n\n   UTILITIES\r\nAccount   88-2110-4471"
-    extraction = clean_extraction(
-        invoice_number=null(),
-        invoice_date=null(),
-        due_date=null(),
-        amount_due=null(),
-        previous_balance=null(),
-        payments_received=null(),
-        current_charges=null(),
-        line_items=[],
-        service_address=null(),
-        service_period_start=null(),
-        service_period_end=null(),
+    extraction = only(
+        vendor_name=ex("Brightwater Utilities"), account_number=ex("88-2110-4471")
     )
     assert check_evidence(extraction, layer) == []
 
 
 def test_ligatures_in_text_layer_match_plain_evidence():
     layer = "Brightﬁeld Ofﬁce Utilities"  # fi and fl style ligature glyphs
-    extraction = clean_extraction(
-        vendor_name=ex("Brightfield Office Utilities"),
-        account_number=null(),
-        invoice_number=null(),
-        invoice_date=null(),
-        due_date=null(),
-        amount_due=null(),
-        previous_balance=null(),
-        payments_received=null(),
-        current_charges=null(),
-        line_items=[],
-        service_address=null(),
-        service_period_start=null(),
-        service_period_end=null(),
-    )
+    extraction = only(vendor_name=ex("Brightfield Office Utilities"))
     assert check_evidence(extraction, layer) == []
 
 
@@ -625,21 +670,44 @@ def test_ligatures_in_evidence_match_plain_text_layer():
     layer = "Workflow ﬂows from the ofﬁce"
     assert normalize_for_match("ﬂows") == normalize_for_match("flows")
     assert normalize_for_match("ﬁ") == "fi"
-    extraction = clean_extraction(
-        vendor_name=ex("Workflow", "Workﬂow"),
-        account_number=null(),
-        invoice_number=null(),
-        invoice_date=null(),
-        due_date=null(),
-        amount_due=null(),
-        previous_balance=null(),
-        payments_received=null(),
-        current_charges=null(),
-        line_items=[],
-        service_address=null(),
-        service_period_start=null(),
-        service_period_end=null(),
+    extraction = only(vendor_name=ex("Workflow", "Workﬂow"))
+    assert check_evidence(extraction, layer) == []
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        {"description": ex("Gas service")},
+        {"payment_website": ex("https://pay.acme.example")},
+        {"account_status": status("paid", "PAID")},
+    ],
+    ids=["description", "payment_website", "account_status"],
+)
+def test_evidence_for_the_form_fields_is_checked(field):
+    name = next(iter(field))
+    assert codes(check_evidence(clean_extraction(**field), TEXT_LAYER)) == [
+        (IssueCode.EVIDENCE_NOT_FOUND, name)
+    ]
+
+
+@pytest.mark.parametrize(
+    "layer", ["Status: UNPAID", "STATUS:UNPAID", "Status:\n  unpaid", "UN PAID"]
+)
+def test_status_evidence_inside_a_word_is_not_found(layer: str):
+    # A bill that prints UNPAID does not show "PAID", even though the letters
+    # are there: the status evidence must start and end on a word boundary.
+    extraction = only(account_status=status("paid", "PAID"))
+    assert codes(check_evidence(extraction, layer)) == (
+        [] if layer == "UN PAID" else [(IssueCode.EVIDENCE_NOT_FOUND, "account_status")]
     )
+
+
+@pytest.mark.parametrize(
+    "evidence", ["UNPAID", "Status: UNPAID", "status:unpaid", "Status:\nUNPAID"]
+)
+def test_status_evidence_found_as_whole_words(evidence: str):
+    layer = "Total amount due 5680.00\nStatus:UNPAID\nPay online"
+    extraction = only(account_status=status("unpaid", evidence))
     assert check_evidence(extraction, layer) == []
 
 
@@ -789,6 +857,54 @@ def test_empty_evidence_on_a_value_is_reported(evidence: str):
     ]
 
 
+@pytest.mark.parametrize(
+    ("value", "evidence"),
+    [
+        ("unpaid", "UNPAID"),
+        ("unpaid", "Posting status: UNPAID"),
+        ("paid", "PAID"),
+        ("paid", "Paid in full"),
+        ("paid", "Status: paid."),
+        ("outstanding", "Status: OUTSTANDING"),
+    ],
+)
+def test_status_shown_by_its_evidence_passes(value: str, evidence: str):
+    assert mismatches(account_status=status(value, evidence)) == []
+
+
+@pytest.mark.parametrize(
+    ("value", "evidence"),
+    [
+        ("paid", "UNPAID"),  # a substring, not the word
+        ("paid", "Status: UNPAID"),
+        ("outstanding", "UNPAID"),
+        ("unpaid", "PAID"),
+        ("unpaid", "Total amount due 5680.00"),
+    ],
+)
+def test_status_not_shown_by_its_evidence_is_reported(value: str, evidence: str):
+    assert mismatches(account_status=status(value, evidence)) == [
+        (IssueCode.EVIDENCE_MISMATCH, "account_status")
+    ]
+
+
+def test_website_must_be_the_url_as_printed():
+    printed = "Pay online at https://pay.brightwater.example/bills"
+    assert (
+        mismatches(payment_website=ex("https://pay.brightwater.example/bills", printed))
+        == []
+    )
+    assert mismatches(
+        payment_website=ex("https://pay.brightwater.example/bills/", printed)
+    ) == [(IssueCode.EVIDENCE_MISMATCH, "payment_website")]
+
+
+def test_description_must_be_inside_its_evidence():
+    assert mismatches(
+        description=ex("Water and sewer", "Service description: Commercial water")
+    ) == [(IssueCode.EVIDENCE_MISMATCH, "description")]
+
+
 def test_null_value_needs_no_matching_evidence():
     assert mismatches(service_address=ex(None, "2110 Example Ave")) == []
 
@@ -861,6 +977,26 @@ def test_null_against_a_value_is_a_disagreement():
     assert check_models_agree(clean_extraction(service_address=null()), blank) == []
 
 
+def test_description_wording_is_not_compared():
+    second = clean_extraction(description=ex("Water and sewer service"))
+    assert check_models_agree(clean_extraction(), second) == []
+    assert check_models_agree(clean_extraction(description=null()), second) == []
+
+
+@pytest.mark.parametrize(
+    ("field", "other"),
+    [
+        ("payment_website", ex("https://pay.brightwater.example/autopay")),
+        ("payment_website", null()),
+        ("account_status", status("paid", "PAID")),
+        ("account_status", status(None)),
+    ],
+)
+def test_website_and_status_disagreements_are_reported(field: str, other):
+    issues = check_models_agree(clean_extraction(), clean_extraction(**{field: other}))
+    assert codes(issues) == [(IssueCode.MODELS_DISAGREE, field)]
+
+
 def test_document_type_disagreement_is_reported():
     issues = check_models_agree(clean_extraction(), not_an_invoice())
     assert (IssueCode.MODELS_DISAGREE, "document_type") in codes(issues)
@@ -896,6 +1032,9 @@ def test_cap_lowers_high_to_medium_everywhere_including_line_items():
     capped = cap_confidence(clean_extraction())
     assert all_confidences(capped) == {Confidence.medium}
     assert len(capped.line_items) == 2
+    assert capped.account_status == status(
+        "unpaid", "Status: UNPAID", Confidence.medium
+    )
 
 
 def test_cap_keeps_lower_confidence_and_does_not_mutate_input():
@@ -935,7 +1074,12 @@ def test_medium_confidence_on_required_field_passes():
 
 def test_low_confidence_on_optional_field_is_ignored():
     extraction = clean_extraction(
-        service_address=ex("2110 Example Ave", confidence=Confidence.low)
+        service_address=ex("2110 Example Ave", confidence=Confidence.low),
+        description=ex("Commercial water and sewer service", confidence=Confidence.low),
+        payment_website=ex(
+            "https://pay.brightwater.example/bills", confidence=Confidence.low
+        ),
+        account_status=status("unpaid", "Status: UNPAID", Confidence.low),
     )
     assert check_low_confidence(extraction) == []
 

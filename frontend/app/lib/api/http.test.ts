@@ -1,4 +1,4 @@
-import { apiRequest, NETWORK_ERROR_MESSAGE } from "./http";
+import { ApiError, apiRequest, NETWORK_ERROR_MESSAGE } from "./http";
 
 const mockGetSession = jest.fn();
 
@@ -71,6 +71,19 @@ describe("apiRequest", () => {
     fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
 
     await expect(apiRequest("/things", {}, messages)).rejects.toThrow(NETWORK_ERROR_MESSAGE);
+  });
+
+  it("throws an ApiError carrying the response status", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ detail: "This bill has already been submitted." }),
+    });
+
+    const error = await apiRequest("/things", {}, messages).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 409, message: "This bill has already been submitted." });
   });
 
   it("throws a string FastAPI detail as is", async () => {

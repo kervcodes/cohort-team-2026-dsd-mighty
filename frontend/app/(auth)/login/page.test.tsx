@@ -59,6 +59,35 @@ describe("Log in", () => {
     expect(mockRefresh).toHaveBeenCalled();
   });
 
+  it("returns to the page in next after logging in", async () => {
+    mockSearchParams.mockReturnValue(new URLSearchParams("next=/invoices/new?vendor=7"));
+    mockSignInWithPassword.mockResolvedValue({
+      data: { session: { access_token: "token" } },
+      error: null,
+    });
+
+    render(<LoginPage />);
+    await fillForm("a@b.com", "password1234");
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/invoices/new?vendor=7"));
+  });
+
+  it.each(["https://evil.com/steal", "//evil.com/steal"])(
+    "ignores a next on another site (%s) and goes to the dashboard",
+    async (next) => {
+      mockSearchParams.mockReturnValue(new URLSearchParams({ next }));
+      mockSignInWithPassword.mockResolvedValue({
+        data: { session: { access_token: "token" } },
+        error: null,
+      });
+
+      render(<LoginPage />);
+      await fillForm("a@b.com", "password1234");
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/dashboard"));
+    },
+  );
+
   it("shows a message when the auth callback failed", () => {
     mockSearchParams.mockReturnValue(new URLSearchParams("error=auth_callback_failed"));
 

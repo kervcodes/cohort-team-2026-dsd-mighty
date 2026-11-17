@@ -31,6 +31,18 @@ export function errorDetail(body: unknown): string | null {
   return null;
 }
 
+// A failed response from the backend, with its HTTP status for callers that
+// treat one status specially. Its message is safe to show, like any other.
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export type ApiMessages = {
   // Shown when there is no Supabase session to send, e.g. "You must be signed in to ...".
   signedOut: string;
@@ -73,7 +85,10 @@ export async function apiRequest<T>(
   if (!response.ok) {
     const body = await response.json().catch(() => null);
 
-    throw new Error(errorDetail(body) ?? `${messages.failed} (${response.status})`);
+    throw new ApiError(
+      errorDetail(body) ?? `${messages.failed} (${response.status})`,
+      response.status,
+    );
   }
 
   return response.json();

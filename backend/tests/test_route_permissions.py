@@ -18,8 +18,10 @@ from current_users import make_user
 from fake_supabase import FakeSupabase
 from fastapi.testclient import TestClient
 
+from backend.api.bill_extraction import get_bill_extractor
 from backend.app import app
 from backend.auth import get_current_user
+from backend.extraction.schema import ExtractionResult, ExtractionStatus
 from backend.schemas.user import UserRole
 
 ANALYST, APPROVER, ADMIN = UserRole.analyst, UserRole.approver, UserRole.admin
@@ -27,25 +29,46 @@ PDF = ("invoice.pdf", b"%PDF-1.4\nsample", "application/pdf")
 
 # (method, path, roles allowed when active, status code when allowed)
 ROLE_TABLE = [
+    ("POST", "/bills", {ANALYST, ADMIN}, 201),
+    ("GET", "/bills", {ANALYST, APPROVER, ADMIN}, 200),
+    ("GET", "/bills/{bill_id}", {ANALYST, APPROVER, ADMIN}, 200),
     ("GET", "/bills/dashboard", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/bills/drafts", {ANALYST, ADMIN}, 201),
+    ("GET", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
     ("PATCH", "/bills/{bill_id}/draft", {ANALYST, ADMIN}, 200),
     ("POST", "/bills/{bill_id}/document", {ANALYST, ADMIN}, 201),
+    ("POST", "/bills/{bill_id}/submit", {ANALYST, ADMIN}, 200),
+    ("POST", "/bills/extract", {ANALYST, ADMIN}, 200),
     ("GET", "/vendors", {ANALYST, APPROVER, ADMIN}, 200),
     ("POST", "/vendors", {ADMIN}, 201),
     ("GET", "/vendors/{vendor_id}", {ANALYST, APPROVER, ADMIN}, 200),
     ("PATCH", "/vendors/{vendor_id}", {ADMIN}, 200),
+    ("GET", "/admin/users", {ADMIN}, 200),
+    ("GET", "/admin/users/{user_id}", {ADMIN}, 200),
+    ("PATCH", "/admin/users/{user_id}", {ADMIN}, 200),
 ]
 
 # Routes that need a signed-in user but no role.
 ANY_SIGNED_IN = {("GET", "/me")}
 
+NEW_BILL = {
+    "account_number_raw": "ACC-1",
+    "invoice_number": "INV-1",
+    "invoice_date": "2026-11-01",
+    "due_date": "2026-12-01",
+    "amount": "10.00",
+}
+
 REQUEST_BODY = {
-    "/bills/drafts": {"json": {"amount": "10.00"}},
-    "/bills/{bill_id}/draft": {"json": {"amount": "10.00"}},
-    "/bills/{bill_id}/document": {"files": {"file": PDF}},
-    "/vendors": {"json": {"name": "Acme Water"}},
-    "/vendors/{vendor_id}": {"json": {"contact_phone": "555-0100"}},
+    ("POST", "/bills"): {"json": NEW_BILL},
+    ("POST", "/bills/{bill_id}/submit"): {"json": NEW_BILL},
+    ("POST", "/bills/drafts"): {"json": {"amount": "10.00"}},
+    ("PATCH", "/bills/{bill_id}/draft"): {"json": {"amount": "10.00"}},
+    ("POST", "/bills/{bill_id}/document"): {"files": {"file": PDF}},
+    ("POST", "/bills/extract"): {"files": {"file": PDF}},
+    ("POST", "/vendors"): {"json": {"name": "Acme Water"}},
+    ("PATCH", "/vendors/{vendor_id}"): {"json": {"contact_phone": "555-0100"}},
+    ("PATCH", "/admin/users/{user_id}"): {"json": {"role": "approver"}},
 }
 
 CASES = [
@@ -70,26 +93,64 @@ def db():
         patch("backend.api.bills.get_admin_supabase", return_value=fake),
         patch("backend.api.bill_documents.get_admin_supabase", return_value=fake),
         patch("backend.api.vendors.get_admin_supabase", return_value=fake),
+        patch("backend.api.users.get_admin_supabase", return_value=fake),
     ):
         yield fake
 
 
-@pytest.mark.parametrize(("method", "path", "role", "status", "expected"), CASES)
-def test_route_allows_only_its_active_roles(db, method, path, role, status, expected):
+@pytest.fixture
+def no_model_call():
+    # POST /bills/extract reads the file with a stand-in, never a model.
+    result = ExtractionResult(status=ExtractionStatus.ready_for_review)
+    app.dependency_overrides[get_bill_extractor] = lambda: lambda data, media: result
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "role", "status", "expected"),
+    CASES,
+)
+def test_route_allows_only_its_active_roles(
+    db, no_model_call, monkeypatch, method, path, role, status, expected
+):
     user = make_user(role=role, status=status)
+
+    db.add_user(
+        str(user.id),
+        role=role.value,
+        status=status,
+    )
+
     bill = db.add_bill(str(user.id))
     vendor = db.add_vendor("Acme Water")
-    app.dependency_overrides[get_current_user] = lambda: user
+
+    target_user = db.add_user(
+        "00000000-0000-0000-0000-000000000001",
+        full_name="Target User",
+        email="target@example.com",
+        role="analyst",
+        status="active",
+    )
+
+    monkeypatch.setitem(
+        app.dependency_overrides,
+        get_current_user,
+        lambda: user,
+    )
 
     response = TestClient(app).request(
         method,
-        path.format(bill_id=bill["bill_id"], vendor_id=vendor["vendor_id"]),
-        **REQUEST_BODY.get(path, {}),
+        path.format(
+            bill_id=bill["bill_id"],
+            vendor_id=vendor["vendor_id"],
+            user_id=target_user["user_id"],
+        ),
+        **REQUEST_BODY.get((method, path), {}),
     )
 
     assert response.status_code == expected, response.text
+
     if status == "inactive":
-        assert response.json()["detail"] == "Your account is waiting for approval."
+        assert response.json()["detail"] == ("Your account is waiting for approval.")
     elif expected == 403:
         assert response.json()["detail"] == "Your role can't do this."
 
@@ -99,13 +160,9 @@ def test_route_allows_only_its_active_roles(db, method, path, role, status, expe
 OPEN_ROUTES = {
     # Health check; stays open.
     ("GET", "/"),
-    # In-memory bill routes; DC-67 (39b) moves them to Supabase behind the
-    # role table.
-    ("POST", "/bills"),
-    ("GET", "/bills"),
-    ("GET", "/bills/{bill_id}"),
-    # Reads with the publishable client, so RLS applies; DC-68 (39c) removes it.
-    ("GET", "/test-db"),
+    # Health check for Render and the team; publishable client only, so RLS
+    # applies (test_health.py checks it never uses the admin client).
+    ("GET", "/health"),
     # In-memory stubs; DC-43 (approve and reject actions) adds the role check.
     ("GET", "/approvals"),
     ("POST", "/approvals/{approval_id}/decision"),

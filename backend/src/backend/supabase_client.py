@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from backend.audit_actor import attach_actor_header
 from backend.settings import get_settings
 from supabase import Client, ClientOptions, create_client
 
@@ -22,8 +23,11 @@ def get_supabase() -> Client:
 @lru_cache
 def get_admin_supabase() -> Client:
     settings = get_settings()
-    return create_client(
+    client = create_client(
         settings.supabase_url,
         settings.supabase_secret_key,
         options=SHARED_CLIENT_OPTIONS,
     )
+    # Its writes carry the signed-in user, for the audit trail (audit_actor).
+    attach_actor_header(client.postgrest.session)
+    return client

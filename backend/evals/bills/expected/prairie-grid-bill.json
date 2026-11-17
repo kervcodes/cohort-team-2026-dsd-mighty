@@ -15,11 +15,14 @@
       "amount": "461.33"
     }
   ],
-  "service_address": null,
+  "service_address": "125 Industrial Way, Springfield, IL 62701",
   "service_period_start": null,
   "service_period_end": null,
+  "description": "HVAC preventive maintenance and filter replacement",
+  "payment_website": "https://prairie-grid-utility-demo.vercel.app",
+  "account_status": "unpaid",
   "expected_issues": [],
   "expected_status": "ready_for_review",
-  "notes": "Only a bill-to address is printed, so service_address is null. Key drafted independently by two models (no disagreements) and decided by Pranil.",
+  "notes": "No address is labeled as the service address, so service_address is the customer's address printed with the customer name (DC-77 fallback rule; the model should give it confidence at most medium). Key drafted independently by two models (no disagreements) and decided by Pranil. DC-77 fields (description, payment_website, account_status and the fallback service_address) were copied from the text layer when the fields were added; to be confirmed with the product owner.",
   "case": "DSD sample bill: one page, one charge, unusual labels"
 }

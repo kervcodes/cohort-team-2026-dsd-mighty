@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Sidebar from "./components/Sidebar/sidebar";
 import "./globals.css";
-import { AuthGate } from "./auth/AuthGate";
 import { AuthProvider } from "./auth/AuthProvider";
 import { ThemeProvider } from "./context/ThemeContext";
 
@@ -21,18 +19,14 @@ export const metadata: Metadata = {
   description: "Curated a bill-powered pay",
 };
 
+// Shared by every page. The app shell (sidebar, AuthGate) lives in `(app)/layout.tsx`;
+// login and signup use `(auth)/layout.tsx`. The page background comes from globals.css.
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      {/* if column width changes, sidebar width must match */}
-      <body className="min-h-full grid grid-cols-[2rem_1fr] sm:grid-cols-[9rem_1fr]">
+      <body className="min-h-full">
         <AuthProvider>
-          <ThemeProvider>
-            <AuthGate>
-              <Sidebar />
-              {children}
-            </AuthGate>
-          </ThemeProvider>
+          <ThemeProvider>{children}</ThemeProvider>
         </AuthProvider>
       </body>
     </html>
