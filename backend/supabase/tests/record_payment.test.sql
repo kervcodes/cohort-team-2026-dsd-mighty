@@ -1,5 +1,5 @@
 -- Recording a payment against a bill
--- (migration 20261115120000_record_payment).
+-- (migration 20261117100000_record_payment).
 -- Runs in one transaction that rolls back.
 
 begin;

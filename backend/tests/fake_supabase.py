@@ -317,7 +317,7 @@ def _decimal_or_none(value: Any) -> Decimal | None:
 
 
 def _record_payment(db: "FakeSupabase", params: dict[str, Any]) -> dict[str, Any]:
-    """Migration 20261115120000_record_payment, without the row lock: the fake
+    """Migration 20261117100000_record_payment, without the row lock: the fake
     runs one call at a time, which is what the lock gives Postgres."""
     bill_id = params["p_bill_id"]
     payment_status = params["p_payment_status"]
