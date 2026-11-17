@@ -11,10 +11,17 @@ The checker runs by `node` from the repo root because the root has no `package.j
 | Backend tests pass before merge | ci | `.github/workflows/ci.yml` | - |
 | Backend is ruff-clean and ruff-formatted | ci | `backend/pyproject.toml`, `.github/workflows/ci.yml` | - |
 | Database migrations apply to a clean database and pgTAP tests pass before merge | ci | `.github/workflows/ci.yml`, `backend/supabase/tests/` | - |
+| Real-login auth tests (real Supabase Auth tokens against the backend) pass before merge, and a skip fails the job | ci | `.github/workflows/ci.yml`, `backend/tests/test_auth_local_supabase.py` | - |
 | Frontend tests pass before merge | ci | `.github/workflows/ci.yml` | - |
 | TypeScript strict; frontend types check before merge | ci | `frontend/tsconfig.json`, `.github/workflows/ci.yml` | - |
 | Frontend builds before merge | ci | `.github/workflows/ci.yml` | - |
 | Every rule above has an enforcer that exists; no exception has expired | ci | `scripts/check-enforcement.mjs`, `.github/workflows/ci.yml` | - |
+| An analyst can read every submitted bill but can never change another analyst's bills or see their drafts (routes use the service-role client, so the `bill_access` filters are the only guard) | test | `backend/tests/test_bill_access.py`, `backend/tests/test_bill_rules.py`, `backend/tests/fake_supabase.py` | - |
+| Every #27 bills route and every vendors route enforces the role table (active users only; only admins add or change vendors); every route either requires sign-in and has a role-table row (or is in `ANY_SIGNED_IN`), or is in the test's `OPEN_ROUTES` allowlist with a reason | test | `backend/tests/test_route_permissions.py`, `backend/tests/current_users.py` | - |
+| Signed-in callers get exact 401 / 403 / 503 outcomes; a missing `app_users` row is a 403, never re-created | test | `backend/tests/test_auth.py`, `backend/tests/test_me.py` | - |
+| The backend refuses to start with missing or malformed Supabase settings | test | `backend/tests/test_settings.py` | - |
+| Signed-out visitors are redirected to /login before any app page renders | test | `frontend/proxy.test.ts`, `frontend/app/lib/auth-redirects.test.ts` | - |
+| Invoice PDFs live in a private bucket that browser roles (anon, authenticated) cannot read or write | test | `backend/supabase/migrations/20261104170000_create_invoices_bucket.sql`, `backend/supabase/tests/invoices_bucket.test.sql` | - |
 | Commit messages follow `type(scope): description` | hook | `.husky/commit-msg` | - |
 | Biome is the only linter and formatter (no ESLint, no Prettier); lint passes before merge | ci | `frontend/biome.json`, `.github/workflows/ci.yml` | - |
 | Staged frontend and backend files are Biome- and Ruff-fixed before commit | hook | `.husky/pre-commit`, `lint-staged.config.mjs` | - |
@@ -24,6 +31,7 @@ The checker runs by `node` from the repo root because the root has no `package.j
 | Raw HTML elements with a design-system replacement are banned outside `frontend/app/components/ui` | hook | `frontend/scripts/check-design-system.ts`, `lint-staged.config.mjs` | - |
 | Every `components/ui` primitive has a manifest entry and appears on `/design-system` | lint | `frontend/scripts/check-ds-coverage.ts`, `frontend/scripts/check-ds-page.ts` | - |
 | A raw `<button>` outside `components/ui` is rejected; `<Button>` passes | test | `frontend/app/lib/design-system-enforcement.test.ts` | - |
+| Each guard script (design-system sweep, ui coverage, /design-system page, emoji) rejects a violation and accepts a clean tree, on plain Node with no bun | test | `frontend/app/lib/enforcement-scripts.test.ts` | - |
 | Design-system sweep passes before push and merge | ci | `.husky/pre-push`, `.github/workflows/ci.yml` | - |
 | Claude Code cannot write a raw tag outside `components/ui` | review | `frontend/scripts/check-design-system.ts` | 2026-12-31 the PreToolUse layer needs a Claude settings change that is held for the captain |
 | Design-system rules other than `raw-button` are not yet enabled | review | `frontend/app/components/ui/manifest.config.ts` | 2026-12-31 enable one preset at a time as its component is built |
@@ -35,3 +43,8 @@ The checker runs by `node` from the repo root because the root has no `package.j
 | Pages have no serious axe accessibility violations | test | `frontend/e2e/a11y.spec.ts`, `.github/workflows/accessibility.yml` | - |
 | Color contrast meets WCAG | review | `frontend/e2e/a11y.spec.ts` | 2026-12-31 every page fails axe color-contrast on current design tokens; rule disabled until tokens are fixed |
 | Required status checks and squash-only merges on `main` | audit | - | 2026-12-31 repository admin settings, not changeable from a PR |
+| The extractor never imports Supabase | test | `backend/tests/extraction/test_extraction_rules.py` | - |
+| Tests never call a model: API keys are removed for every backend test, and the extractor raises without them | test | `backend/tests/conftest.py`, `backend/tests/test_model_keys.py`, `backend/tests/extraction/test_extraction_rules.py`, `backend/tests/extraction/test_extract.py`, `backend/tests/test_extract_route.py` | - |
+| Extraction log lines carry metadata only, never bill content or extracted values | test | `backend/tests/extraction/test_extract.py` | - |
+| `POST /bills/extract` refuses an upload over 10 MB with 413 before reading the whole body, and gives up on extraction at its deadline (504) | test | `backend/tests/test_extract_route.py` | - |
+| Every extraction check has unit tests: every `IssueCode` has an extraction that triggers it through `run_checks`, or for `MODELS_DISAGREE` (raised by the cascade) through the cascade comparison in a sibling test | test | `backend/tests/extraction/test_extraction_checks.py` | - |
