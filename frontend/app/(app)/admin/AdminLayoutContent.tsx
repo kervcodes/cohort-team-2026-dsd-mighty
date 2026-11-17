@@ -17,7 +17,7 @@ export default function AdminLayoutContent({ children }: { children: React.React
   const isEditPage = pathname.includes("/edit");
 
   return (
-    <main className="mx-auto max-w-5xl p-8">
+    <main className="mx-auto max-w-5xl px-4 py-6 sm:p-8">
       <h1 className="mb-8 text-3xl font-semibold text-foreground">{COPY.title}</h1>
 
       <div className="rounded-lg border border-border bg-surface">
@@ -53,7 +53,7 @@ export default function AdminLayoutContent({ children }: { children: React.React
           )}
         </nav>
 
-        <div className="p-6">{children}</div>
+        <div className="p-4 sm:p-6">{children}</div>
       </div>
     </main>
   );

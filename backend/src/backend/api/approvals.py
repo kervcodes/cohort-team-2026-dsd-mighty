@@ -15,6 +15,7 @@ from backend.services.approval_repository import (
     decide_approval,
     list_approvals,
 )
+from backend.services.autopay import queue_autopay_run
 from backend.supabase_client import get_admin_supabase
 
 router = APIRouter(
@@ -59,9 +60,10 @@ def make_approval_decision(
             status_code=422,
             detail="A comment is required when rejecting an approval.",
         )
+    client = get_admin_supabase()
     try:
-        return decide_approval(
-            client=get_admin_supabase(),
+        approval = decide_approval(
+            client=client,
             approval_id=approval_id,
             reviewer_id=user.id,
             decision=decision.decision,
@@ -99,3 +101,15 @@ def make_approval_decision(
             status_code=500,
             detail="Unable to process the approval decision.",
         ) from exc
+
+    # The decision is committed. Autopay may queue a payment run for the
+    # approved bill; it never raises, so the approval stands either way.
+    if approval.status == "approved":
+        queue_autopay_run(
+            client,
+            bill_id=approval.bill_id,
+            approver_id=user.id,
+            approver_name=user.full_name,
+        )
+
+    return approval

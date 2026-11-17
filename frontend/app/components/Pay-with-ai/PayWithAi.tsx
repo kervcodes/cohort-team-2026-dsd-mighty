@@ -53,6 +53,7 @@ const COPY = {
   started: (when: string, who: string | null) =>
     who ? `Started ${when} by ${who}` : `Started ${when}`,
   finished: (when: string) => `Finished ${when}`,
+  autopayStarted: "Autopay started this run after approval.",
   notFinished: "Not finished",
   you: "you",
   separator: "\u00b7",
@@ -104,8 +105,13 @@ export default function PayWithAi({ billId, billStatus, onPaid }: Props) {
     setConfirmOpen(true);
   }
 
+  // Autopay started its runs; the approver it ran for is in the first step.
   const startedBy = (run: PaymentRun) =>
-    run.started_by === profile?.id ? COPY.you : run.started_by_name;
+    run.trigger === "autopay"
+      ? null
+      : run.started_by === profile?.id
+        ? COPY.you
+        : run.started_by_name;
 
   // Set apart from a run shown above it, so it reads as the next action.
   const actionSpacing = latest ? "mt-4 border-t border-border pt-4" : "mt-4";
@@ -237,19 +243,24 @@ function LatestRun({
 }) {
   // One line on wider screens; on phones, started and finished stack.
   const meta = (
-    <p className="text-sm text-foreground-muted">
-      <span className="block sm:inline">
-        {COPY.started(formatDateTime(run.created_at), startedBy)}
-      </span>
-      {run.finished_at && (
-        <>
-          <span aria-hidden className="hidden px-1.5 sm:inline">
-            {COPY.separator}
-          </span>
-          <span className="block sm:inline">{COPY.finished(formatDateTime(run.finished_at))}</span>
-        </>
-      )}
-    </p>
+    <div className="space-y-0.5 text-sm text-foreground-muted">
+      <p>
+        <span className="block sm:inline">
+          {COPY.started(formatDateTime(run.created_at), startedBy)}
+        </span>
+        {run.finished_at && (
+          <>
+            <span aria-hidden className="hidden px-1.5 sm:inline">
+              {COPY.separator}
+            </span>
+            <span className="block sm:inline">
+              {COPY.finished(formatDateTime(run.finished_at))}
+            </span>
+          </>
+        )}
+      </p>
+      {run.trigger === "autopay" && <p>{COPY.autopayStarted}</p>}
+    </div>
   );
 
   switch (run.status) {
@@ -408,6 +419,9 @@ function EarlierRuns({
                         ? COPY.finished(formatDateTime(run.finished_at))
                         : COPY.notFinished}
                     </span>
+                    {run.trigger === "autopay" && (
+                      <span className="block text-foreground-muted">{COPY.autopayStarted}</span>
+                    )}
                   </span>
                 </span>
               </summary>
