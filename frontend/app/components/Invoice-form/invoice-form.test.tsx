@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -34,8 +34,6 @@ const mockHandleCreate = jest.fn();
 const mockReadInvoice = jest.fn();
 const mockResetReader = jest.fn();
 const mockClearFieldNote = jest.fn();
-const mockOnDraftCreated = jest.fn();
-const mockSetSubmitError = jest.fn();
 
 const mockRouter = {
   push: mockPush,
@@ -66,6 +64,8 @@ function configureHooks({
     ensureDraftSaved: mockEnsureDraftSaved,
     storePickedPdf: mockStorePickedPdf,
     handleSaveDraft: mockHandleSaveDraft,
+    markUnsaved: jest.fn(),
+    clearDraftMessage: jest.fn(),
     ...draft,
   } as ReturnType<typeof useInvoiceDraft>);
 
@@ -229,7 +229,6 @@ describe("PDF selection", () => {
   });
 
   it("rejects a file that is not a PDF", async () => {
-    const user = userEvent.setup();
     const file = new File(["image"], "invoice.png", {
       type: "image/png",
     });
@@ -357,27 +356,13 @@ describe("PDF storage feedback", () => {
   });
 
   it("shows a message when a PDF is already stored with the draft", () => {
-    configureHooks();
-
-    const file = createPdf();
-
-    // The hook reports the file already stored.
-    jest.mocked(useInvoiceDraft).mockReturnValue({
-      draftId: "draft-123",
-      draftStatus: "idle",
-      draftMessage: "",
-      isLoadingDraft: false,
-      draftLoadError: "",
-      ensureDraftSaved: mockEnsureDraftSaved,
-      storePickedPdf: mockStorePickedPdf,
-      handleSaveDraft: mockHandleSaveDraft,
-    } as ReturnType<typeof useInvoiceDraft>);
-
     renderInvoiceForm();
 
-    // The stored-PDF state is owned by the form and starts as "none".
-    // The hook controls persistence; this test covers the initial UI.
-    expect(file).toBeInstanceOf(File);
+    const setStoredPdf = jest.mocked(useInvoiceDraft).mock.lastCall?.[0].setStoredPdf;
+
+    act(() => setStoredPdf?.({ kind: "earlier" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("A PDF is stored with this draft.");
   });
 });
 
@@ -613,11 +598,13 @@ describe("Extraction feedback", () => {
 
 describe("Submission feedback", () => {
   it("shows the submit error message", () => {
-    // The component owns submitError internally. This is exercised
-    // through the hook callback in the integration tests.
     renderInvoiceForm();
 
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    const setSubmitError = jest.mocked(useInvoiceSubmission).mock.lastCall?.[0].setSubmitError;
+
+    act(() => setSubmitError?.("Unable to create the bill."));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Unable to create the bill.");
   });
 
   it("shows Creating while the bill is being submitted", () => {
