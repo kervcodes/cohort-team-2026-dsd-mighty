@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+
 import { draftPayload } from "@/hooks/invoices/useInvoiceDraft";
 import { submitBill } from "@/lib/api/bills";
 import { ApiError } from "@/lib/api/http";
@@ -15,7 +16,6 @@ type UnansweredSubmit = {
 };
 
 type UseInvoiceSubmissionOptions = {
-  draftId: string | null;
   selectedFile: File | null;
   ensureDraftSaved: (payload: BillDraftPayload) => Promise<string>;
   storePickedPdf: (id: string) => Promise<void>;
@@ -26,11 +26,23 @@ type UseInvoiceSubmissionOptions = {
 const ALREADY_SUBMITTED_MESSAGE =
   "This bill was already sent for approval with the earlier values, so your latest changes weren't saved. Open it from the dashboard to check what was sent.";
 
+// The message the API sends when the bill itself was already submitted.
+// Other 409s, such as a duplicate invoice number, are real failures.
+const BILL_ALREADY_SUBMITTED_API_MESSAGE = "This bill has already been submitted.";
+
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-function createPayload(values: InvoiceFormValues): BillCreatePayload {
+function isBillAlreadySubmitted(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.message === BILL_ALREADY_SUBMITTED_API_MESSAGE
+  );
+}
+
+export function createBillPayload(values: InvoiceFormValues): BillCreatePayload {
   return {
     account_number_raw: values.accountNumber.trim(),
     invoice_number: values.statementId.trim(),
@@ -44,11 +56,11 @@ function createPayload(values: InvoiceFormValues): BillCreatePayload {
     property_address: values.propertyAddress,
     account_status: values.accountStatus || undefined,
     website_name: values.websiteName || undefined,
+    vendor_account_id: values.vendorAccountId || undefined,
   };
 }
 
 export function useInvoiceSubmission({
-  draftId,
   selectedFile,
   ensureDraftSaved,
   storePickedPdf,
@@ -63,10 +75,11 @@ export function useInvoiceSubmission({
     setCreateStatus("loading");
     setSubmitError("");
 
-    let id = draftId;
+    let id: string;
 
     try {
-      id ??= await ensureDraftSaved(draftPayload(values));
+      // Update an existing draft too, not just a newly created one.
+      id = await ensureDraftSaved(draftPayload(values));
     } catch (error) {
       setCreateStatus("error");
       setSubmitError(errorMessage(error, "Unable to create the bill. Please try again."));
@@ -91,7 +104,7 @@ export function useInvoiceSubmission({
       return;
     }
 
-    const payload = createPayload(values);
+    const payload = createBillPayload(values);
 
     const attempt: UnansweredSubmit = {
       payload: JSON.stringify(payload),
@@ -101,7 +114,7 @@ export function useInvoiceSubmission({
     try {
       await submitBill(id, payload);
     } catch (error) {
-      const alreadySubmitted = error instanceof ApiError && error.status === 409;
+      const alreadySubmitted = isBillAlreadySubmitted(error);
 
       const earlier = unansweredSubmits.current;
 

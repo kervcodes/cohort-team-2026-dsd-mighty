@@ -53,6 +53,9 @@ export const invoiceFormSchema = z
       .string()
       .trim()
       .refine((v) => v === "" || isWebsite(v), "Enter a full URL like https://domainname.com"),
+    // The vendor account the analyst picked; "" leaves it to the server's
+    // account number match.
+    vendorAccountId: z.string(),
   })
   .refine((v) => v.dueDate >= v.issueDate, {
     message: "Due date can't be before the issue date",
@@ -74,6 +77,7 @@ export const emptyInvoiceForm: InvoiceFormValues = {
   accountStatus: "",
   notes: "",
   websiteName: "",
+  vendorAccountId: "",
 };
 
 export const invoiceDraftFormSchema = z
@@ -85,7 +89,6 @@ export const invoiceDraftFormSchema = z
     issueDate: z
       .string()
       .refine((value) => value === "" || isValidIsoDate(value), "Enter a valid issue date"),
-
     dueDate: z
       .string()
       .refine((value) => value === "" || isValidIsoDate(value), "Enter a valid due date"),
@@ -107,6 +110,9 @@ export const invoiceDraftFormSchema = z
       .string()
       .trim()
       .refine((v) => v === "" || isWebsite(v), "Enter a full URL like https://domainname.com"),
+    // The vendor account the analyst picked; "" leaves it to the server's
+    // account number match.
+    vendorAccountId: z.string(),
   })
   .refine((v) => !v.issueDate || !v.dueDate || v.dueDate >= v.issueDate, {
     message: "Due date can't be before the issue date",
@@ -128,4 +134,5 @@ export const emptyDraftInvoiceForm: InvoiceDraftFormValues = {
   accountStatus: "",
   notes: "",
   websiteName: "",
+  vendorAccountId: "",
 };

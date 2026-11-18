@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { UseFormReturn } from "react-hook-form";
+
 import { extractBill } from "@/lib/api/bills";
 import {
   clearedValues,
@@ -27,9 +28,14 @@ type ExtractionForm = Pick<
 type UseInvoiceExtractionOptions = {
   form: ExtractionForm;
   onEdited: () => void;
+  onAccountNumberChanged?: () => void;
 };
 
-export function useInvoiceExtraction({ form, onEdited }: UseInvoiceExtractionOptions) {
+export function useInvoiceExtraction({
+  form,
+  onEdited,
+  onAccountNumberChanged,
+}: UseInvoiceExtractionOptions) {
   const { getValues, setValue, getFieldState } = form;
 
   const [reader, setReader] = useState<ReaderState>({ phase: "idle" });
@@ -38,7 +44,6 @@ export function useInvoiceExtraction({ form, onEdited }: UseInvoiceExtractionOpt
   const readRef = useRef<AbortController | null>(null);
   const readerFilled = useRef(new Map<ExtractedFormField, string>());
 
-  // Stop an in-flight extraction when the component unmounts.
   useEffect(() => {
     return () => {
       readRef.current?.abort();
@@ -65,6 +70,13 @@ export function useInvoiceExtraction({ form, onEdited }: UseInvoiceExtractionOpt
 
   function applyFill(values: Partial<Record<ExtractedFormField, string>>) {
     const entries = Object.entries(values) as [ExtractedFormField, string][];
+
+    const accountNumberChanged =
+      values.accountNumber !== undefined && values.accountNumber !== getValues("accountNumber");
+
+    if (accountNumberChanged) {
+      onAccountNumberChanged?.();
+    }
 
     for (const [name, value] of entries) {
       setValue(name, value, {

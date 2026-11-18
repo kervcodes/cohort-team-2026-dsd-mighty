@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { unauthorized, useParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/auth/AuthProvider";
 import ConfirmModal from "@/components/ConfirmModal/ConfirmModal";
@@ -307,15 +307,15 @@ export default function AdminUsersEditPage() {
               <ul className="mt-2 list-disc pl-5 text-foreground">
                 {role !== user.role && (
                   <li>
-                    <span className="line-through text-foreground-muted"> {user.role}</span> -{">"}{" "}
+                    <span className="line-through text-foreground-muted">{user.role}</span> {"→"}{" "}
                     {role}
                   </li>
                 )}
                 {status !== user.status && (
                   <li>
                     <p>
-                      <span className="line-through text-foreground-muted"> {user.status}</span> -
-                      {">"} {status}
+                      <span className="line-through text-foreground-muted">{user.status}</span>{" "}
+                      {"→"} {status}
                     </p>
                   </li>
                 )}

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { UseFormReturn } from "react-hook-form";
+
 import { getBillDraft, saveBillDraft, updateBillDraft, uploadInvoicePdf } from "@/lib/api/bills";
 import {
   type InvoiceDraftFormValues,
@@ -42,11 +43,10 @@ export function mapDraftToFormValues(draft: BillDraftDetail): InvoiceFormValues 
     propertyAddress: draft.property_address ?? "",
     accountStatus: draft.account_status ?? "",
     websiteName: draft.website_name ?? "",
+    vendorAccountId: draft.vendor_account_picked ? (draft.vendor_account_id ?? "") : "",
   };
 }
 
-// Send every field, including blank fields as null, so clearing a field
-// on an existing draft also clears it in the database.
 export function draftPayload(values: InvoiceDraftFormValues): BillDraftPayload {
   return {
     account_number_raw: values.accountNumber || null,
@@ -61,6 +61,7 @@ export function draftPayload(values: InvoiceDraftFormValues): BillDraftPayload {
     property_address: values.propertyAddress || null,
     account_status: values.accountStatus || null,
     website_name: values.websiteName || null,
+    vendor_account_id: values.vendorAccountId || null,
   };
 }
 
@@ -74,6 +75,7 @@ export function useInvoiceDraft({
   setSubmitError,
 }: UseInvoiceDraftOptions) {
   const { getValues, reset } = form;
+
   const [draftId, setDraftId] = useState(initialDraftId);
   const [draftStatus, setDraftStatus] = useState<DraftActionStatus>("idle");
   const [draftMessage, setDraftMessage] = useState("");
@@ -83,15 +85,12 @@ export function useInvoiceDraft({
   const draftLoaded = useRef(false);
   const onDraftCreatedRef = useRef(onDraftCreated);
 
-  // Keep the latest callback without restarting an in-flight draft load.
   onDraftCreatedRef.current = onDraftCreated;
 
-  // Load an existing draft once. Returning to the page should not overwrite
-  // edits made since the draft was first loaded.
   useEffect(() => {
     if (initialDraftId === null || draftLoaded.current) return;
-    const draftIdToLoad = initialDraftId;
 
+    const draftIdToLoad = initialDraftId;
     let cancelled = false;
 
     async function loadDraft() {
@@ -127,7 +126,6 @@ export function useInvoiceDraft({
     };
   }, [initialDraftId, reset, setStoredPdf]);
 
-  // Save the draft, creating it if this is the first save.
   async function ensureDraftSaved(payload: BillDraftPayload): Promise<string> {
     if (draftId) {
       await updateBillDraft(draftId, payload);
@@ -135,13 +133,17 @@ export function useInvoiceDraft({
     }
 
     const saved = await saveBillDraft(payload);
+
+    // The form already holds this draft. Don't refetch it when its ID
+    // shows up in the URL.
+    draftLoaded.current = true;
+
     setDraftId(saved.bill_id);
     onDraftCreatedRef.current(saved.bill_id);
 
     return saved.bill_id;
   }
 
-  // Store a newly selected PDF with this draft. Skip it if it is already stored.
   async function storePickedPdf(id: string): Promise<void> {
     const file = selectedFile;
 
@@ -151,6 +153,15 @@ export function useInvoiceDraft({
 
     await uploadInvoicePdf(file, id);
     setStoredPdf({ kind: "file", file });
+  }
+
+  function markUnsaved() {
+    setDraftStatus("idle");
+    setDraftMessage("");
+  }
+
+  function clearDraftMessage() {
+    setDraftMessage("");
   }
 
   async function handleSaveDraft(canSaveDraft: boolean): Promise<void> {
@@ -201,5 +212,7 @@ export function useInvoiceDraft({
     ensureDraftSaved,
     storePickedPdf,
     handleSaveDraft,
+    markUnsaved,
+    clearDraftMessage,
   };
 }

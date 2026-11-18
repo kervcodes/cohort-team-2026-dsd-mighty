@@ -90,12 +90,13 @@ describe("Invoice table", () => {
   it("does not link approved invoices to the edit page", () => {
     render(<InvoiceTable invoices={[approvedInvoice]} />);
 
-    expect(screen.queryByRole("link", { name: "INV-APPROVED-1" })).not.toBeInTheDocument();
-
-    expect(screen.getByText("INV-APPROVED-1")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "INV-APPROVED-1" })).toHaveAttribute(
+      "href",
+      "/invoices/approved-1001",
+    );
   });
 
-  it("does not link paid invoices to the edit page", () => {
+  it("links paid invoices to the detail page", () => {
     const paidInvoice = makeInvoice({
       id: "paid-1001",
       invoiceNumber: "INV-PAID-1",
@@ -104,8 +105,25 @@ describe("Invoice table", () => {
 
     render(<InvoiceTable invoices={[paidInvoice]} />);
 
-    expect(screen.queryByRole("link", { name: "INV-PAID-1" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "INV-PAID-1" })).toHaveAttribute(
+      "href",
+      "/invoices/paid-1001",
+    );
+  });
 
-    expect(screen.getByText("INV-PAID-1")).toBeInTheDocument();
+  it("shows a property warning under the property when there is one", () => {
+    render(
+      <InvoiceTable
+        invoices={[
+          makeInvoice({ id: "flagged", propertyWarning: "Check the address" }),
+          makeInvoice({ id: "fine" }),
+        ]}
+      />,
+    );
+
+    const [note] = screen.getAllByRole("note");
+    expect(note).toHaveTextContent("Check the address");
+    expect(note.closest("td")).toHaveTextContent("Oak Terrace");
+    expect(screen.getAllByRole("note")).toHaveLength(1);
   });
 });

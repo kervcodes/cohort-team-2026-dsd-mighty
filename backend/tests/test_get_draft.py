@@ -57,6 +57,8 @@ def test_returns_the_draft(client, monkeypatch, user):
         "invoice_number": "INV-2001",
         "amount": "250.00",
         "document_path": None,
+        "vendor_account_picked": False,
+        "property_address_mismatch": False,
     }
     repo = patch_repo(monkeypatch, draft)
 
@@ -78,6 +80,8 @@ def test_returns_a_partial_draft_with_nulls_intact(client, monkeypatch):
         "due_date": None,
         "amount": None,
         "document_path": None,
+        "vendor_account_picked": False,
+        "property_address_mismatch": False,
     }
     patch_repo(monkeypatch, draft)
 

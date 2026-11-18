@@ -47,8 +47,7 @@ export default function AdminLayoutContent({ children }: { children: React.React
               aria-current="page"
               className="-mb-px border-b-2 py-3 text-xl transition-colors border-primary text-foreground"
             >
-              {" "}
-              Edit
+              {"Edit"}
             </p>
           )}
         </nav>

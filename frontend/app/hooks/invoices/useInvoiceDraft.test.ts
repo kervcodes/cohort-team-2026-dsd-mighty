@@ -35,6 +35,7 @@ const defaultValues: InvoiceFormValues = {
   propertyAddress: "",
   accountStatus: "",
   websiteName: "",
+  vendorAccountId: "",
 };
 
 const validValues: InvoiceFormValues = {
@@ -50,6 +51,7 @@ const validValues: InvoiceFormValues = {
   propertyAddress: "12 Elm St",
   accountStatus: "unpaid",
   websiteName: "https://citypower.example.com",
+  vendorAccountId: "",
 };
 
 function fullDraft(overrides: Partial<BillDraftDetail> = {}): BillDraftDetail {
@@ -68,6 +70,9 @@ function fullDraft(overrides: Partial<BillDraftDetail> = {}): BillDraftDetail {
     property_address: "12 Elm St",
     account_status: "unpaid",
     website_name: "https://citypower.example.com",
+    vendor_account_id: null,
+    vendor_account_picked: false,
+    property_address_mismatch: false,
     document_path: null,
     ...overrides,
   };
@@ -141,6 +146,7 @@ describe("mapDraftToFormValues", () => {
       propertyAddress: "12 Elm St",
       accountStatus: "unpaid",
       websiteName: "https://citypower.example.com",
+      vendorAccountId: "",
     });
   });
 
@@ -164,6 +170,28 @@ describe("mapDraftToFormValues", () => {
       ),
     ).toEqual(defaultValues);
   });
+
+  it("restores the vendor account only when it was explicitly picked", () => {
+    expect(
+      mapDraftToFormValues(
+        fullDraft({
+          vendor_account_id: "vendor-7",
+          vendor_account_picked: true,
+        }),
+      ).vendorAccountId,
+    ).toBe("vendor-7");
+  });
+
+  it("leaves the vendor account empty when it was matched by account number", () => {
+    expect(
+      mapDraftToFormValues(
+        fullDraft({
+          vendor_account_id: "vendor-7",
+          vendor_account_picked: false,
+        }),
+      ).vendorAccountId,
+    ).toBe("");
+  });
 });
 
 describe("draftPayload", () => {
@@ -181,7 +209,17 @@ describe("draftPayload", () => {
       property_address: "12 Elm St",
       account_status: "unpaid",
       website_name: "https://citypower.example.com",
+      vendor_account_id: null,
     });
+  });
+
+  it("sends the picked vendor account", () => {
+    expect(
+      draftPayload({
+        ...validValues,
+        vendorAccountId: "vendor-7",
+      }).vendor_account_id,
+    ).toBe("vendor-7");
   });
 
   it("converts blank fields to null so existing values can be cleared", () => {
@@ -198,13 +236,16 @@ describe("draftPayload", () => {
       property_address: null,
       account_status: null,
       website_name: null,
+      vendor_account_id: null,
     });
   });
 });
 
 describe("useInvoiceDraft", () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    // resetAllMocks also clears queued mockXOnce values, so a test that
+    // fails early can't leak them into the next one.
+    jest.resetAllMocks();
 
     // Existing-draft reads stay pending unless a test resolves them.
     mockGetBillDraft.mockReturnValue(new Promise<never>(() => {}));
@@ -317,6 +358,49 @@ describe("useInvoiceDraft", () => {
       });
 
       expect(setStoredPdf).not.toHaveBeenCalled();
+    });
+
+    it("does not reload the draft it just created when its ID appears in the URL", async () => {
+      const onDraftCreated = jest.fn();
+      const setStoredPdf = jest.fn();
+      const setSubmitError = jest.fn();
+
+      const { result, rerender } = renderHook(
+        ({ initialDraftId }: { initialDraftId: string | null }) => {
+          const form = useForm<InvoiceFormValues>({
+            defaultValues,
+          });
+
+          const draft = useInvoiceDraft({
+            initialDraftId,
+            onDraftCreated,
+            form,
+            selectedFile: null,
+            storedPdf: { kind: "none" },
+            setStoredPdf,
+            setSubmitError,
+          });
+
+          return { ...draft, form };
+        },
+        { initialProps: { initialDraftId: null as string | null } },
+      );
+
+      act(() => {
+        result.current.form.reset(validValues);
+      });
+
+      await act(async () => {
+        await result.current.handleSaveDraft(true);
+      });
+
+      expect(result.current.draftId).toBe("bill-1");
+
+      rerender({ initialDraftId: "bill-1" });
+
+      expect(mockGetBillDraft).not.toHaveBeenCalled();
+      expect(result.current.isLoadingDraft).toBe(false);
+      expect(result.current.form.getValues()).toEqual(validValues);
     });
   });
 

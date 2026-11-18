@@ -10,7 +10,6 @@ import { StatCard } from "@/components/Stat-card/stat-card";
 import { getDashboardBills } from "@/lib/api/bills";
 import { toInvoice } from "@/lib/invoices";
 import type { DashboardBill } from "@/types/bill";
-import type { Invoice } from "@/types/invoice";
 
 function toISODate(date: Date): string {
   return [
@@ -79,7 +78,7 @@ export default function DashboardPage() {
 
   const drafts = bills.filter((bill) => bill.status === "draft");
 
-  const draftInvoices = drafts.map(toInvoice);
+  const _draftInvoices = drafts.map(toInvoice);
   const invoices = bills.map(toInvoice);
 
   const outstanding = bills.filter((bill) =>
@@ -103,16 +102,28 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-6xl space-y-6 pt-16">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-          Bill &amp; Invoice
+          {"Bill & Invoice"}
         </h1>
 
-        <Link
-          href="/invoices/new"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-        >
-          <Plus className="h-4 w-4" />
-          New Invoice
-        </Link>
+        <div className="flex items-center gap-3">
+          {profile?.status === "active" &&
+            (profile.role === "approver" || profile.role === "admin") && (
+              <Link
+                href="/approvals"
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-surface-secondary"
+              >
+                Approvals
+              </Link>
+            )}
+
+          <Link
+            href="/invoices/new"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            <Plus className="h-4 w-4" />
+            New Invoice
+          </Link>
+        </div>
       </div>
 
       {loading && (

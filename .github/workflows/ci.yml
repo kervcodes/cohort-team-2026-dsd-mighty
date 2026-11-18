@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: Install Chromium for the payment agent's browser tests
+        run: uv run playwright install --with-deps chromium
+
       - name: Run backend tests
         run: uv run pytest -v
 
@@ -40,6 +43,61 @@ jobs:
 
       - name: Check Ruff formatting
         run: uv run ruff format --check .
+
+  payment-worker-image:
+    name: Payment worker image (Docker build + smoke check)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Put a .env and a test file in the build context, as on a developer's machine
+        # The checkout has no .env (it is gitignored). These two files must not reach the image.
+        run: |
+          echo "SUPABASE_SECRET_KEY=image-canary" > backend/.env
+          echo "# image canary" > backend/tests/test_image_canary.py
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/payment-worker.Dockerfile
+          tags: payment-worker:ci
+          load: true
+          cache-from: type=gha,scope=payment-worker
+          cache-to: type=gha,mode=max,scope=payment-worker
+      - name: The installed playwright is the base image's Playwright release
+        # /ms-playwright/.docker-info is written by the playwright that installed the base
+        # image's browsers (`playwright mark-docker-image`); Playwright reads it to spot a
+        # stale image.
+        run: |
+          docker run --rm payment-worker:ci python -c '
+          import importlib.metadata, json, sys
+          base = json.load(open("/ms-playwright/.docker-info"))["driverVersion"]
+          installed = importlib.metadata.version("playwright")
+          if installed != base:
+              sys.exit(
+                  f"uv.lock installs playwright {installed} but the base image is Playwright {base}; "
+                  f"set PLAYWRIGHT_IMAGE in payment-worker.Dockerfile to "
+                  f"mcr.microsoft.com/playwright/python:v{installed}-noble"
+              )
+          print(f"playwright {installed} on the Playwright {base} image")
+          '
+      - name: The .env and tests/ never reach the image
+        # As root, so find can read every directory in the image.
+        run: |
+          leaked=$(docker run --rm --user root payment-worker:ci find / -xdev \( -name .env -o -name test_image_canary.py \) -print)
+          if [ -n "$leaked" ]; then echo "In the image: $leaked"; exit 1; fi
+      - name: Start Chromium the way a run does, in 512 MB (Render Starter)
+        run: docker run --rm --memory=512m --memory-swap=512m payment-worker:ci python -m backend.payment_agent.worker --check-browser
+      - name: Runs as a non-root user
+        run: test "$(docker run --rm payment-worker:ci id -u)" != "0"
+      - name: The default command is the worker, and it refuses to start without settings
+        run: |
+          if docker run --rm payment-worker:ci > worker.log 2>&1; then
+            echo "The worker started without any settings"; exit 1
+          fi
+          grep -q "Missing environment variable SUPABASE_URL" worker.log || { cat worker.log; exit 1; }
 
   database:
     name: Database (Supabase migrations + pgTAP)
@@ -55,9 +113,88 @@ jobs:
         with:
           version: 3.0.0
       - name: Start database and apply migrations
-        run: supabase db start
+        # Postgres plus Auth, PostgREST and the Kong gateway: the audit actor
+        # test needs the real API in front of the database. Nothing else.
+        run: supabase start -x realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Prove the actor header reaches the audit trigger (real PostgREST)
+        run: |
+          eval "$(supabase status -o env)"
+          SUPABASE_URL="$API_URL" \
+          SUPABASE_PUBLISHABLE_KEY="$PUBLISHABLE_KEY" \
+          SUPABASE_SECRET_KEY="$SECRET_KEY" \
+          DATABASE_URL="$DB_URL" \
+          RUN_LOCAL_SUPABASE_TESTS=1 \
+            uv run pytest tests/test_audit_actor_live.py -v -rs --junitxml=audit-actor-live.xml
+      - name: Fail unless every audit actor test ran
+        # A skip passes pytest but tests nothing, e.g. if an opt-in variable never
+        # reached it. The fixed count also catches a test that stops being collected.
+        run: |
+          python - <<'EOF'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          EXPECTED_TESTS = 3  # the tests in tests/test_audit_actor_live.py
+
+          report = Path("audit-actor-live.xml")
+          if not report.is_file():
+              raise SystemExit("pytest wrote no JUnit report (audit-actor-live.xml)")
+          root = ET.parse(report).getroot()
+          suite = root if root.tag == "testsuite" else root.find("testsuite")
+          if suite is None:
+              raise SystemExit("audit-actor-live.xml has no <testsuite>, so the tests can't be counted")
+          tests, skipped = int(suite.get("tests", 0)), int(suite.get("skipped", 0))
+          print(f"{tests} audit actor tests, {skipped} skipped (expected {EXPECTED_TESTS}, none skipped)")
+          if tests != EXPECTED_TESTS or skipped:
+              raise SystemExit(
+                  f"Expected {EXPECTED_TESTS} audit actor tests with no skips; "
+                  f"found {tests} tests and {skipped} skipped. "
+                  "If you added or removed a test in that file, update EXPECTED_TESTS in ci.yml."
+              )
+          EOF
       - name: Run pgTAP tests
         run: supabase test db
+      - name: Compare audit_events with the schemas (running database)
+        run: |
+          eval "$(supabase status -o env)"
+          DATABASE_URL="$DB_URL" \
+            uv run pytest tests/test_audit_event_schema.py -v -rs --junitxml=audit-event-schema.xml
+      - name: Fail unless every schema comparison ran
+        # A skip passes pytest but tests nothing, e.g. if DATABASE_URL never reached
+        # it. The fixed count also catches a test that stops being collected.
+        run: |
+          python - <<'EOF'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          EXPECTED_TESTS = 4  # the tests in tests/test_audit_event_schema.py
+
+          report = Path("audit-event-schema.xml")
+          if not report.is_file():
+              raise SystemExit("pytest wrote no JUnit report (audit-event-schema.xml)")
+          root = ET.parse(report).getroot()
+          suite = root if root.tag == "testsuite" else root.find("testsuite")
+          if suite is None:
+              raise SystemExit("audit-event-schema.xml has no <testsuite>, so the tests can't be counted")
+          tests, skipped = int(suite.get("tests", 0)), int(suite.get("skipped", 0))
+          print(f"{tests} schema comparison tests, {skipped} skipped (expected {EXPECTED_TESTS}, none skipped)")
+          if tests != EXPECTED_TESTS or skipped:
+              raise SystemExit(
+                  f"Expected {EXPECTED_TESTS} schema comparison tests with no skips; "
+                  f"found {tests} tests and {skipped} skipped. "
+                  "If you added or removed a test in that file, update EXPECTED_TESTS in ci.yml."
+              )
+          EOF
 
   backend-real-login:
     name: Backend real-login (local Supabase)

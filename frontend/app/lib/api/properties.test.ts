@@ -1,0 +1,194 @@
+import {
+  createProperty,
+  getProperty,
+  listAllProperties,
+  listProperties,
+  type PropertyRead,
+  updateProperty,
+} from "./properties";
+
+const mockGetSession = jest.fn();
+
+jest.mock("@/lib/supabase/client", () => ({
+  createClient: () => ({ auth: { getSession: mockGetSession } }),
+}));
+
+function property(id: string): PropertyRead {
+  return {
+    id,
+    property_name: `Property ${id}`,
+    address: { street: "1 Main St", city: "Dallas", state: "TX", zip_code: "75201" },
+    status: "active",
+    created_at: "2026-11-01T00:00:00Z",
+  };
+}
+
+function page(items: PropertyRead[], total: number, skip: number) {
+  return { ok: true, status: 200, json: async () => ({ items, total, skip, limit: 100 }) };
+}
+
+const fetchMock = jest.fn();
+const originalApiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+beforeEach(() => {
+  process.env.NEXT_PUBLIC_API_URL = "http://api.test";
+  global.fetch = fetchMock as unknown as typeof fetch;
+  mockGetSession.mockReset().mockResolvedValue({
+    data: { session: { access_token: "test-token" } },
+    error: null,
+  });
+});
+
+afterEach(() => {
+  fetchMock.mockReset();
+  if (originalApiUrl === undefined) {
+    delete process.env.NEXT_PUBLIC_API_URL;
+  } else {
+    process.env.NEXT_PUBLIC_API_URL = originalApiUrl;
+  }
+});
+
+describe("listProperties", () => {
+  it("GETs one page of properties with the bearer token", async () => {
+    fetchMock.mockResolvedValueOnce(page([property("1")], 1, 0));
+
+    const result = await listProperties(25, 50);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/properties?skip=25&limit=50");
+    expect(init.method).toBe("GET");
+    expect(init.headers).toEqual({ Authorization: "Bearer test-token" });
+    expect(result.items).toEqual([property("1")]);
+  });
+
+  it("throws the server detail", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ detail: "Your role can't do this." }),
+    });
+
+    await expect(listProperties()).rejects.toThrow("Your role can't do this.");
+  });
+});
+
+describe("listAllProperties", () => {
+  it("reads page after page until it has every property", async () => {
+    const first = Array.from({ length: 100 }, (_, i) => property(String(i)));
+    fetchMock
+      .mockResolvedValueOnce(page(first, 101, 0))
+      .mockResolvedValueOnce(page([property("100")], 101, 100));
+
+    const result = await listAllProperties();
+
+    expect(result).toHaveLength(101);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "http://api.test/properties?skip=0&limit=100",
+      "http://api.test/properties?skip=100&limit=100",
+    ]);
+  });
+
+  it("makes one call when the first page has them all", async () => {
+    fetchMock.mockResolvedValueOnce(page([], 0, 0));
+
+    expect(await listAllProperties()).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops at an empty page even if the total says there are more", async () => {
+    // A property deleted between two pages must not loop forever.
+    fetchMock
+      .mockResolvedValueOnce(page([property("1")], 3, 0))
+      .mockResolvedValueOnce(page([], 2, 1));
+
+    expect(await listAllProperties()).toEqual([property("1")]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("createProperty", () => {
+  const payload = {
+    property_name: "Property 9",
+    address: { street: "1 Main St", city: "Dallas", state: "TX", zip_code: "75201" },
+  };
+
+  it("POSTs the property as JSON with the bearer token", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 201, json: async () => property("9") });
+
+    const result = await createProperty(payload);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/properties");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer test-token",
+    });
+    expect(JSON.parse(init.body)).toEqual(payload);
+    expect(result).toEqual(property("9"));
+  });
+
+  it("throws the server detail", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ detail: "Your role can't do this." }),
+    });
+
+    await expect(createProperty(payload)).rejects.toThrow("Your role can't do this.");
+  });
+});
+
+describe("getProperty", () => {
+  it("GETs the property with the bearer token", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => property("7") });
+
+    const result = await getProperty("7");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/properties/7");
+    expect(init.method).toBe("GET");
+    expect(init.headers).toEqual({ Authorization: "Bearer test-token" });
+    expect(result).toEqual(property("7"));
+  });
+
+  it("throws the server detail", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({ detail: "Property not found." }),
+    });
+
+    await expect(getProperty("7")).rejects.toThrow("Property not found.");
+  });
+});
+
+describe("updateProperty", () => {
+  it("PATCHes only the fields sent, as JSON with the bearer token", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => property("7") });
+
+    const result = await updateProperty("7", { status: "inactive" });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/properties/7");
+    expect(init.method).toBe("PATCH");
+    expect(init.headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer test-token",
+    });
+    expect(JSON.parse(init.body)).toEqual({ status: "inactive" });
+    expect(result).toEqual(property("7"));
+  });
+
+  it("throws the server detail", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ detail: "Your role can't do this." }),
+    });
+
+    await expect(updateProperty("7", { status: "inactive" })).rejects.toThrow(
+      "Your role can't do this.",
+    );
+  });
+});

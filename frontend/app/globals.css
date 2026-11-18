@@ -15,14 +15,18 @@
   --accent: #ccfbf1;
   --accent-foreground: #134e4a;
 
-  --paid: #16a34a;
+  /* Each status colour is text on its -bg and on the surfaces, at AA (4.5:1)
+     or better in both themes (status-badge.test.tsx checks the pairs). */
+  --paid: #15803d;
   --paid-bg: #dcfce7;
   --due-soon: #b45309;
   --due-soon-bg: #fef3c7;
-  --overdue: #dc2626;
+  --overdue: #b91c1c;
   --overdue-bg: #fee2e2;
-  --pending: #64748b;
+  --pending: #475569;
   --pending-bg: #f1f5f9;
+  --info: #1d4ed8;
+  --info-bg: #dbeafe;
 
   --ring: rgba(15, 118, 110, 0.45);
 }
@@ -50,6 +54,8 @@
   --overdue-bg: #450a0a;
   --pending: #94a3b8;
   --pending-bg: #1e293b;
+  --info: #93c5fd;
+  --info-bg: #172554;
 
   --ring: rgba(45, 212, 191, 0.5);
 }
@@ -76,6 +82,8 @@
   --color-overdue-bg: var(--overdue-bg);
   --color-pending: var(--pending);
   --color-pending-bg: var(--pending-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
 
   --color-ring: var(--ring);
 }

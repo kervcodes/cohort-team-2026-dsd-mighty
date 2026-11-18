@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { useForm } from "react-hook-form";
 import { extractBill } from "@/lib/api/bills";
 import { clearedValues, errorBanner, planFill, READING_MESSAGE } from "@/lib/extraction";
