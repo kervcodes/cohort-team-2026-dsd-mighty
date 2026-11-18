@@ -27,8 +27,15 @@ PROPERTY_READERS = (UserRole.analyst, UserRole.approver, UserRole.admin)
 # Who may add properties: admins only, as with vendors.
 PROPERTY_WRITERS = (UserRole.admin,)
 
+# Who may read the autopay setting, and who may change it.
+AUTOPAY_READERS = (UserRole.approver, UserRole.admin)
+AUTOPAY_WRITERS = (UserRole.admin,)
+
 USER_READERS = (UserRole.admin,)
 USER_EDITORS = (UserRole.admin,)
+
+# Who may read the audit log (GET /audit/changes, GET /bills/{id}/history).
+AUDIT_READERS = (UserRole.admin,)
 
 
 class CurrentUser(MeRead):

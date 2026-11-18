@@ -10,6 +10,7 @@ const COPY = {
 const tabs = [
   { label: "Rules", href: "/admin" },
   { label: "Users", href: "/admin/users" },
+  { label: "Audit log", href: "/admin/audit" },
 ];
 
 export default function AdminLayoutContent({ children }: { children: React.ReactNode }) {
@@ -17,11 +18,11 @@ export default function AdminLayoutContent({ children }: { children: React.React
   const isEditPage = pathname.includes("/edit");
 
   return (
-    <main className="mx-auto max-w-5xl p-8">
+    <main className="mx-auto max-w-5xl px-4 py-6 sm:p-8">
       <h1 className="mb-8 text-3xl font-semibold text-foreground">{COPY.title}</h1>
 
       <div className="rounded-lg border border-border bg-surface">
-        <nav className="flex gap-6 border-b border-border px-4">
+        <nav className="flex gap-4 overflow-x-auto px-4 shadow-[inset_0_-1px_0_var(--color-border)] sm:gap-6">
           {tabs.map((tab) => {
             const active =
               !isEditPage &&
@@ -32,7 +33,7 @@ export default function AdminLayoutContent({ children }: { children: React.React
                 key={tab.href}
                 href={tab.href}
                 aria-current={active ? "page" : undefined}
-                className={`-mb-px border-b-2 py-3 text-xl transition-colors ${
+                className={`whitespace-nowrap border-b-2 py-3 text-xl transition-colors ${
                   active
                     ? "border-primary text-foreground"
                     : "border-transparent text-foreground-muted hover:text-foreground"
@@ -45,7 +46,7 @@ export default function AdminLayoutContent({ children }: { children: React.React
           {isEditPage && (
             <p
               aria-current="page"
-              className="-mb-px border-b-2 py-3 text-xl transition-colors border-primary text-foreground"
+              className="border-b-2 py-3 text-xl transition-colors border-primary text-foreground"
             >
               {" "}
               Edit
@@ -53,7 +54,7 @@ export default function AdminLayoutContent({ children }: { children: React.React
           )}
         </nav>
 
-        <div className="p-6">{children}</div>
+        <div className="p-4 sm:p-6">{children}</div>
       </div>
     </main>
   );

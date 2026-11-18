@@ -10,6 +10,10 @@ export function isActiveRunStatus(status: PaymentRunStatus): status is ActivePay
   return status === "queued" || status === "running";
 }
 
+// What queued a run: someone pressed Pay with AI, or autopay queued it after
+// an approval (`started_by` is then the approver).
+export type PaymentRunTrigger = "manual" | "autopay";
+
 // One line of what the agent did. `step` is a machine name such as "sign_in";
 // `detail` is a sentence written for people.
 export type PaymentRunStep = {
@@ -35,6 +39,7 @@ export type PaymentRun = {
   // The starter's full name, from their account. The API always sends it;
   // null only if that account were gone.
   started_by_name: string | null;
+  trigger: PaymentRunTrigger;
   status: PaymentRunStatus;
   steps: PaymentRunStep[];
   // Set exactly when the run is flagged.

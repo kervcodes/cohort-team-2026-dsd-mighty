@@ -1,5 +1,5 @@
-"""Every bill, payment, payment run, vendor, vendor account and property route
-enforces the role table.
+"""Every bill, payment, payment run, vendor, vendor account, property, user,
+autopay settings and audit log route enforces the role table.
 
 Who may call each route, active users only.
 
@@ -74,12 +74,22 @@ ROLE_TABLE = [
     # Approvals
     ("GET", "/approvals", {APPROVER, ADMIN}, 200),
     ("POST", "/approvals/{approval_id}/decision", {APPROVER, ADMIN}, 200),
+    # Autopay
+    ("GET", "/autopay-settings", {APPROVER, ADMIN}, 200),
+    ("PUT", "/autopay-settings", {ADMIN}, 200),
     # Admin users
     ("GET", "/admin/users", {ADMIN}, 200),
     ("GET", "/admin/users/{user_id}", {ADMIN}, 200),
     ("PATCH", "/admin/users/{user_id}", {ADMIN}, 200),
+    # Audit log
+    ("GET", "/audit/changes", {ADMIN}, 200),
+    ("GET", "/bills/{bill_id}/history", {ADMIN}, 200),
 ]
 
+
+# The audit log routes, and the functions that read the log.
+AUDIT_ROUTES = {("GET", "/audit/changes"), ("GET", "/bills/{bill_id}/history")}
+AUDIT_LOG_FUNCTIONS = {"audit_changes", "audit_bill_changes"}
 
 # Routes that need a signed-in user but no role.
 ANY_SIGNED_IN = {("GET", "/me")}
@@ -152,6 +162,7 @@ REQUEST_BODY = {
         }
     },
     ("PATCH", "/admin/users/{user_id}"): {"json": {"role": "approver"}},
+    ("PUT", "/autopay-settings"): {"json": {"enabled": True, "limit_amount": "500.00"}},
 }
 
 # The caller's bill is a draft unless the route needs another state.
@@ -199,6 +210,8 @@ def db():
         patch("backend.api.approvals.get_admin_supabase", return_value=fake),
         patch("backend.api.payments.get_admin_supabase", return_value=fake),
         patch("backend.api.payment_runs.get_admin_supabase", return_value=fake),
+        patch("backend.api.audit.get_admin_supabase", return_value=fake),
+        patch("backend.api.autopay_settings.get_admin_supabase", return_value=fake),
     ):
         yield fake
 
@@ -341,6 +354,10 @@ def test_route_allows_only_its_active_roles(
     )
 
     assert response.status_code == expected, response.text
+
+    # Only the audit routes read the audit log.
+    if (method, path) not in AUDIT_ROUTES:
+        assert not set(db.rpc_calls) & AUDIT_LOG_FUNCTIONS, (method, path)
 
     if status == "inactive":
         assert response.json()["detail"] == ("Your account is waiting for approval.")

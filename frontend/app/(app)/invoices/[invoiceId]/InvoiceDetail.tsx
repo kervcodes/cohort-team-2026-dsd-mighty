@@ -12,6 +12,8 @@ import type { Approval, ApprovalDecisionType } from "@/types/approval";
 import type { Bill } from "@/types/bill";
 import { PaymentSection } from "./PaymentSection";
 
+const VIEW_HISTORY = "View history";
+
 function formatDate(date: string | null) {
   if (!date) return "-";
 
@@ -45,6 +47,9 @@ export default function InvoiceDetail() {
     !accountLoading &&
     profile?.status === "active" &&
     (profile?.role === "approver" || profile?.role === "admin");
+
+  const canViewHistory =
+    !accountLoading && profile?.status === "active" && profile.role === "admin";
 
   const canResubmit =
     !accountLoading &&
@@ -268,6 +273,15 @@ export default function InvoiceDetail() {
 
           <div className="flex flex-wrap items-center gap-3">
             <StatusBadge status={bill.status} />
+
+            {canViewHistory && (
+              <Link
+                href={`/admin/audit?bill_id=${encodeURIComponent(invoiceId)}`}
+                className="text-sm font-medium text-primary hover:underline"
+              >
+                {VIEW_HISTORY}
+              </Link>
+            )}
 
             {canResubmit && (
               <Link

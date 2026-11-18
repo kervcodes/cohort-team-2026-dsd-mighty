@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.api.approvals import router as approvals_router
+from backend.api.audit import router as audit_router
+from backend.api.autopay_settings import router as autopay_settings_router
 from backend.api.bill_documents import router as bill_documents_router
 from backend.api.bill_extraction import router as bill_extraction_router
 from backend.api.bills import router as bills_router
@@ -77,12 +79,14 @@ app.include_router(bills_router)
 app.include_router(payments_router)
 app.include_router(payment_runs_router)
 app.include_router(approvals_router)
+app.include_router(autopay_settings_router)
 app.include_router(vendors_router)
 app.include_router(vendor_accounts_router)
 app.include_router(properties_router)
 app.include_router(bill_documents_router)
 app.include_router(me_router)
 app.include_router(users_router)
+app.include_router(audit_router)
 app.include_router(health_router)
 
 

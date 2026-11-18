@@ -4,6 +4,7 @@ import { useState } from "react";
 import ConfirmModal from "@/components/ConfirmModal/ConfirmModal";
 import RuleField from "@/components/RuleField/RuleField";
 import { type RuleErrors, validateRules } from "@/lib/validation";
+import AutopayCard from "./AutopayCard";
 
 const COPY = {
   sectionTitle: "Approval Rules",
@@ -50,7 +51,7 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-lg border border-border bg-surface p-6">
+      <section className="rounded-lg border border-border bg-surface p-4 sm:p-6">
         <h2 className="mb-6 inline-block rounded bg-surface-muted px-3 py-1 text-xl font-medium text-foreground">
           {COPY.sectionTitle}
         </h2>
@@ -86,6 +87,8 @@ export default function AdminPage() {
           {COPY.save}
         </button>
       </div>
+      <AutopayCard />
+
       <ConfirmModal
         open={confirmOpen}
         title={COPY.confirmTitle}

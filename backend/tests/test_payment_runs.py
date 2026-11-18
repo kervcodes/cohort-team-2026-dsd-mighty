@@ -92,6 +92,7 @@ def test_approver_or_admin_queues_a_run(db, role):
     assert body["bill_id"] == bill["bill_id"]
     assert body["started_by"] == user_id
     assert body["started_by_name"] == f"Test {role}"
+    assert body["trigger"] == "manual"
     assert body["status"] == "queued"
     assert [s["step"] for s in body["steps"]] == ["queued"]
     assert body["steps"][0]["detail"] == f"Queued by Test {role}."
