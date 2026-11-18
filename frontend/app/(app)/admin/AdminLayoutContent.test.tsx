@@ -59,9 +59,25 @@ describe("AdminLayoutContent", () => {
       expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/admin/users");
     });
 
+    it("renders the Audit log link", () => {
+      mockUsePathname.mockReturnValue("/admin");
+
+      render(
+        <AdminLayoutContent>
+          <p>{"Content"}</p>
+        </AdminLayoutContent>,
+      );
+
+      expect(screen.getByRole("link", { name: "Audit log" })).toHaveAttribute(
+        "href",
+        "/admin/audit",
+      );
+    });
+
     it.each([
       ["/admin", "Rules"],
       ["/admin/users", "Users"],
+      ["/admin/audit", "Audit log"],
     ])("highlights %s with the %s tab active", (pathname, activeTab) => {
       mockUsePathname.mockReturnValue(pathname);
 

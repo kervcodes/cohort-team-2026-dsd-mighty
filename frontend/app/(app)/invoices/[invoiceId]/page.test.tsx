@@ -165,6 +165,41 @@ describe("InvoiceDetailPage", () => {
     });
   });
 
+  describe("Bill history link", () => {
+    it("shows an active admin a link to the bill's audit history", async () => {
+      setupPage({ role: "admin" });
+
+      expect(await screen.findByRole("link", { name: "View history" })).toHaveAttribute(
+        "href",
+        "/admin/audit?bill_id=bill-123",
+      );
+    });
+
+    it.each(["analyst", "approver"] as const)("shows nothing for the %s role", async (role) => {
+      setupPage({ role });
+
+      await screen.findByText("INV-1001");
+
+      expect(screen.queryByRole("link", { name: "View history" })).not.toBeInTheDocument();
+    });
+
+    it("shows nothing for an inactive admin", async () => {
+      setupPage({ role: "admin", status: "inactive" });
+
+      await screen.findByText("INV-1001");
+
+      expect(screen.queryByRole("link", { name: "View history" })).not.toBeInTheDocument();
+    });
+
+    it("shows nothing while the account is loading", async () => {
+      setupPage({ role: "admin", accountLoading: true });
+
+      await screen.findByText("INV-1001");
+
+      expect(screen.queryByRole("link", { name: "View history" })).not.toBeInTheDocument();
+    });
+  });
+
   describe("Approval access", () => {
     it.each(["approver", "admin"] as const)(
       "shows the approval panel for an active %s",
