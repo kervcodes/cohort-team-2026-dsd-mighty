@@ -44,10 +44,14 @@ export function useInvoiceExtraction({
   const readRef = useRef<AbortController | null>(null);
   const readerFilled = useRef(new Map<ExtractedFormField, string>());
 
+  // Stop an in-flight extraction when the component unmounts or is hidden, so
+  // "Reading invoice..." is not left showing when the person comes back.
   useEffect(() => {
     return () => {
-      readRef.current?.abort();
+      if (!readRef.current) return;
+      readRef.current.abort();
       readRef.current = null;
+      setReader({ phase: "idle" });
     };
   }, []);
 

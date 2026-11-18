@@ -75,11 +75,11 @@ export function useInvoiceDraft({
   setSubmitError,
 }: UseInvoiceDraftOptions) {
   const { getValues, reset } = form;
-
-  const [draftId, setDraftId] = useState(initialDraftId);
+  const [openedDraftId] = useState(initialDraftId);
+  const [draftId, setDraftId] = useState(openedDraftId);
   const [draftStatus, setDraftStatus] = useState<DraftActionStatus>("idle");
   const [draftMessage, setDraftMessage] = useState("");
-  const [isLoadingDraft, setIsLoadingDraft] = useState(initialDraftId !== null);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(openedDraftId !== null);
   const [draftLoadError, setDraftLoadError] = useState<string | null>(null);
 
   const draftLoaded = useRef(false);
@@ -88,9 +88,9 @@ export function useInvoiceDraft({
   onDraftCreatedRef.current = onDraftCreated;
 
   useEffect(() => {
-    if (initialDraftId === null || draftLoaded.current) return;
+    if (openedDraftId === null || draftLoaded.current) return;
+    const draftIdToLoad = openedDraftId;
 
-    const draftIdToLoad = initialDraftId;
     let cancelled = false;
 
     async function loadDraft() {
@@ -124,7 +124,7 @@ export function useInvoiceDraft({
     return () => {
       cancelled = true;
     };
-  }, [initialDraftId, reset, setStoredPdf]);
+  }, [openedDraftId, reset, setStoredPdf]);
 
   async function ensureDraftSaved(payload: BillDraftPayload): Promise<string> {
     if (draftId) {

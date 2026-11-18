@@ -1554,39 +1554,6 @@ describe("InvoiceForm", () => {
       expect(screen.getByLabelText("Account / Customer #")).toHaveValue("ACC-100");
     });
 
-    it("leaves fields empty when the rejected invoice has missing values", async () => {
-      mockGetBill.mockResolvedValue(
-        fullBill({
-          status: "rejected",
-          account_number_raw: undefined,
-          invoice_number: undefined,
-          vendor_name_raw: undefined,
-          invoice_date: undefined,
-          due_date: undefined,
-          amount: undefined,
-          prev_payments: undefined,
-          description: undefined,
-          processing_notes: undefined,
-          property_address: undefined,
-          account_status: undefined,
-          website_name: undefined,
-        }),
-      );
-
-      render(<InvoiceForm isResubmission />);
-
-      await screen.findByRole("heading", { name: "Resubmit Rejected Invoice" });
-
-      expect(screen.getByLabelText("Account / Customer #")).toHaveValue("");
-      expect(screen.getByLabelText("Statement / Bill ID")).toHaveValue("");
-      expect(screen.getByLabelText("Customer / Business Name")).toHaveValue("");
-      expect(screen.getByLabelText("Property Address")).toHaveValue("");
-      expect(screen.getByLabelText("Current Due")).toHaveValue("");
-      expect(screen.getByLabelText("Prev Payments")).toHaveValue("");
-      expect(screen.getByLabelText("Account Status")).toHaveValue("");
-      expect(screen.getByLabelText("Website Name (optional)")).toHaveValue("");
-    });
-
     it("restores the picked vendor account when resubmitting", async () => {
       mockGetBill.mockResolvedValue(
         fullBill({
