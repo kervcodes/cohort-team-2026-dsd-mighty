@@ -4,7 +4,7 @@
 
 begin;
 
-select plan(9);
+select plan(10);
 
 select is(audit.mask(null), null, 'masking a missing row gives a missing row');
 
@@ -40,6 +40,12 @@ select is(
     ),
     '{"bank_account_number": "****3210", "routing_number": "****0021", "ssn": "****6789"}'::jsonb,
     'bank account, routing and social security numbers are masked'
+);
+
+select is(
+    audit.mask('{"portal_password_secret_id": "6f1c2a9e-0b7d-4c3e-9a51-2d8e4f7b1c90"}'),
+    '{"portal_password_secret_id": "****1c90"}'::jsonb,
+    'a vendor portal password secret id is masked'
 );
 
 select is(
