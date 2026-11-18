@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useParams } from "next/navigation";
 import { useAuth } from "@/auth/AuthProvider";
-import { getApprovals } from "@/lib/api/approvals";
+import { decideApproval, getApprovals } from "@/lib/api/approvals";
 import { getBill, getBillDocument } from "@/lib/api/bills";
 import { getPaymentRun, listPaymentRuns } from "@/lib/api/payment-runs";
 import { listPayments, recordPayment } from "@/lib/api/payments";
@@ -87,6 +87,7 @@ function run(overrides: Partial<PaymentRun> = {}): PaymentRun {
     bill_id: "bill-123",
     started_by: "user-pat",
     started_by_name: "Pat Lee",
+    trigger: "manual",
     status: "running",
     steps: [{ at: "2026-11-15T15:00:00Z", step: "queued", detail: "Queued by Pat Lee." }],
     flag_reason: null,
@@ -307,5 +308,86 @@ describe("when a panel finds the bill paid", () => {
     expect(screen.getByRole("heading", { name: "INV-1001" })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(within(paymentSection()).getByText("Paid on Nov 14, 2026")).toBeInTheDocument();
+  });
+});
+
+describe("after an approval", () => {
+  it("shows the run autopay queued and follows it until the bill is paid", async () => {
+    jest.useFakeTimers();
+    try {
+      const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+      (getApprovals as jest.Mock).mockResolvedValue([
+        {
+          id: "approval-1",
+          bill_id: "bill-123",
+          status: "pending",
+          reviewer: null,
+          comments: null,
+          requested_at: "2026-11-15T14:00:00Z",
+          decided_at: null,
+        },
+      ]);
+      (decideApproval as jest.Mock).mockResolvedValue({
+        id: "approval-1",
+        bill_id: "bill-123",
+        status: "approved",
+        reviewer: { id: "user-me", full_name: "Me" },
+        comments: null,
+        requested_at: "2026-11-15T14:00:00Z",
+        decided_at: "2026-11-15T15:00:00Z",
+      });
+      const autopayRun = run({
+        trigger: "autopay",
+        status: "queued",
+        started_by: "user-me",
+        started_by_name: "Me",
+        started_at: null,
+        steps: [
+          {
+            at: "2026-11-15T15:00:00Z",
+            step: "queued",
+            detail: "Queued by autopay after approval by Me.",
+          },
+        ],
+      });
+      // The backend queued the run before answering the decision.
+      mockListRuns.mockResolvedValue([autopayRun]);
+      await openPage("pending_approval");
+      expect(screen.queryByRole("heading", { name: "Payment" })).not.toBeInTheDocument();
+
+      await user.click(await screen.findByRole("button", { name: "Approve invoice" }));
+      await user.click(screen.getByRole("button", { name: "Continue" }));
+      await user.click(screen.getByRole("button", { name: "Confirm approval" }));
+
+      const section = await screen.findByRole("region", { name: "Payment" });
+      expect(await within(section).findByText("Waiting for the worker")).toBeInTheDocument();
+      expect(
+        within(section).getByText("Autopay started this run after approval."),
+      ).toBeInTheDocument();
+      expect(
+        within(section).getByText("Queued by autopay after approval by Me."),
+      ).toBeInTheDocument();
+      expect(
+        within(section).queryByRole("button", { name: "Pay with AI" }),
+      ).not.toBeInTheDocument();
+
+      mockGetRun.mockResolvedValueOnce({ ...autopayRun, status: "running" });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(2000);
+      });
+      expect(within(section).getByText("Paying on the portal")).toBeInTheDocument();
+
+      mockGetBill.mockResolvedValue(bill("paid"));
+      mockGetRun.mockResolvedValueOnce({ ...paidRun, trigger: "autopay" });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(2000);
+      });
+
+      expect(await within(headerStatus()).findByText("paid")).toBeInTheDocument();
+      expect(screen.getByText("CONF-778")).toBeInTheDocument();
+      expect(mockGetBill).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

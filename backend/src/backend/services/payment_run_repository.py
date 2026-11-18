@@ -18,12 +18,13 @@ from backend.schemas.payment_run import (
     PaymentRunReceipt,
     PaymentRunStatus,
     PaymentRunStep,
+    PaymentRunTrigger,
 )
 from supabase import Client
 
 RUN_COLUMNS = (
-    "run_id,bill_id,started_by,status,steps,flag_reason,receipt,payment_id,"
-    "created_at,started_at,finished_at,updated_at,"
+    "run_id,bill_id,started_by,trigger,status,steps,flag_reason,receipt,"
+    "payment_id,created_at,started_at,finished_at,updated_at,"
     # The starter's name, embedded through the payment_runs.started_by key.
     "starter:app_users!started_by(full_name)"
 )
@@ -66,12 +67,20 @@ def _steps_json(steps: list[PaymentRunStep]) -> list[dict[str, Any]]:
 
 
 def queue_run(
-    client: Client, bill_id: UUID, started_by: UUID, first_step: PaymentRunStep
+    client: Client,
+    bill_id: UUID,
+    started_by: UUID,
+    trigger: PaymentRunTrigger,
+    first_step: PaymentRunStep,
 ) -> PaymentRunRead:
-    """Insert a queued run. Raises RunAlreadyActive when the bill has one."""
+    """Insert a queued run. Raises RunAlreadyActive when the bill has one.
+
+    Only `payment_run_queue.queue_payment_run` calls this, after checking the
+    bill can be paid."""
     payload = {
         "bill_id": str(bill_id),
         "started_by": str(started_by),
+        "trigger": trigger.value,
         "status": PaymentRunStatus.queued.value,
         "steps": _steps_json([first_step]),
     }
