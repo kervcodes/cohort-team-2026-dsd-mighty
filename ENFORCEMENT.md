@@ -12,6 +12,7 @@ The checker runs by `node` from the repo root because the root has no `package.j
 | Backend is ruff-clean and ruff-formatted | ci | `backend/pyproject.toml`, `.github/workflows/ci.yml` | - |
 | Database migrations apply to a clean database and pgTAP tests pass before merge | ci | `.github/workflows/ci.yml`, `backend/supabase/tests/` | - |
 | AuditEvent schemas match public.audit_events column names and nullability | ci | `backend/tests/test_audit_event_schema.py`, `.github/workflows/ci.yml` | - |
+| Only active admins read the audit log (`audit.record_changes`); analysts, approvers and inactive admins read no row, their own bills and drafts included | test | `backend/supabase/migrations/20261118090000_audit_reads_admin_only.sql`, `backend/supabase/tests/audit_read_scope.test.sql` | - |
 | Real-login auth tests (real Supabase Auth tokens against the backend) pass before merge, and a skip fails the job | ci | `.github/workflows/ci.yml`, `backend/tests/test_auth_local_supabase.py` | - |
 | Frontend tests pass before merge | ci | `.github/workflows/ci.yml` | - |
 | TypeScript strict; frontend types check before merge | ci | `frontend/tsconfig.json`, `.github/workflows/ci.yml` | - |
