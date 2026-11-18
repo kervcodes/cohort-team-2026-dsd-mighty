@@ -324,6 +324,24 @@ def test_a_single_row_table_has_no_record_id(db, admin):
     assert [(i["table"], i["record_id"]) for i in items] == [("autopay_settings", None)]
 
 
+def test_autopay_settings_changes_can_be_filtered(db, admin):
+    db.capture_change(
+        "autopay_settings",
+        "UPDATE",
+        old={"id": True, "enabled": False, "limit_amount": None},
+        new={"id": True, "enabled": True, "limit_amount": "400.00"},
+    )
+    seed_vendor_change(db, 2)
+
+    items = admin.get("/audit/changes", params={"table": "autopay_settings"}).json()[
+        "items"
+    ]
+
+    assert [(i["table"], i["record_id"], i["changed_fields"]) for i in items] == [
+        ("autopay_settings", None, ["enabled", "limit_amount"])
+    ]
+
+
 def test_table_filter(db, admin):
     seed_vendor_change(db, 1)
     db.capture_change("properties", "INSERT", new={"property_id": str(uuid4())})

@@ -74,7 +74,8 @@ begin
         'vendors',
         'vendor_accounts',
         'properties',
-        'app_users'
+        'app_users',
+        'autopay_settings'
     ) then
         raise exception 'unknown audited table: %', p_table
             using errcode = '22023';

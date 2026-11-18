@@ -1,10 +1,10 @@
--- Who may read the audit log, and that reading it does not let anyone write it
+-- Only admins read the audit log (DC-88), and reading it does not let anyone write it
 -- (migration 20261110180100_audit_trail_read_policy).
 -- Runs in one transaction that rolls back.
 
 begin;
 
-select plan(33);
+select plan(29);
 
 -- 1. WIRING
 
@@ -119,7 +119,7 @@ select set_config(
     't.total', (select count(*) from audit.record_changes)::text, true
 );
 
--- 3. WHO MAY READ THE LOG
+-- 3. ONLY ACTIVE ADMINS READ THE LOG
 
 set local role authenticated;
 select set_config(
@@ -181,72 +181,37 @@ select set_config(
 );
 
 select is(
+    (select count(*)::int from audit.record_changes),
+    0,
+    'an active analyst reads nothing'
+);
+
+select is(
     (select count(*)::int from audit.record_changes
      where bill_id = '10000000-0000-4000-8000-000000000003'),
-    1,
-    'an analyst reads the log of their own draft'
+    0,
+    'an active analyst reads no row of their own draft'
 );
 
 select is(
     (select count(*)::int from audit.record_changes
      where bill_id = '10000000-0000-4000-8000-000000000005'),
-    5,
-    'an analyst reads the draft-time log of their own submitted bill'
+    0,
+    'an active analyst reads no row of their own bill submitted after drafting'
 );
 
 select is(
     (select count(*)::int from audit.record_changes
      where bill_id = '10000000-0000-4000-8000-000000000006'),
-    2,
-    'an analyst reads the draft-time log of their own bill written before the log existed'
+    0,
+    'an active analyst reads no row of their own bill written before the log existed'
 );
 
 select is(
     (select count(*)::int from audit.record_changes
      where bill_id = '10000000-0000-4000-8000-000000000004'),
-    1,
-    'an analyst reads the log of a bill another analyst submitted'
-);
-
-select is(
-    (select count(*)::int from audit.record_changes where bill_id is null),
     0,
-    'an analyst reads no row that belongs to no bill'
-);
-
-select set_config(
-    'request.jwt.claims',
-    '{"role": "authenticated", "sub": "00000000-0000-4000-8000-0000000000b2"}',
-    true
-);
-
-select is(
-    (select count(*)::int from audit.record_changes
-     where bill_id = '10000000-0000-4000-8000-000000000003'),
-    0,
-    'an analyst never reads the log of another analyst''s draft'
-);
-
-select cmp_ok(
-    (select count(*)::int from audit.record_changes
-     where bill_id = '10000000-0000-4000-8000-000000000001'),
-    '>',
-    0,
-    'an analyst reads the log of a submitted bill'
-);
-
-select is(
-    (select count(*)::int from audit.record_changes
-     where bill_id = '10000000-0000-4000-8000-000000000005'),
-    2,
-    'an analyst reads only the post-submit log of another analyst''s bill, never its draft-time rows'
-);
-
-select is(
-    (select count(*)::int from audit.record_changes
-     where bill_id = '10000000-0000-4000-8000-000000000006'),
-    1,
-    'an analyst never reads the draft-time log of another analyst''s bill written before the log existed'
+    'an active analyst reads no row of a submitted bill of another analyst'
 );
 
 select set_config(
@@ -256,39 +221,37 @@ select set_config(
 );
 
 select is(
+    (select count(*)::int from audit.record_changes),
+    0,
+    'an active approver reads nothing'
+);
+
+select is(
     (select count(*)::int from audit.record_changes
      where bill_id = '10000000-0000-4000-8000-000000000003'),
     0,
-    'an approver never reads the log of an analyst''s draft'
+    'an active approver reads no row of an analyst draft'
 );
 
-select cmp_ok(
+select is(
     (select count(*)::int from audit.record_changes
      where bill_id = '10000000-0000-4000-8000-000000000004'),
-    '>',
     0,
-    'an approver reads the log of a submitted bill'
+    'an active approver reads no row of a submitted bill'
 );
 
 select is(
     (select count(*)::int from audit.record_changes
      where bill_id = '10000000-0000-4000-8000-000000000005'),
-    2,
-    'an approver reads only the post-submit log of a bill, never its draft-time rows'
-);
-
-select is(
-    (select count(*)::int from audit.record_changes
-     where bill_id = '10000000-0000-4000-8000-000000000006'),
-    1,
-    'an approver never reads the draft-time log of a bill written before the log existed'
+    0,
+    'an active approver reads no row of a bill submitted after drafting'
 );
 
 select is(
     (select count(*)::int from audit.record_changes
      where bill_id = '10000000-0000-4000-8000-000000000007'),
-    1,
-    'an approver reads the log of a submitted bill written before the log existed'
+    0,
+    'an active approver reads no row of a submitted bill written before the log existed'
 );
 
 select set_config('request.jwt.claims', '{"role": "authenticated"}', true);

@@ -20,6 +20,15 @@ class PaymentRunStatus(StrEnum):
 ACTIVE_RUN_STATUSES = (PaymentRunStatus.queued, PaymentRunStatus.running)
 
 
+class PaymentRunTrigger(StrEnum):
+    """What queued a run (migration 20261117140000_autopay)."""
+
+    # Someone pressed Pay with AI.
+    manual = "manual"
+    # The backend queued it after an approval; started_by is the approver.
+    autopay = "autopay"
+
+
 class PaymentRunStep(BaseModel):
     """One line of what the agent did. Never holds a secret."""
 
@@ -46,6 +55,7 @@ class PaymentRunRead(BaseModel):
     # The starter's full name from app_users; None only on a row read without
     # it (the worker's claim), never in an API response.
     started_by_name: str | None = None
+    trigger: PaymentRunTrigger
     status: PaymentRunStatus
     steps: list[PaymentRunStep]
     flag_reason: str | None = None

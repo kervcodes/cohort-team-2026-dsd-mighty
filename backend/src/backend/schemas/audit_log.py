@@ -27,6 +27,7 @@ AuditTable = Literal[
     "vendor_accounts",
     "properties",
     "app_users",
+    "autopay_settings",
 ]
 
 AuditOp = Literal["INSERT", "UPDATE", "DELETE"]

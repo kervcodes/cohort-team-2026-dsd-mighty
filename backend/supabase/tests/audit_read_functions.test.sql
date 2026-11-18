@@ -7,7 +7,7 @@
 
 begin;
 
-select plan(48);
+select plan(49);
 
 -- 1. WIRING
 
@@ -548,6 +548,11 @@ select is(
 );
 
 reset role;
+
+select lives_ok(
+    $$ select * from public.audit_changes(p_table => 'autopay_settings') $$,
+    'audit_changes accepts the autopay_settings table'
+);
 
 -- 9. ROWS WRITTEN BEFORE A COLUMN WAS MASKED
 

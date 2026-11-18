@@ -45,6 +45,7 @@ FOREIGN_KEYS = {
     ("vendor_accounts", "vendor_id"): ("vendors", "vendor_id"),
     ("payment_runs", "bill_id"): ("bills", "bill_id"),
     ("payment_runs", "started_by"): ("app_users", "user_id"),
+    ("autopay_settings", "updated_by"): ("app_users", "user_id"),
 }
 
 
@@ -95,6 +96,10 @@ CHECKS: dict[str, list[tuple[str, Callable[[dict[str, Any]], bool]]]] = {
             lambda r: r["status"] in ("queued", "running", *FINAL_RUN_STATUSES),
         ),
         (
+            "payment_runs_trigger_check",
+            lambda r: r["trigger"] in ("manual", "autopay"),
+        ),
+        (
             "payment_runs_steps_check",
             lambda r: isinstance(r["steps"], list),
         ),
@@ -119,7 +124,22 @@ CHECKS: dict[str, list[tuple[str, Callable[[dict[str, Any]], bool]]]] = {
             ),
         ),
     ],
+    # Migration 20261117140000_autopay.
+    "autopay_settings": [
+        (
+            "autopay_settings_limit_positive",
+            lambda r: r["limit_amount"] is None or Decimal(str(r["limit_amount"])) > 0,
+        ),
+        (
+            "autopay_settings_limit_when_enabled",
+            lambda r: not r["enabled"] or r["limit_amount"] is not None,
+        ),
+    ],
 }
+
+# Tables whose set_updated_at trigger the fake mirrors: an update stamps
+# updated_at with the time of the update.
+STAMPS_UPDATED_AT = {"autopay_settings"}
 
 # alias:table!fk_column(col,col)
 EMBED = re.compile(r"(\w+):(\w+)!(\w+)\(([\w,]+)\)")
@@ -219,6 +239,7 @@ def _insert_defaults(table: str) -> dict[str, Any]:
     if table == "payment_runs":
         return {
             "run_id": str(uuid4()),
+            "trigger": "manual",
             "status": "queued",
             "steps": [],
             "flag_reason": None,
@@ -443,6 +464,8 @@ class _Query:
 
                 for row in rows:
                     row.update(self._payload or {})
+                    if self._table in STAMPS_UPDATED_AT:
+                        row["updated_at"] = datetime.now(UTC).isoformat()
 
             if self._op == "delete":
                 for row in rows:
@@ -673,6 +696,7 @@ AUDITED_TABLES: dict[str, tuple[str, str | None]] = {
     "vendor_accounts": ("account_id", None),
     "properties": ("property_id", None),
     "app_users": ("user_id", None),
+    "autopay_settings": ("id", None),
 }
 
 # The columns audit.mask hides, on every audited table.
@@ -733,6 +757,17 @@ class FakeSupabase:
         self.fail_vault_writes = False
         # Names of the functions called through rpc(), in order.
         self.rpc_calls: list[str] = []
+        # The one autopay row, seeded by migration 20261117140000_autopay:
+        # off, no limit, never changed.
+        self.tables["autopay_settings"] = [
+            {
+                "id": True,
+                "enabled": False,
+                "limit_amount": None,
+                "updated_by": None,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        ]
         # audit.record_changes, oldest first. Written by `capture_change`
         # (the audit.capture trigger's twin), read by the audit_* twins.
         self.audit_log: list[dict[str, Any]] = []

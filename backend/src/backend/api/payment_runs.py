@@ -6,24 +6,23 @@ vendor's portal. Who may read a run follows the bill read rule: a run is
 visible exactly when its bill is.
 """
 
+from typing import assert_never
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from backend.api.payments import not_approved_detail
 from backend.auth import PAYMENT_WRITERS, CurrentUser, require_active
-from backend.schemas.bill import BillRead, BillStatus
-from backend.schemas.payment_run import PaymentRunRead
+from backend.schemas.bill import BillRead
+from backend.schemas.payment_run import PaymentRunRead, PaymentRunTrigger
 from backend.services.bill_access import BILL_READERS
 from backend.services.bill_repository import get_readable_bill
-from backend.services.payment_run_repository import (
-    RunAlreadyActive,
-    get_run,
-    list_bill_runs,
-    new_step,
-    queue_run,
+from backend.services.payment_run_queue import (
+    RunNotQueued,
+    RunRefusal,
+    queue_payment_run,
 )
-from backend.services.vendor_account_repository import get_account
+from backend.services.payment_run_repository import get_run, list_bill_runs
 from backend.supabase_client import get_admin_supabase
 from supabase import Client
 
@@ -43,31 +42,36 @@ def _readable_bill(client: Client, bill_id: UUID, user: CurrentUser) -> BillRead
     return bill
 
 
-def _unprocessable(detail: str) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail
+def _refusal_error(refusal: RunRefusal, bill: BillRead) -> HTTPException:
+    """409 when the bill's state says no, 422 when its vendor account needs
+    work first."""
+    conflict, unprocessable = (
+        status.HTTP_409_CONFLICT,
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
     )
-
-
-def _require_portal_login(client: Client, bill: BillRead) -> None:
-    """The agent needs the matched, active account's portal URL, email and
-    password. Only whether a password is set is read here, never the password."""
-    if bill.vendor_account_id is None:
-        raise _unprocessable("This bill isn't matched to a vendor account.")
-    account = get_account(client, bill.vendor_account_id)
-    if account is None:
-        raise _unprocessable("This bill isn't matched to a vendor account.")
-    if account["status"] != "active":
-        raise _unprocessable("This bill's vendor account is inactive.")
-    if not (
-        account["portal_url"]
-        and account["portal_login_email"]
-        and account["portal_password_set"]
-    ):
-        raise _unprocessable(
-            "The vendor account has no portal login. "
-            "Add the portal URL, email and password first."
-        )
+    match refusal:
+        case RunRefusal.not_approved:
+            return HTTPException(conflict, not_approved_detail(bill.status))
+        case RunRefusal.run_active:
+            return HTTPException(
+                conflict, "A payment run is already in progress for this bill."
+            )
+        case RunRefusal.no_vendor_account:
+            return HTTPException(
+                unprocessable, "This bill isn't matched to a vendor account."
+            )
+        case RunRefusal.account_inactive:
+            return HTTPException(
+                unprocessable, "This bill's vendor account is inactive."
+            )
+        case RunRefusal.no_portal_login:
+            return HTTPException(
+                unprocessable,
+                "The vendor account has no portal login. "
+                "Add the portal URL, email and password first.",
+            )
+        case _:
+            assert_never(refusal)
 
 
 @router.post(
@@ -83,25 +87,16 @@ def start_payment_run(
     client = get_admin_supabase()
     bill = _readable_bill(client, bill_id, user)
 
-    if bill.status is not BillStatus.approved:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=not_approved_detail(bill.status),
-        )
-    _require_portal_login(client, bill)
-
     try:
-        return queue_run(
+        return queue_payment_run(
             client,
-            bill_id=bill_id,
+            bill,
             started_by=user.id,
-            first_step=new_step("queued", f"Queued by {user.full_name}."),
+            trigger=PaymentRunTrigger.manual,
+            first_step=f"Queued by {user.full_name}.",
         )
-    except RunAlreadyActive as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A payment run is already in progress for this bill.",
-        ) from exc
+    except RunNotQueued as exc:
+        raise _refusal_error(exc.refusal, bill) from exc
 
 
 @router.get("/bills/{bill_id}/payment-runs", response_model=list[PaymentRunRead])
