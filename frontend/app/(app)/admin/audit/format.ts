@@ -8,6 +8,7 @@ export const TABLE_LABELS: Record<AuditTable, string> = {
   vendor_accounts: "Vendor accounts",
   properties: "Properties",
   app_users: "Users",
+  autopay_settings: "Autopay settings",
 };
 
 export const ACTION_LABELS: Record<AuditAction, string> = {

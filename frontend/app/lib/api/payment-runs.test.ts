@@ -12,6 +12,7 @@ const run = {
   bill_id: "bill-1",
   started_by: "user-1",
   started_by_name: "Pat Lee",
+  trigger: "manual",
   status: "queued",
   steps: [{ at: "2026-11-15T15:00:00Z", step: "queued", detail: "Queued by Pat Lee." }],
   flag_reason: null,

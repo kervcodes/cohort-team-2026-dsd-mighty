@@ -184,17 +184,17 @@ describe("AuditPage", () => {
       expect(cells.getByText("status")).toBeInTheDocument();
     });
 
-    it("names a table it does not know and shows no record for a settings row", async () => {
+    it("names a table it does not know and shows no record id as a dash", async () => {
       mockListChanges.mockResolvedValue({
-        items: [change({ table: "autopay_settings", record_id: null, bill_id: null })],
+        items: [change({ table: "invoice_notes", record_id: null, bill_id: null })],
         next_before_id: null,
       });
       openAt();
 
       const row = (await screen.findByText("Try Approver", { selector: "td" })).closest("tr");
       const cells = within(row as HTMLElement);
-      expect(cells.getByText("Autopay settings")).toBeInTheDocument();
-      expect(cells.queryByText("True")).not.toBeInTheDocument();
+      expect(cells.getByText("Invoice notes")).toBeInTheDocument();
+      expect(cells.getByText("-", { selector: "td" })).toBeInTheDocument();
     });
 
     it("shows System when there is no actor", async () => {
@@ -348,6 +348,7 @@ describe("AuditPage", () => {
         "Vendor accounts",
         "Properties",
         "Users",
+        "Autopay settings",
       ]);
     });
 

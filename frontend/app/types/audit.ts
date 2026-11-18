@@ -9,6 +9,7 @@ export const auditTables = [
   "vendor_accounts",
   "properties",
   "app_users",
+  "autopay_settings",
 ] as const;
 export type AuditTable = (typeof auditTables)[number];
 

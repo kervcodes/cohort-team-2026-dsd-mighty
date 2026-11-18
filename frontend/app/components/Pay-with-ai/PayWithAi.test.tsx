@@ -39,6 +39,7 @@ function run(overrides: Partial<PaymentRun> = {}): PaymentRun {
     bill_id: "bill-1",
     started_by: "user-pat",
     started_by_name: "Pat Lee",
+    trigger: "manual",
     status: "queued",
     steps: [QUEUED_STEP],
     flag_reason: null,
@@ -549,6 +550,56 @@ describe("on load", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading payment runs...");
     expect(screen.queryByRole("button", { name: "Pay with AI" })).not.toBeInTheDocument();
+  });
+});
+
+describe("autopay runs", () => {
+  const AUTOPAY_LINE = "Autopay started this run after approval.";
+  const autopayStep = step("queued", "Queued by autopay after approval by Pat Lee.");
+
+  it("says autopay started the latest run, and follows it live", async () => {
+    mockList.mockResolvedValue([run({ trigger: "autopay", steps: [autopayStep] })]);
+    mockGet.mockResolvedValue(run({ trigger: "autopay", status: "running" }));
+    renderPay();
+
+    const region = liveRegion();
+    expect(await within(region).findByText(AUTOPAY_LINE)).toBeInTheDocument();
+    // Started by autopay, not by the approver whose name is in the first step.
+    expect(within(region).getByText(/^Started /)).not.toHaveTextContent(/ by /);
+    expect(within(region).getByText(autopayStep.detail)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pay with AI" })).not.toBeInTheDocument();
+
+    await advance(2000);
+    expect(mockGet).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
+    expect(within(region).getByText("Paying on the portal")).toBeInTheDocument();
+    expect(within(region).getByText(AUTOPAY_LINE)).toBeInTheDocument();
+  });
+
+  it("says so for an earlier autopay run too", async () => {
+    const earlierAutopay = run({
+      id: "run-0",
+      trigger: "autopay",
+      status: "flagged",
+      flag_reason: "The portal does not list INV-1. Nothing was paid.",
+      created_at: "2026-11-14T09:00:00Z",
+      finished_at: "2026-11-14T09:01:00Z",
+    });
+    mockList.mockResolvedValue([paidRun, earlierAutopay]);
+    renderPay();
+
+    await screen.findByText("CONF-778");
+    const history = screen.getByRole("heading", { name: "Earlier runs" })
+      .parentElement as HTMLElement;
+    expect(within(history).getByText(AUTOPAY_LINE)).toBeInTheDocument();
+    expect(within(liveRegion()).queryByText(AUTOPAY_LINE)).not.toBeInTheDocument();
+  });
+
+  it("never says it for a run someone started", async () => {
+    mockList.mockResolvedValue([paidRun, run({ id: "run-0", status: "failed" })]);
+    renderPay();
+
+    await screen.findByText("CONF-778");
+    expect(screen.queryByText(AUTOPAY_LINE)).not.toBeInTheDocument();
   });
 });
 
