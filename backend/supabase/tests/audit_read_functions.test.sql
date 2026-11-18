@@ -7,7 +7,7 @@
 
 begin;
 
-select plan(46);
+select plan(48);
 
 -- 1. WIRING
 
@@ -485,7 +485,7 @@ select results_eq(
         where bill_id = '20000000-0000-4000-8000-0000000000f1'
         order by id desc
     $$,
-    'audit_changes returns the rows exactly as stored'
+    'audit_changes returns the stored rows unchanged'
 );
 
 select results_eq(
@@ -501,7 +501,7 @@ select results_eq(
         where bill_id = '20000000-0000-4000-8000-0000000000f1'
         order by id
     $$,
-    'audit_bill_changes returns the rows exactly as stored'
+    'audit_bill_changes returns the stored rows unchanged'
 );
 
 -- 9. BROWSER ROLES ARE REFUSED
@@ -548,6 +548,41 @@ select is(
 );
 
 reset role;
+
+-- 9. ROWS WRITTEN BEFORE A COLUMN WAS MASKED
+
+-- A vendor account change logged before portal_password_secret_id joined
+-- audit.mask (20261118100500) holds the full Vault id. Both functions mask
+-- it on read.
+insert into audit.record_changes (
+    table_schema, table_name, op, record_pk, bill_id, old_row, new_row,
+    changed_cols, actor_role
+)
+values (
+    'public', 'vendor_accounts', 'UPDATE', '{"account_id": "a1"}',
+    '20000000-0000-4000-8000-0000000000f9',
+    '{"portal_password_secret_id": null}',
+    '{"portal_password_secret_id": "7d2c4e1a-9b3f-4c8d-a1e2-5f6a7b8c1c90"}',
+    array['portal_password_secret_id'], 'service_role'
+);
+
+select is(
+    (
+        select new_row ->> 'portal_password_secret_id'
+        from public.audit_changes(p_bill_id => '20000000-0000-4000-8000-0000000000f9')
+    ),
+    '****1c90',
+    'audit_changes masks a secret id stored before it was masked'
+);
+
+select is(
+    (
+        select new_row ->> 'portal_password_secret_id'
+        from public.audit_bill_changes('20000000-0000-4000-8000-0000000000f9')
+    ),
+    '****1c90',
+    'audit_bill_changes masks a secret id stored before it was masked'
+);
 
 select * from finish();
 

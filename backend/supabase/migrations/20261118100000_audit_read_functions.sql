@@ -6,8 +6,12 @@
 -- functions are the backend's only way to read it: only the service role may
 -- call them, and the backend serves them to active admins only.
 --
--- Rows come back exactly as stored. old_row and new_row were masked by
--- audit.mask when they were written; nothing here unmasks or adds to them.
+-- Rows come back as stored, with old_row and new_row passed through
+-- audit.mask once more. They were masked when they were written; masking
+-- again is a no-op for those values and covers rows written before a column
+-- joined the masked list (portal_password_secret_id,
+-- 20261118100500_audit_mask_portal_secret_id). Nothing here unmasks or adds
+-- to a row.
 -- The only extra column is the actor's current full name from app_users (null
 -- when there is no actor or the user is gone).
 --
@@ -103,8 +107,8 @@ begin
         c.op,
         c.record_pk,
         c.bill_id,
-        c.old_row,
-        c.new_row,
+        audit.mask(c.old_row),
+        audit.mask(c.new_row),
         c.changed_cols,
         c.actor_id,
         c.actor_role,
@@ -157,8 +161,8 @@ begin
         r.op,
         r.record_pk,
         r.bill_id,
-        r.old_row,
-        r.new_row,
+        audit.mask(r.old_row),
+        audit.mask(r.new_row),
         r.changed_cols,
         r.actor_id,
         r.actor_role,

@@ -685,6 +685,7 @@ MASKED_COLUMNS = frozenset(
         "tax_id",
         "ein",
         "ssn",
+        "portal_password_secret_id",
     }
 )
 
@@ -1261,6 +1262,9 @@ class FakeSupabase:
         # the actor's current full name.
         user = self.find("app_users", "user_id", row["actor_id"])
         result = {k: v for k, v in row.items() if k != "table_schema"}
+        # Masked again on read, as the functions do.
+        result["old_row"] = audit_mask(row["old_row"])
+        result["new_row"] = audit_mask(row["new_row"])
         result["actor_name"] = user["full_name"] if user else None
         return result
 

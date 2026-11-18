@@ -253,6 +253,41 @@ def test_masked_values_come_back_masked(db, admin):
     assert "456700" not in response.text
 
 
+def test_rows_stored_before_a_column_was_masked_come_back_masked(db, admin):
+    # A vendor account change logged before portal_password_secret_id joined
+    # audit.mask holds the full Vault id; both routes mask it on read.
+    secret_id = "7d2c4e1a-9b3f-4c8d-a1e2-5f6a7b8c1c90"
+    bill_id = str(uuid4())
+    db.audit_log.append(
+        {
+            "id": 1,
+            "table_schema": "public",
+            "table_name": "vendor_accounts",
+            "op": "UPDATE",
+            "record_pk": {"account_id": "a1"},
+            "bill_id": bill_id,
+            "old_row": {"portal_password_secret_id": None},
+            "new_row": {"portal_password_secret_id": secret_id},
+            "changed_cols": ["portal_password_secret_id"],
+            "actor_id": None,
+            "actor_role": "service_role",
+            "occurred_at": "2026-11-16T21:06:00+00:00",
+        }
+    )
+    db.tables.setdefault("bills", []).append({"bill_id": bill_id})
+
+    changes = admin.get("/audit/changes")
+    history = admin.get(f"/bills/{bill_id}/history")
+
+    assert changes.json()["items"][0]["after"] == {
+        "portal_password_secret_id": "****1c90"
+    }
+    for response in (changes, history):
+        assert response.status_code == 200
+        assert secret_id not in response.text
+        assert "5f6a7b8c" not in response.text
+
+
 def test_a_table_audited_later_is_still_listed(db, admin):
     # A table the triggers start watching after this API was written: the
     # unfiltered list serves its rows rather than failing validation.
