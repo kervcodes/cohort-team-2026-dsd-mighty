@@ -16,6 +16,11 @@ plaintext secrets; each mirrors its migration, including the SQLSTATE and
 DETAIL of every refusal. Each call is one transaction, as through PostgREST:
 if the twin raises, every table row and Vault secret it changed is put back.
 
+The audit log is `audit_log`: `capture_change` is the twin of the
+audit.capture trigger (masking included) and `_rpc_audit_changes` /
+`_rpc_audit_bill_changes` the twins of the functions that read it. Table
+writes do not capture changes by themselves; tests capture the ones they seed.
+
 Supports only the query shapes the repositories use. Helpers, not tests.
 """
 
@@ -659,6 +664,50 @@ APPROVAL_BILL_FIELDS = (
 )
 
 
+# table -> (primary key column, bill id column), the audit triggers' arguments.
+AUDITED_TABLES: dict[str, tuple[str, str | None]] = {
+    "bills": ("bill_id", "bill_id"),
+    "approvals": ("approval_id", "bill_id"),
+    "payments": ("payment_id", "bill_id"),
+    "vendors": ("vendor_id", None),
+    "vendor_accounts": ("account_id", None),
+    "properties": ("property_id", None),
+    "app_users": ("user_id", None),
+}
+
+# The columns audit.mask hides, on every audited table.
+MASKED_COLUMNS = frozenset(
+    {
+        "account_number",
+        "account_number_raw",
+        "bank_account_number",
+        "routing_number",
+        "tax_id",
+        "ein",
+        "ssn",
+    }
+)
+
+
+def audit_mask(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Twin of audit.mask: a masked column's string value keeps only its last
+    four characters behind `****` (just `****` when it has four or fewer)."""
+    if row is None:
+        return None
+    return {
+        key: (
+            "****" + (value[-4:] if len(value) > 4 else "")
+            if key in MASKED_COLUMNS and isinstance(value, str)
+            else value
+        )
+        for key, value in row.items()
+    }
+
+
+def _utc_midnight(day: str) -> datetime:
+    return datetime.fromisoformat(day).replace(tzinfo=UTC)
+
+
 def _invalid(message: str) -> APIError:
     return APIError({"code": "22023", "message": message})
 
@@ -683,6 +732,9 @@ class FakeSupabase:
         self.fail_vault_writes = False
         # Names of the functions called through rpc(), in order.
         self.rpc_calls: list[str] = []
+        # audit.record_changes, oldest first. Written by `capture_change`
+        # (the audit.capture trigger's twin), read by the audit_* twins.
+        self.audit_log: list[dict[str, Any]] = []
 
     def table(self, name: str) -> _Query:
         return _Query(self, name)
@@ -1152,6 +1204,111 @@ class FakeSupabase:
     # ------------------------------------------------------------------
     # Payment RPC twins
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Audit log (migrations 20261110180000_create_audit_trail and
+    # 20261118100000_audit_read_functions)
+    # ------------------------------------------------------------------
+
+    def capture_change(
+        self,
+        table: str,
+        op: str,
+        *,
+        old: dict[str, Any] | None = None,
+        new: dict[str, Any] | None = None,
+        actor_id: str | None = None,
+        actor_role: str = "service_role",
+        occurred_at: datetime | None = None,
+    ) -> dict[str, Any] | None:
+        """Twin of the audit.capture trigger: append the log row a change of
+        `table` writes, masked by `audit_mask`. Tests call it for the changes
+        they seed, as the trigger would. Returns None, writing nothing, for an
+        update that changes nothing but updated_at."""
+        pk_column, bill_column = AUDITED_TABLES[table]
+        changed = None
+        if op == "UPDATE":
+            assert old is not None and new is not None
+            changed = sorted(
+                key
+                for key, value in new.items()
+                if key != "updated_at" and old.get(key) != value
+            )
+            if not changed:
+                return None
+        row_data = new if new is not None else old
+        assert row_data is not None
+        bill_id = row_data.get(bill_column) if bill_column else None
+        row = {
+            "id": len(self.audit_log) + 1,
+            "table_schema": "public",
+            "table_name": table,
+            "op": op,
+            "record_pk": {pk_column: row_data.get(pk_column)},
+            "bill_id": None if bill_id is None else str(bill_id),
+            "old_row": audit_mask(old),
+            "new_row": audit_mask(new),
+            "changed_cols": changed,
+            "actor_id": actor_id,
+            "actor_role": actor_role,
+            "occurred_at": (occurred_at or datetime.now(UTC)).isoformat(),
+        }
+        self.audit_log.append(row)
+        return row
+
+    def _with_actor_name(self, row: dict[str, Any]) -> dict[str, Any]:
+        # The functions return every column but table_schema and txid, plus
+        # the actor's current full name.
+        user = self.find("app_users", "user_id", row["actor_id"])
+        result = {k: v for k, v in row.items() if k != "table_schema"}
+        result["actor_name"] = user["full_name"] if user else None
+        return result
+
+    def _rpc_audit_changes(
+        self,
+        p_table: str | None = None,
+        p_actor_id: str | None = None,
+        p_bill_id: str | None = None,
+        p_from: str | None = None,
+        p_to: str | None = None,
+        p_before_id: int | None = None,
+        p_limit: int | None = 50,
+    ) -> list[dict[str, Any]]:
+        if p_limit is None or not 1 <= p_limit <= 100:
+            raise _invalid("limit must be between 1 and 100")
+        if p_table is not None and p_table not in AUDITED_TABLES:
+            raise _invalid(f"unknown audited table: {p_table}")
+
+        start = None if p_from is None else _utc_midnight(p_from)
+        end = None if p_to is None else _utc_midnight(p_to) + timedelta(days=1)
+
+        def matches(row: dict[str, Any]) -> bool:
+            at = datetime.fromisoformat(row["occurred_at"])
+            return (
+                (p_table is None or row["table_name"] == p_table)
+                and (p_actor_id is None or row["actor_id"] == p_actor_id)
+                and (p_bill_id is None or row["bill_id"] == p_bill_id)
+                and (start is None or at >= start)
+                and (end is None or at < end)
+                and (p_before_id is None or row["id"] < p_before_id)
+            )
+
+        newest_first = sorted(self.audit_log, key=lambda row: -row["id"])
+        candidates = [row for row in newest_first if matches(row)][: p_limit + 1]
+        has_more = len(candidates) > p_limit
+        return [
+            {**self._with_actor_name(row), "has_more": has_more}
+            for row in candidates[:p_limit]
+        ]
+
+    def _rpc_audit_bill_changes(self, p_bill_id: str | None) -> list[dict[str, Any]]:
+        if p_bill_id is None:
+            raise _invalid("bill id is required")
+        return [
+            self._with_actor_name(row)
+            for row in sorted(self.audit_log, key=lambda row: row["id"])
+            if row["bill_id"] == p_bill_id
+        ]
 
     def _rpc_record_payment(self, **params: Any) -> dict[str, Any]:
         return _record_payment(self, params)

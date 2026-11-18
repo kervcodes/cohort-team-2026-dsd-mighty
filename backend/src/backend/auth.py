@@ -30,6 +30,9 @@ PROPERTY_WRITERS = (UserRole.admin,)
 USER_READERS = (UserRole.admin,)
 USER_EDITORS = (UserRole.admin,)
 
+# Who may read the audit log (GET /audit/changes, GET /bills/{id}/history).
+AUDIT_READERS = (UserRole.admin,)
+
 
 class CurrentUser(MeRead):
     """The signed-in caller: the same fields `GET /me` returns."""

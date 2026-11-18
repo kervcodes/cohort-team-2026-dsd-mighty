@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.api.approvals import router as approvals_router
+from backend.api.audit import router as audit_router
 from backend.api.bill_documents import router as bill_documents_router
 from backend.api.bill_extraction import router as bill_extraction_router
 from backend.api.bills import router as bills_router
@@ -83,6 +84,7 @@ app.include_router(properties_router)
 app.include_router(bill_documents_router)
 app.include_router(me_router)
 app.include_router(users_router)
+app.include_router(audit_router)
 app.include_router(health_router)
 
 
