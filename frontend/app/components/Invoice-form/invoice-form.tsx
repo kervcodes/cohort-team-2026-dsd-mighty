@@ -270,6 +270,8 @@ function InvoiceFormVisit({
       return;
     }
 
+    const invoiceId = openedId;
+
     let cancelled = false;
 
     async function loadRejectedInvoice() {
@@ -277,7 +279,7 @@ function InvoiceFormVisit({
       setResubmissionError(null);
 
       try {
-        const bill = await getBill(openedId);
+        const bill = await getBill(invoiceId);
 
         if (cancelled) return;
 
