@@ -47,6 +47,7 @@ export default function AdminPage() {
 
   const invoiceSummary = `${COPY.summaryInvoiceMax}: $${form.invoice_maximum}`;
   const approvalsSummary = `${COPY.summaryMinApprovals}: ${form.min_approvals}`;
+  const hasChanges = form.invoice_maximum !== "5000.00" || form.min_approvals !== "1";
 
   return (
     <div className="space-y-6">
@@ -80,8 +81,10 @@ export default function AdminPage() {
         {message && <span className="text-sm text-success">{message}</span>}
         <button
           type="button"
+          disabled={!hasChanges}
+          aria-disabled={!hasChanges}
           onClick={handleSaveClick}
-          className="rounded bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="rounded bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ring !disabled:cursor-not-allowed !disabled:opacity-50"
         >
           {COPY.save}
         </button>
