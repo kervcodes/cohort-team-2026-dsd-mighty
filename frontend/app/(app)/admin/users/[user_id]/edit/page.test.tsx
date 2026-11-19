@@ -42,7 +42,7 @@ jest.mock("@/components/ConfirmModal/ConfirmModal", () => ({
         <h2>{title}</h2>
         {children}
         <button type="button" onClick={onCancel}>
-          Cancel confirmation
+          {"Cancel confirmation"}
         </button>
         <button type="button" onClick={onConfirm}>
           {confirmLabel}

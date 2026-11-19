@@ -121,7 +121,7 @@ describe("AdminLayoutContent", () => {
 
       render(
         <AdminLayoutContent>
-          <p>Users content</p>
+          <p>{"Users content"}</p>
         </AdminLayoutContent>,
       );
 

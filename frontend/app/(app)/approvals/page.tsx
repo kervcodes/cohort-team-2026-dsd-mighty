@@ -88,7 +88,7 @@ export default function ApprovalsPage() {
     return (
       <main className="mx-auto max-w-6xl pt-16">
         <p role="status" className="text-sm text-foreground-muted">
-          Loading account...
+          {"Loading account..."}
         </p>
       </main>
     );
@@ -97,12 +97,12 @@ export default function ApprovalsPage() {
   if (!canReview) {
     return (
       <main className="mx-auto max-w-6xl space-y-4 pt-16">
-        <h1 className="text-2xl font-semibold">Approvals</h1>
+        <h1 className="text-2xl font-semibold">{"Approvals"}</h1>
         <p role="alert" className="text-sm text-red-600">
-          You do not have permission to view approvals.
+          {"You do not have permission to view approvals."}
         </p>
         <Link href="/dashboard" className="text-sm font-medium text-primary hover:underline">
-          Back to dashboard
+          {"Back to dashboard"}
         </Link>
       </main>
     );
@@ -111,13 +111,15 @@ export default function ApprovalsPage() {
   return (
     <main className="mx-auto max-w-6xl space-y-6 pt-16">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground">Approval Queue</h1>
-        <p className="mt-1 text-sm text-foreground-muted">Review invoices awaiting approval.</p>
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+          {"Approval Queue"}
+        </h1>
+        <p className="mt-1 text-sm text-foreground-muted">{"Review invoices awaiting approval."}</p>
       </div>
 
       {loading && (
         <p role="status" className="text-sm text-foreground-muted">
-          Loading pending approvals...
+          {"Loading pending approvals..."}
         </p>
       )}
 
@@ -129,9 +131,9 @@ export default function ApprovalsPage() {
 
       {!loading && !error && items.length === 0 && (
         <section className="rounded-xl border border-border bg-surface p-8 text-center">
-          <h2 className="font-semibold text-foreground">No pending approvals</h2>
+          <h2 className="font-semibold text-foreground">{"No pending approvals"}</h2>
           <p className="mt-2 text-sm text-foreground-muted">
-            You're all caught up. New invoices awaiting review will appear here.
+            {"You're all caught up. New invoices awaiting review will appear here."}
           </p>
         </section>
       )}
@@ -142,12 +144,12 @@ export default function ApprovalsPage() {
             <table className="w-full text-left text-sm">
               <thead className="border-b border-border bg-surface-secondary text-foreground-muted">
                 <tr>
-                  <th className="px-6 py-4 font-medium">Invoice</th>
-                  <th className="px-6 py-4 font-medium">Vendor</th>
-                  <th className="px-6 py-4 font-medium">Property</th>
-                  <th className="px-6 py-4 font-medium">Amount</th>
-                  <th className="px-6 py-4 font-medium">Submitted</th>
-                  <th className="px-6 py-4 font-medium">Status</th>
+                  <th className="px-6 py-4 font-medium">{"Invoice"}</th>
+                  <th className="px-6 py-4 font-medium">{"Vendor"}</th>
+                  <th className="px-6 py-4 font-medium">{"Property"}</th>
+                  <th className="px-6 py-4 font-medium">{"Amount"}</th>
+                  <th className="px-6 py-4 font-medium">{"Submitted"}</th>
+                  <th className="px-6 py-4 font-medium">{"Status"}</th>
                 </tr>
               </thead>
 
@@ -179,7 +181,7 @@ export default function ApprovalsPage() {
                       <td className="px-6 py-4">
                         {requiresAdmin ? (
                           <span className="text-xs font-medium text-amber-700">
-                            Admin review required
+                            {"Admin review required"}
                           </span>
                         ) : (
                           <StatusBadge status={bill.status} />

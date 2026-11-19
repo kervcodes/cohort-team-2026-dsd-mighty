@@ -39,6 +39,7 @@ export default function AdminUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt re-runs the fetch on retry
   useEffect(() => {
     if (!canViewUsers) return;
 
@@ -63,7 +64,7 @@ export default function AdminUsersPage() {
     return () => {
       cancelled = true;
     };
-  }, [attempt, canViewUsers]);
+  }, [canViewUsers, attempt]);
 
   function retry() {
     setError(null);

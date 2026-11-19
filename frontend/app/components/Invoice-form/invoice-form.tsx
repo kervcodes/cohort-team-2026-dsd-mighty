@@ -5,57 +5,27 @@ import { FileCheck, FileUp, LoaderCircle } from "lucide-react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { type DragEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
+
 import Button from "@/components/Button";
 import { FormField, inputClass } from "@/components/Form-field/form-field";
-import {
-  extractBill,
-  getBill,
-  getBillDraft,
-  resubmitBill,
-  saveBillDraft,
-  submitBill,
-  updateBillDraft,
-  uploadInvoicePdf,
-} from "@/lib/api/bills";
-import { ApiError } from "@/lib/api/http";
-import {
-  clearedValues,
-  type ExtractedFormField,
-  type ExtractionBanner,
-  errorBanner,
-  type FieldValues,
-  planFill,
-  READING_MESSAGE,
-} from "@/lib/extraction";
+
+import { type StoredPdf, useInvoiceDraft } from "@/hooks/invoices/useInvoiceDraft";
+import { useInvoiceExtraction } from "@/hooks/invoices/useInvoiceExtraction";
+import { createBillPayload, useInvoiceSubmission } from "@/hooks/invoices/useInvoiceSubmission";
+
+import { getBill, resubmitBill } from "@/lib/api/bills";
+import type { ExtractionBanner } from "@/lib/extraction";
 import {
   accountStatuses,
   emptyInvoiceForm,
-  type InvoiceDraftFormValues,
   type InvoiceFormValues,
-  invoiceDraftFormSchema,
   invoiceFormSchema,
 } from "@/lib/invoice-form-schema";
-import type { Bill, BillCreatePayload, BillDraftDetail, BillDraftPayload } from "@/types/bill";
+import type { Bill } from "@/types/bill";
+
 import { VendorAccountField } from "./vendor-account-field";
 
 type ActionStatus = "idle" | "loading" | "success" | "error";
-
-type UnansweredSubmit = {
-  payload: string;
-  pdf: File | null;
-};
-
-const ALREADY_SUBMITTED_DETAIL = "This bill has already been submitted.";
-
-const ALREADY_SUBMITTED_MESSAGE =
-  "This bill was already sent for approval with the earlier values, so your latest changes weren't saved. Open it from the dashboard to check what was sent.";
-
-type StoredPdf = { kind: "none" } | { kind: "earlier" } | { kind: "file"; file: File };
-
-type ReaderState =
-  | { phase: "idle" }
-  | { phase: "reading" }
-  | { phase: "done"; banner: ExtractionBanner };
 
 const bannerTones: Record<ExtractionBanner["tone"], string> = {
   success: "border-paid/30 bg-paid-bg text-paid",
@@ -70,6 +40,7 @@ function ExtractionNotice({ banner }: { banner: ExtractionBanner }) {
       className={`mt-4 rounded-lg border p-3 text-left text-sm ${bannerTones[banner.tone]}`}
     >
       <p>{banner.message}</p>
+
       {banner.details.length > 0 && (
         <ul className="mt-1 list-disc space-y-0.5 pl-5">
           {banner.details.map((detail) => (
@@ -86,7 +57,7 @@ function pdfStorageNote(
   picked: File | null,
 ): { tone: "stored" | "pending"; message: string } | null {
   if (picked && !(stored.kind === "file" && stored.file === picked)) {
-    const action = stored.kind === "none" ? "is stored" : "replaces the stored PDF";
+    const action = stored.kind === "none" ? "will be stored" : "will replace the stored PDF";
 
     return {
       tone: "pending",
@@ -97,14 +68,14 @@ function pdfStorageNote(
   if (stored.kind === "file") {
     return {
       tone: "stored",
-      message: `Stored with this invoice: ${stored.file.name}`,
+      message: `Stored PDF: ${stored.file.name}`,
     };
   }
 
   if (stored.kind === "earlier") {
     return {
       tone: "stored",
-      message: "A PDF is already stored with this invoice.",
+      message: "An existing PDF is stored with this invoice.",
     };
   }
 
@@ -115,30 +86,8 @@ type InvoiceFormProps = {
   isResubmission?: boolean;
 };
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
-
 function isPdf(file: File): boolean {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-}
-
-function mapDraftToFormValues(draft: BillDraftDetail): InvoiceFormValues {
-  return {
-    accountNumber: draft.account_number_raw ?? "",
-    statementId: draft.invoice_number ?? "",
-    companyName: draft.vendor_name_raw ?? "",
-    issueDate: draft.invoice_date ?? "",
-    dueDate: draft.due_date ?? "",
-    currentDue: String(draft.amount ?? ""),
-    previousPayments: String(draft.prev_payments ?? ""),
-    description: draft.description ?? "",
-    notes: draft.processing_notes ?? "",
-    propertyAddress: draft.property_address ?? "",
-    accountStatus: draft.account_status ?? "",
-    websiteName: draft.website_name ?? "",
-    vendorAccountId: draft.vendor_account_picked ? (draft.vendor_account_id ?? "") : "",
-  };
 }
 
 function mapBillToFormValues(bill: Bill): InvoiceFormValues {
@@ -159,42 +108,6 @@ function mapBillToFormValues(bill: Bill): InvoiceFormValues {
   };
 }
 
-function draftPayload(values: InvoiceDraftFormValues): BillDraftPayload {
-  return {
-    account_number_raw: values.accountNumber || null,
-    invoice_number: values.statementId || null,
-    vendor_name_raw: values.companyName || null,
-    invoice_date: values.issueDate || null,
-    due_date: values.dueDate || null,
-    amount: values.currentDue || null,
-    prev_payments: values.previousPayments || null,
-    description: values.description || null,
-    processing_notes: values.notes || null,
-    property_address: values.propertyAddress || null,
-    account_status: values.accountStatus || null,
-    website_name: values.websiteName || null,
-    vendor_account_id: values.vendorAccountId || null,
-  };
-}
-
-function createPayload(values: InvoiceFormValues): BillCreatePayload {
-  return {
-    account_number_raw: values.accountNumber.trim(),
-    invoice_number: values.statementId.trim(),
-    vendor_name_raw: values.companyName.trim() || undefined,
-    invoice_date: values.issueDate,
-    due_date: values.dueDate,
-    amount: values.currentDue.trim(),
-    prev_payments: values.previousPayments.trim() || undefined,
-    description: values.description.trim() || undefined,
-    processing_notes: values.notes.trim() || undefined,
-    property_address: values.propertyAddress,
-    account_status: values.accountStatus || undefined,
-    website_name: values.websiteName || undefined,
-    vendor_account_id: values.vendorAccountId || undefined,
-  };
-}
-
 const DRAFT_PATH = /^\/invoices\/([^/]+)\/edit\/?$/;
 
 function draftPath(draftId: string): string {
@@ -209,6 +122,7 @@ function draftIdFromPath(pathname: string): string | null {
 export function InvoiceForm({ isResubmission = false }: InvoiceFormProps) {
   const pathname = usePathname();
   const [visit, setVisit] = useState(0);
+
   const shownPath = useRef(pathname);
   const ownPath = useRef<string | null>(null);
 
@@ -228,6 +142,7 @@ export function InvoiceForm({ isResubmission = false }: InvoiceFormProps) {
 
   function showDraftUrl(draftId: string) {
     const path = draftPath(draftId);
+
     ownPath.current = path;
     window.history.replaceState(null, "", path);
   }
@@ -257,28 +172,22 @@ function InvoiceFormVisit({
   const params = useParams<{ invoiceId?: string }>();
 
   const routeInvoiceId = isResubmission ? (params.invoiceId ?? null) : null;
+
   const [openedId] = useState(isResubmission ? routeInvoiceId : initialDraftId);
-  const [draftId, setDraftId] = useState(initialDraftId);
 
   const [submitError, setSubmitError] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [storedPdf, setStoredPdf] = useState<StoredPdf>({ kind: "none" });
+  const [storedPdf, setStoredPdf] = useState<StoredPdf>({
+    kind: "none",
+  });
   const [fileError, setFileError] = useState("");
-  const [draftMessage, setDraftMessage] = useState("");
-  const [draftStatus, setDraftStatus] = useState<ActionStatus>("idle");
-  const [isLoadingDraft, setIsLoadingDraft] = useState(openedId !== null);
-  const [draftLoadError, setDraftLoadError] = useState<string | null>(null);
-
-  const [createStatus, setCreateStatus] = useState<ActionStatus>("idle");
-  const unansweredSubmits = useRef<UnansweredSubmit[]>([]);
-
   const [isDragging, setIsDragging] = useState(false);
+
+  const [resubmitStatus, setResubmitStatus] = useState<ActionStatus>("idle");
+  const [isLoadingResubmission, setIsLoadingResubmission] = useState(isResubmission);
+  const [resubmissionError, setResubmissionError] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [reader, setReader] = useState<ReaderState>({ phase: "idle" });
-  const [notes, setNotes] = useState<FieldValues>({});
-  const readRef = useRef<AbortController | null>(null);
-  const readerFilled = useRef(new Map<ExtractedFormField, string>());
-  const draftLoaded = useRef(false);
 
   const {
     register,
@@ -294,278 +203,155 @@ function InvoiceFormVisit({
     defaultValues: emptyInvoiceForm,
   });
 
-  const watchedValues = useWatch({ control });
-
+  // Vendor account selection belongs to the form.
   const pickVendorAccount = useCallback(
-    (vendorAccountId: string) => setValue("vendorAccountId", vendorAccountId),
+    (vendorAccountId: string) => {
+      setValue("vendorAccountId", vendorAccountId);
+    },
     [setValue],
   );
 
-  const clearVendorAccountPick = () => pickVendorAccount("");
+  const clearVendorAccountPick = useCallback(() => {
+    pickVendorAccount("");
+  }, [pickVendorAccount]);
 
-  const hasAnyInput =
-    selectedFile !== null ||
-    Object.values(watchedValues).some((value) => typeof value === "string" && value.trim() !== "");
+  // Draft lifecycle is managed by useInvoiceDraft.
+  // Resubmissions do not create or load drafts.
+  const {
+    draftId,
+    draftStatus,
+    draftMessage,
+    isLoadingDraft,
+    draftLoadError,
+    ensureDraftSaved,
+    storePickedPdf,
+    handleSaveDraft,
+    markUnsaved,
+    clearDraftMessage,
+  } = useInvoiceDraft({
+    initialDraftId: isResubmission ? null : initialDraftId,
+    onDraftCreated,
+    form: { getValues, reset },
+    selectedFile,
+    storedPdf,
+    setStoredPdf,
+    setSubmitError,
+  });
 
-  const saving = draftStatus === "loading" || createStatus === "loading";
-  const created = createStatus === "success";
-  const canSaveDraft = hasAnyInput && !saving && !created;
-
-  async function saveDraftValues(payload: BillDraftPayload): Promise<string> {
-    if (draftId) {
-      await updateBillDraft(draftId, payload);
-      return draftId;
-    }
-
-    const saved = await saveBillDraft(payload);
-    setDraftId(saved.bill_id);
-    onDraftCreated(saved.bill_id);
-    return saved.bill_id;
-  }
-
-  async function storePickedPdf(id: string) {
-    const file = selectedFile;
-
-    if (!file || (storedPdf.kind === "file" && storedPdf.file === file)) {
-      return;
-    }
-
-    await uploadInvoicePdf(file, id);
-    setStoredPdf({ kind: "file", file });
-  }
-
-  async function onSubmit(values: InvoiceFormValues) {
-    setCreateStatus("loading");
+  function markEdited() {
     setSubmitError("");
-    setDraftMessage("");
-
-    const payload = createPayload(values);
-
-    if (isResubmission) {
-      if (!routeInvoiceId) {
-        setCreateStatus("error");
-        setSubmitError("Missing invoice ID. Unable to resubmit.");
-        return;
-      }
-
-      try {
-        await resubmitBill(routeInvoiceId, payload);
-      } catch (error) {
-        setCreateStatus("error");
-        setSubmitError(errorMessage(error, "Unable to resubmit the invoice. Please try again."));
-        return;
-      }
-
-      setCreateStatus("success");
-      router.push("/dashboard");
-      return;
-    }
-
-    let id = draftId;
-
-    try {
-      id ??= await saveDraftValues(draftPayload(values));
-    } catch (error) {
-      setCreateStatus("error");
-      setSubmitError(errorMessage(error, "Unable to create the bill. Please try again."));
-      return;
-    }
-
-    try {
-      await storePickedPdf(id);
-    } catch (error) {
-      setCreateStatus("error");
-
-      const mayBeSubmitted =
-        unansweredSubmits.current.length > 0 &&
-        error instanceof ApiError &&
-        (error.status === 404 || error.status === 409);
-
-      setSubmitError(
-        mayBeSubmitted
-          ? ALREADY_SUBMITTED_MESSAGE
-          : `The PDF couldn't be stored, so the bill wasn't created. Please try again. ${errorMessage(error, "")}`.trim(),
-      );
-      return;
-    }
-
-    const attempt: UnansweredSubmit = {
-      payload: JSON.stringify(payload),
-      pdf: selectedFile,
-    };
-
-    try {
-      await submitBill(id, payload);
-    } catch (error) {
-      const alreadySubmitted =
-        error instanceof ApiError &&
-        error.status === 409 &&
-        error.message === ALREADY_SUBMITTED_DETAIL;
-      const earlier = unansweredSubmits.current;
-
-      const sameAsEarlier =
-        earlier.length > 0 &&
-        earlier.every((sent) => sent.payload === attempt.payload && sent.pdf === attempt.pdf);
-
-      if (!(alreadySubmitted && sameAsEarlier)) {
-        if (!(error instanceof ApiError)) {
-          unansweredSubmits.current = [...earlier, attempt];
-        }
-
-        setCreateStatus("error");
-        setSubmitError(
-          alreadySubmitted
-            ? ALREADY_SUBMITTED_MESSAGE
-            : errorMessage(error, "Unable to create the bill. Please try again."),
-        );
-        return;
-      }
-    }
-
-    setCreateStatus("success");
-    router.push("/dashboard");
+    markUnsaved();
   }
 
-  useEffect(() => {
-    if (openedId === null || draftLoaded.current) return;
+  // PDF extraction lifecycle is managed by useInvoiceExtraction.
+  const { reader, notes, readInvoice, resetReader, clearFieldNote, readingMessage } =
+    useInvoiceExtraction({
+      form: { getValues, setValue, getFieldState },
+      onEdited: markEdited,
+      onAccountNumberChanged: clearVendorAccountPick,
+    });
 
-    const id = openedId;
+  // Normal bill creation and submission are managed by useInvoiceSubmission.
+  const { createStatus, handleCreate } = useInvoiceSubmission({
+    selectedFile,
+    ensureDraftSaved,
+    storePickedPdf,
+    onSuccess: () => router.push("/dashboard"),
+    setSubmitError,
+  });
+
+  // Rejected invoice loading is separate from draft loading.
+  useEffect(() => {
+    if (!isResubmission) return;
+
+    if (!openedId) {
+      setResubmissionError("Missing invoice ID. Unable to load the invoice.");
+      setIsLoadingResubmission(false);
+      return;
+    }
+
+    const invoiceId = openedId;
+
     let cancelled = false;
 
-    async function loadInvoice() {
-      setIsLoadingDraft(true);
-      setDraftLoadError(null);
+    async function loadRejectedInvoice() {
+      setIsLoadingResubmission(true);
+      setResubmissionError(null);
 
       try {
-        if (isResubmission) {
-          const bill = await getBill(id);
+        const bill = await getBill(invoiceId);
 
-          if (cancelled) return;
+        if (cancelled) return;
 
-          if (bill.status !== "rejected") {
-            setDraftLoadError("Only rejected invoices can be resubmitted.");
-            return;
-          }
+        if (bill.status !== "rejected") {
+          setResubmissionError("Only rejected invoices can be resubmitted.");
+          return;
+        }
 
-          draftLoaded.current = true;
-          reset(mapBillToFormValues(bill));
+        reset(mapBillToFormValues(bill));
 
-          if (bill.document_path) {
-            setStoredPdf({ kind: "earlier" });
-          }
-        } else {
-          const draft = await getBillDraft(id);
-
-          if (cancelled) return;
-
-          draftLoaded.current = true;
-          reset(mapDraftToFormValues(draft));
-
-          if (draft.document_path) {
-            setStoredPdf({ kind: "earlier" });
-          }
+        if (bill.document_path) {
+          setStoredPdf({ kind: "earlier" });
         }
       } catch (error) {
         if (cancelled) return;
 
-        setDraftLoadError(
+        setResubmissionError(
           error instanceof Error ? error.message : "Unable to load the invoice. Please try again.",
         );
       } finally {
         if (!cancelled) {
-          setIsLoadingDraft(false);
+          setIsLoadingResubmission(false);
         }
       }
     }
 
-    void loadInvoice();
+    void loadRejectedInvoice();
 
     return () => {
       cancelled = true;
     };
   }, [openedId, isResubmission, reset]);
 
-  useEffect(
-    () => () => {
-      readRef.current?.abort();
-      readRef.current = null;
-    },
-    [],
-  );
+  const watchedValues = useWatch({ control });
 
-  function markEdited() {
+  const hasAnyInput =
+    selectedFile !== null ||
+    Object.values(watchedValues).some((value) => typeof value === "string" && value.trim() !== "");
+
+  const saving = draftStatus === "loading" || createStatus === "loading";
+
+  const canSaveDraft = hasAnyInput && !saving && createStatus !== "success";
+
+  async function handleFormSubmit(values: InvoiceFormValues) {
+    if (!isResubmission) {
+      clearDraftMessage();
+      await handleCreate(values);
+      return;
+    }
+
+    if (!routeInvoiceId) {
+      setResubmitStatus("error");
+      setSubmitError("Missing invoice ID. Unable to resubmit.");
+      return;
+    }
+
+    setResubmitStatus("loading");
     setSubmitError("");
-    setDraftStatus((status) => (status === "success" ? "idle" : status));
-    setDraftMessage("");
-  }
-
-  function resetReader(next: ReaderState) {
-    readRef.current?.abort();
-    readRef.current = null;
-    setNotes({});
-    setReader(next);
-  }
-
-  function replaceableFields(): Set<ExtractedFormField> {
-    const current = getValues();
-
-    return new Set(
-      [...readerFilled.current]
-        .filter(([name, value]) => current[name] === value)
-        .map(([name]) => name),
-    );
-  }
-
-  function applyFill(values: Partial<Record<ExtractedFormField, string>>) {
-    const entries = Object.entries(values) as [ExtractedFormField, string][];
-
-    if (values.accountNumber !== undefined && values.accountNumber !== getValues("accountNumber")) {
-      clearVendorAccountPick();
-    }
-
-    for (const [name, value] of entries) {
-      setValue(name, value, {
-        shouldDirty: true,
-        shouldValidate: getFieldState(name).invalid,
-      });
-
-      if (value === "") {
-        readerFilled.current.delete(name);
-      } else {
-        readerFilled.current.set(name, value);
-      }
-    }
-
-    if (entries.length > 0) markEdited();
-  }
-
-  async function readInvoice(file: File) {
-    resetReader({ phase: "reading" });
-
-    const controller = new AbortController();
-    readRef.current = controller;
-
-    let banner: ExtractionBanner;
 
     try {
-      const result = await extractBill(file, controller.signal);
+      await resubmitBill(routeInvoiceId, createBillPayload(values));
 
-      if (controller.signal.aborted) return;
-
-      const plan = planFill(result, getValues(), replaceableFields());
-      applyFill(plan.values);
-      setNotes(plan.notes);
-      banner = plan.banner;
+      setResubmitStatus("success");
+      router.push("/dashboard");
     } catch (error) {
-      if (controller.signal.aborted) return;
-
-      applyFill(clearedValues(replaceableFields()));
-
-      banner = errorBanner(error instanceof Error ? error.message : "Unable to read the invoice.");
+      setResubmitStatus("error");
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : "Unable to resubmit the invoice. Please try again.",
+      );
     }
-
-    readRef.current = null;
-    setReader({ phase: "done", banner });
   }
 
   function selectFile(file: File | null) {
@@ -633,48 +419,15 @@ function InvoiceFormVisit({
     selectFile(files[0] ?? null);
   }
 
-  async function handleSaveDraft() {
-    if (!canSaveDraft) return;
-
-    setDraftStatus("loading");
-    setSubmitError("");
-    setDraftMessage("");
-
-    const validation = invoiceDraftFormSchema.safeParse(getValues());
-
-    if (!validation.success) {
-      setDraftStatus("error");
-      setSubmitError(validation.error.issues[0]?.message ?? "Please check your draft.");
-      return;
-    }
-
-    let id: string;
-
-    try {
-      id = await saveDraftValues(draftPayload(validation.data));
-    } catch (error) {
-      setDraftStatus("error");
-      setSubmitError(errorMessage(error, "Unable to save draft."));
-      return;
-    }
-
-    try {
-      await storePickedPdf(id);
-    } catch (error) {
-      setDraftStatus("error");
-      setSubmitError(
-        `Draft saved, but the PDF couldn't be stored. Save again to retry. ${errorMessage(error, "")}`.trim(),
-      );
-      return;
-    }
-
-    setDraftStatus("success");
-    setDraftMessage(`Draft saved successfully: ${id}`);
-  }
-
   const storageNote = pdfStorageNote(storedPdf, selectedFile);
 
-  if (isLoadingDraft) {
+  const isSubmittingResubmission = resubmitStatus === "loading";
+
+  const actionStatus = isResubmission ? resubmitStatus : createStatus;
+
+  const created = actionStatus === "success";
+
+  if (isLoadingDraft || isLoadingResubmission) {
     return (
       <p className="mx-auto max-w-3xl py-16 text-center text-foreground-muted">
         {isResubmission ? "Loading rejected invoice..." : "Loading draft..."}
@@ -682,17 +435,17 @@ function InvoiceFormVisit({
     );
   }
 
-  if (draftLoadError) {
+  if (draftLoadError || resubmissionError) {
     return (
       <p role="alert" className="mx-auto max-w-3xl py-16 text-center text-red-600">
-        {draftLoadError}
+        {resubmissionError ?? draftLoadError}
       </p>
     );
   }
 
   return (
     <form
-      onSubmit={handleSubmit(onSubmit)}
+      onSubmit={handleSubmit(handleFormSubmit)}
       onChange={(event) => {
         const target = event.target;
 
@@ -704,16 +457,12 @@ function InvoiceFormVisit({
 
         const name = "name" in target ? target.name : null;
 
-        if (name === "accountNumber") clearVendorAccountPick();
+        if (name === "accountNumber") {
+          clearVendorAccountPick();
+        }
 
         if (typeof name === "string") {
-          readerFilled.current.delete(name as ExtractedFormField);
-
-          setNotes((current) =>
-            name in current
-              ? Object.fromEntries(Object.entries(current).filter(([field]) => field !== name))
-              : current,
-          );
+          clearFieldNote(name);
         }
       }}
       noValidate
@@ -763,7 +512,7 @@ function InvoiceFormVisit({
                       : "Save Draft"
               }
               type="button"
-              onClick={handleSaveDraft}
+              onClick={() => handleSaveDraft(canSaveDraft)}
               disabled={!canSaveDraft}
             />
           )}
@@ -827,7 +576,7 @@ function InvoiceFormVisit({
                 aria-hidden="true"
                 className="h-4 w-4 animate-spin motion-reduce:animate-none"
               />
-              {READING_MESSAGE}
+              {readingMessage}
             </p>
           )}
 
@@ -856,9 +605,7 @@ function InvoiceFormVisit({
       )}
 
       <fieldset className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm">
-        <legend className="px-2 text-sm font-semibold text-foreground">
-          {"General bill info"}
-        </legend>
+        <legend className="px-2 text-sm font-semibold text-foreground">General bill info</legend>
 
         <FormField
           label="Account / Customer #"
@@ -935,7 +682,7 @@ function InvoiceFormVisit({
       </fieldset>
 
       <fieldset className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm">
-        <legend className="px-2 text-sm font-semibold text-foreground">{"Payment info"}</legend>
+        <legend className="px-2 text-sm font-semibold text-foreground">Payment info</legend>
 
         <FormField
           label="Bill Description / Explanation"
@@ -963,8 +710,9 @@ function InvoiceFormVisit({
             {(field) => (
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-muted">
-                  {"$"}
+                  $
                 </span>
+
                 <input
                   {...field}
                   {...register("previousPayments")}
@@ -985,8 +733,9 @@ function InvoiceFormVisit({
             {(field) => (
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-muted">
-                  {"$"}
+                  $
                 </span>
+
                 <input
                   {...field}
                   {...register("currentDue")}
@@ -1049,15 +798,15 @@ function InvoiceFormVisit({
 
       <Button
         label={
-          createStatus === "loading"
+          actionStatus === "loading"
             ? isResubmission
               ? "Resubmitting..."
               : "Creating..."
-            : createStatus === "success"
+            : actionStatus === "success"
               ? isResubmission
                 ? "Resubmitted ✓"
                 : "Created ✓"
-              : createStatus === "error"
+              : actionStatus === "error"
                 ? isResubmission
                   ? "Retry Resubmit"
                   : "Retry Create"
@@ -1066,7 +815,7 @@ function InvoiceFormVisit({
                   : "Create"
         }
         type="submit"
-        disabled={saving || created}
+        disabled={saving || isSubmittingResubmission || created}
         className="w-full border-2"
       />
     </form>

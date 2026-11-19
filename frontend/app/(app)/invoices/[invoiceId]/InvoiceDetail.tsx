@@ -372,158 +372,148 @@ export default function InvoiceDetail() {
             </p>
           )}
 
-          {approval && (
-            <>
-              {Number(bill.amount) > 5000 && profile?.role !== "admin" ? (
-                <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-4">
-                  <p className="font-medium text-amber-900">Admin review required</p>
-                  <p className="mt-1 text-sm text-amber-800">
-                    Invoices over $5,000 must be reviewed by an administrator. You can view this
-                    invoice, but cannot submit a decision.
-                  </p>
-                </div>
-              ) : (
-                <div className="mt-5 space-y-4">
-                  {!decision && (
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        type="button"
-                        onClick={() => handleDecisionSelect("approve")}
-                        className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-                      >
-                        Approve invoice
-                      </button>
+          {approval &&
+            (Number(bill.amount) > 5000 && profile?.role !== "admin" ? (
+              <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-4">
+                <p className="font-medium text-amber-900">Admin review required</p>
+                <p className="mt-1 text-sm text-amber-800">
+                  Invoices over $5,000 must be reviewed by an administrator. You can view this
+                  invoice, but cannot submit a decision.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-5 space-y-4">
+                {!decision && (
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleDecisionSelect("approve")}
+                      className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+                    >
+                      Approve invoice
+                    </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDecisionSelect("reject")}
-                        className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-                      >
-                        Reject invoice
-                      </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDecisionSelect("reject")}
+                      className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                    >
+                      Reject invoice
+                    </button>
+                  </div>
+                )}
+
+                {decision && (
+                  <div className="space-y-4 rounded-lg border border-border p-4">
+                    <div>
+                      <h3 className="font-semibold">
+                        {decision === "approve" ? "Approve this invoice?" : "Reject this invoice?"}
+                      </h3>
+
+                      <p className="mt-1 text-sm text-foreground-muted">
+                        {decision === "approve"
+                          ? "You can optionally leave a comment for the record."
+                          : "Please provide a meaningful reason for rejecting this invoice."}
+                      </p>
                     </div>
-                  )}
 
-                  {decision && (
-                    <div className="space-y-4 rounded-lg border border-border p-4">
-                      <div>
-                        <h3 className="font-semibold">
-                          {decision === "approve"
-                            ? "Approve this invoice?"
-                            : "Reject this invoice?"}
-                        </h3>
+                    <div>
+                      <label htmlFor="approval-comments" className="mb-2 block text-sm font-medium">
+                        Comments {decision === "reject" ? "(required)" : "(optional)"}
+                      </label>
 
-                        <p className="mt-1 text-sm text-foreground-muted">
-                          {decision === "approve"
-                            ? "You can optionally leave a comment for the record."
-                            : "Please provide a meaningful reason for rejecting this invoice."}
-                        </p>
-                      </div>
+                      <textarea
+                        id="approval-comments"
+                        value={comments}
+                        onChange={(event) => {
+                          setComments(event.target.value);
+                          setDecisionError(null);
+                        }}
+                        rows={4}
+                        maxLength={2000}
+                        placeholder={
+                          decision === "reject"
+                            ? "Explain why this invoice is being rejected..."
+                            : "Add an optional approval comment..."
+                        }
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"
+                        disabled={submittingDecision}
+                      />
+                    </div>
 
-                      <div>
-                        <label
-                          htmlFor="approval-comments"
-                          className="mb-2 block text-sm font-medium"
-                        >
-                          Comments {decision === "reject" ? "(required)" : "(optional)"}
-                        </label>
+                    {decisionError && (
+                      <p role="alert" className="text-sm text-red-600">
+                        {decisionError}
+                      </p>
+                    )}
 
-                        <textarea
-                          id="approval-comments"
-                          value={comments}
-                          onChange={(event) => {
-                            setComments(event.target.value);
+                    {!confirmingDecision ? (
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (decision === "reject" && !comments.trim()) {
+                              setDecisionError("A comment is required when rejecting an invoice.");
+                              return;
+                            }
+
                             setDecisionError(null);
+                            setConfirmingDecision(true);
                           }}
-                          rows={4}
-                          maxLength={2000}
-                          placeholder={
-                            decision === "reject"
-                              ? "Explain why this invoice is being rejected..."
-                              : "Add an optional approval comment..."
-                          }
-                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"
+                          disabled={decision === "reject" && !comments.trim()}
+                          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Continue
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={cancelDecision}
                           disabled={submittingDecision}
-                        />
+                          className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-surface-secondary disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
                       </div>
-
-                      {decisionError && (
-                        <p role="alert" className="text-sm text-red-600">
-                          {decisionError}
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium text-foreground">
+                          {decision === "approve"
+                            ? "Confirm that you want to approve this invoice."
+                            : "Confirm that you want to reject this invoice."}
                         </p>
-                      )}
 
-                      {!confirmingDecision ? (
                         <div className="flex flex-wrap gap-3">
                           <button
                             type="button"
-                            onClick={() => {
-                              if (decision === "reject" && !comments.trim()) {
-                                setDecisionError(
-                                  "A comment is required when rejecting an invoice.",
-                                );
-                                return;
-                              }
-
-                              setDecisionError(null);
-                              setConfirmingDecision(true);
-                            }}
-                            disabled={decision === "reject" && !comments.trim()}
-                            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => void submitDecision()}
+                            disabled={submittingDecision}
+                            className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+                              decision === "approve" ? "bg-primary" : "bg-red-600"
+                            }`}
                           >
-                            Continue
+                            {submittingDecision
+                              ? "Submitting..."
+                              : decision === "approve"
+                                ? "Confirm approval"
+                                : "Confirm rejection"}
                           </button>
 
                           <button
                             type="button"
-                            onClick={cancelDecision}
+                            onClick={() => setConfirmingDecision(false)}
                             disabled={submittingDecision}
                             className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-surface-secondary disabled:opacity-50"
                           >
-                            Cancel
+                            Go back
                           </button>
                         </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <p className="text-sm font-medium text-foreground">
-                            {decision === "approve"
-                              ? "Confirm that you want to approve this invoice."
-                              : "Confirm that you want to reject this invoice."}
-                          </p>
-
-                          <div className="flex flex-wrap gap-3">
-                            <button
-                              type="button"
-                              onClick={() => void submitDecision()}
-                              disabled={submittingDecision}
-                              className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${
-                                decision === "approve" ? "bg-primary" : "bg-red-600"
-                              }`}
-                            >
-                              {submittingDecision
-                                ? "Submitting..."
-                                : decision === "approve"
-                                  ? "Confirm approval"
-                                  : "Confirm rejection"}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setConfirmingDecision(false)}
-                              disabled={submittingDecision}
-                              className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-surface-secondary disabled:opacity-50"
-                            >
-                              Go back
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
         </section>
       )}
 
