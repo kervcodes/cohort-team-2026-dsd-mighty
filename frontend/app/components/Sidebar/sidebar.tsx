@@ -52,6 +52,7 @@ export default function Sidebar() {
   const { theme, toggleTheme } = useTheme();
   const { signOut, signingOut, signOutFailed } = useSignOut();
   const isAdmin = profile?.role === "admin";
+  const isApprover = profile?.role === "approver";
   const email = profile?.email ?? user?.email;
   const themeLabel = theme === "light" ? COPY.switchToDark : COPY.switchToLight;
   const canReview =
@@ -83,21 +84,22 @@ export default function Sidebar() {
               </Link>
             </li>
           )}
-
-          <li>
-            <Link title={COPY.savedDrafts} href="/invoices/drafts" className={ITEM}>
-              <LuFilePenLine size={20} aria-hidden="true" />
-              <span className="hidden sm:block">{COPY.savedDrafts}</span>
-            </Link>
-          </li>
-
-          <li>
-            <Link title={COPY.newInvoice} href="/invoices/new" className={ITEM}>
-              <LuFilePlus size={20} aria-hidden="true" />
-              <span className="hidden sm:block">{COPY.newInvoice}</span>
-            </Link>
-          </li>
-
+          {!isApprover && (
+            <li>
+              <Link title={COPY.savedDrafts} href="/invoices/drafts" className={ITEM}>
+                <LuFilePenLine size={20} aria-hidden="true" />
+                <span className="hidden sm:block">{COPY.savedDrafts}</span>
+              </Link>
+            </li>
+          )}
+          {!isApprover && (
+            <li>
+              <Link title={COPY.newInvoice} href="/invoices/new" className={ITEM}>
+                <LuFilePlus size={20} aria-hidden="true" />
+                <span className="hidden sm:block">{COPY.newInvoice}</span>
+              </Link>
+            </li>
+          )}
           <li>
             <Link title={COPY.properties} href="/properties" className={ITEM}>
               <LuBuilding2 size={20} aria-hidden="true" />

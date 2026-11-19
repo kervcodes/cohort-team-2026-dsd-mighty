@@ -28,14 +28,7 @@ function formatDate(iso: string) {
 const columns: DataTableColumn<Vendor>[] = [
   {
     header: "Name",
-    cell: (vendor) => (
-      <Link
-        href={`/vendors/${vendor.id}`}
-        className="rounded font-medium text-primary hover:text-primary-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        {vendor.name}
-      </Link>
-    ),
+    cell: (vendor) => vendor.name,
   },
   { header: "Email", cell: (vendor) => vendor.contact_email ?? COPY.notSet },
   { header: "Phone", cell: (vendor) => vendor.contact_phone ?? COPY.notSet },
@@ -100,6 +93,7 @@ export default function VendorsPage() {
         columns={columns}
         rows={vendors ?? []}
         getRowKey={(vendor) => vendor.id}
+        preUrl="/vendors/"
         loading={vendors === null && error === null}
         loadingMessage={COPY.loading}
         error={error}

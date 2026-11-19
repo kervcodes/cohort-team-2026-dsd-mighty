@@ -197,7 +197,7 @@ export default function AdminUsersEditPage() {
           href="/admin/users"
           className="inline-flex items-center gap-2 text-sm text-foreground-muted hover:text-foreground"
         >
-          <span aria-hidden="true">{"->"}</span>
+          <span aria-hidden="true">{"<-"}</span>
           {COPY.back}
         </Link>
 

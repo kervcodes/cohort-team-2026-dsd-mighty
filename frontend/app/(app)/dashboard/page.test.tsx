@@ -29,10 +29,14 @@ jest.mock("@/auth/AuthProvider", () => ({
   useAuth: () => mockUseAuth(),
 }));
 
-function account(loading: boolean, status: "active" | "inactive" = "active") {
+function account(
+  loading: boolean,
+  status: "active" | "inactive" = "active",
+  role: "admin" | "analyst" | "approver" = "analyst",
+) {
   mockUseAuth.mockReturnValue({
     user: { id: "user-1" },
-    profile: loading ? null : { id: "user-1", status },
+    profile: loading ? null : { id: "user-1", status, role },
     profileError: null,
     loading,
   });
@@ -232,6 +236,51 @@ describe("Dashboard", () => {
         property: "1 Main St",
         company: "Acme Power",
       });
+    });
+  });
+
+  describe("dashboard action buttons", () => {
+    it("shows Approvals and New Invoice for an admin", async () => {
+      account(false, "active", "admin");
+      await renderLoaded([]);
+
+      expect(screen.getByRole("link", { name: "Approvals" })).toHaveAttribute("href", "/approvals");
+
+      expect(screen.getByRole("link", { name: "New Invoice" })).toHaveAttribute(
+        "href",
+        "/invoices/new",
+      );
+    });
+
+    it("shows Approvals only for an approver", async () => {
+      account(false, "active", "approver");
+      await renderLoaded([]);
+
+      expect(screen.getByRole("link", { name: "Approvals" })).toHaveAttribute("href", "/approvals");
+
+      expect(screen.queryByRole("link", { name: "New Invoice" })).not.toBeInTheDocument();
+    });
+
+    it("shows New Invoice only for an analyst", async () => {
+      account(false, "active", "analyst");
+      await renderLoaded([]);
+
+      expect(screen.queryByRole("link", { name: "Approvals" })).not.toBeInTheDocument();
+
+      expect(screen.getByRole("link", { name: "New Invoice" })).toHaveAttribute(
+        "href",
+        "/invoices/new",
+      );
+    });
+
+    it("does not show either action button for an inactive user", () => {
+      account(false, "inactive", "admin");
+      render(<DashboardPage />);
+
+      expect(screen.queryByRole("link", { name: "Approvals" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "New Invoice" })).not.toBeInTheDocument();
+
+      expect(mockGetDashboardBills).not.toHaveBeenCalled();
     });
   });
 });

@@ -9,7 +9,11 @@ const mockSignOut = jest.fn();
 const mockUseAuth = jest.fn();
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mockReplace, push: jest.fn(), refresh: mockRefresh }),
+  useRouter: () => ({
+    replace: mockReplace,
+    push: jest.fn(),
+    refresh: mockRefresh,
+  }),
 }));
 
 jest.mock("@/lib/supabase/client", () => ({
@@ -199,7 +203,9 @@ describe("Sidebar", () => {
     it("still goes to the login page when the server call fails", async () => {
       // auth-js clears the local session before returning a network error.
       const consoleError = jest.spyOn(console, "error").mockImplementation(() => {});
-      mockSignOut.mockResolvedValue({ error: { name: "AuthRetryableFetchError", status: 0 } });
+      mockSignOut.mockResolvedValue({
+        error: { name: "AuthRetryableFetchError", status: 0 },
+      });
       signIn(profileWithRole("analyst"));
       render(<Sidebar />);
 
@@ -252,36 +258,152 @@ describe("Sidebar", () => {
     });
   });
 
-  describe("admin links", () => {
-    it("are shown, and Home goes to /admin, for an admin", () => {
-      signIn(profileWithRole("admin"));
-      render(<Sidebar />);
+  describe("role-based navigation", () => {
+    describe("Home", () => {
+      it("directs admins to /admin", () => {
+        signIn(profileWithRole("admin"));
+        render(<Sidebar />);
 
-      expect(screen.getByRole("link", { name: "Admin Dashboard" })).toHaveAttribute(
-        "href",
-        "/admin",
+        expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/admin");
+      });
+
+      it.each<UserRole>(["analyst", "approver"])("directs %s users to /", (role) => {
+        signIn(profileWithRole(role));
+        render(<Sidebar />);
+
+        expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+      });
+
+      it("defaults to / when the profile is unavailable", () => {
+        signIn(null);
+        render(<Sidebar />);
+
+        expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+      });
+    });
+
+    describe("Invoices", () => {
+      it.each<UserRole>(["admin", "analyst", "approver"])("shows Invoices for %s users", (role) => {
+        signIn(profileWithRole(role));
+        render(<Sidebar />);
+
+        expect(screen.getByRole("link", { name: "Invoices" })).toHaveAttribute(
+          "href",
+          "/dashboard",
+        );
+      });
+
+      it.each<UserRole>(["admin", "analyst"])(
+        "shows Saved Drafts and New Invoice for %s users",
+        (role) => {
+          signIn(profileWithRole(role));
+          render(<Sidebar />);
+
+          expect(screen.getByRole("link", { name: "Saved Drafts" })).toHaveAttribute(
+            "href",
+            "/invoices/drafts",
+          );
+
+          expect(screen.getByRole("link", { name: "New Invoice" })).toHaveAttribute(
+            "href",
+            "/invoices/new",
+          );
+        },
       );
-      expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/admin/users");
-      expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/admin");
+
+      it("hides Saved Drafts and New Invoice for approvers", () => {
+        signIn(profileWithRole("approver"));
+        render(<Sidebar />);
+
+        expect(screen.queryByRole("link", { name: "Saved Drafts" })).not.toBeInTheDocument();
+
+        expect(screen.queryByRole("link", { name: "New Invoice" })).not.toBeInTheDocument();
+      });
     });
 
-    it.each<UserRole>(["analyst", "approver"])("are hidden for an %s", (role) => {
-      signIn(profileWithRole(role));
-      render(<Sidebar />);
+    describe("Approvals", () => {
+      it.each<UserRole>(["admin", "approver"])("shows Approvals for active %s users", (role) => {
+        signIn(profileWithRole(role));
+        render(<Sidebar />);
 
-      expect(screen.queryByRole("link", { name: "Admin Dashboard" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+        expect(screen.getByRole("link", { name: "Approvals" })).toHaveAttribute(
+          "href",
+          "/approvals",
+        );
+      });
+
+      it("hides Approvals for analysts", () => {
+        signIn(profileWithRole("analyst"));
+        render(<Sidebar />);
+
+        expect(screen.queryByRole("link", { name: "Approvals" })).not.toBeInTheDocument();
+      });
+
+      it("hides Approvals for inactive approvers", () => {
+        signIn({
+          ...profileWithRole("approver"),
+          status: "inactive",
+        });
+        render(<Sidebar />);
+
+        expect(screen.queryByRole("link", { name: "Approvals" })).not.toBeInTheDocument();
+      });
+
+      it("hides Approvals when the profile is unavailable", () => {
+        signIn(null);
+        render(<Sidebar />);
+
+        expect(screen.queryByRole("link", { name: "Approvals" })).not.toBeInTheDocument();
+      });
     });
 
-    it("are hidden when the profile could not be loaded", () => {
-      signIn(null);
-      render(<Sidebar />);
+    describe("Properties and Vendors", () => {
+      it.each<UserRole>(["admin", "analyst", "approver"])(
+        "shows Properties and Vendors for %s users",
+        (role) => {
+          signIn(profileWithRole(role));
+          render(<Sidebar />);
 
-      expect(screen.queryByRole("link", { name: "Admin Dashboard" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
-      expect(screen.getByRole("link", { name: "Invoices" })).toHaveAttribute("href", "/dashboard");
+          expect(screen.getByRole("link", { name: "Properties" })).toHaveAttribute(
+            "href",
+            "/properties",
+          );
+
+          expect(screen.getByRole("link", { name: "Vendors" })).toHaveAttribute("href", "/vendors");
+        },
+      );
+    });
+
+    describe("Admin links", () => {
+      it("shows Admin Dashboard and Users for admins", () => {
+        signIn(profileWithRole("admin"));
+        render(<Sidebar />);
+
+        expect(screen.getByRole("link", { name: "Admin Dashboard" })).toHaveAttribute(
+          "href",
+          "/admin",
+        );
+
+        expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/admin/users");
+      });
+
+      it.each<UserRole>(["analyst", "approver"])("hides admin links for %s users", (role) => {
+        signIn(profileWithRole(role));
+        render(<Sidebar />);
+
+        expect(screen.queryByRole("link", { name: "Admin Dashboard" })).not.toBeInTheDocument();
+
+        expect(screen.queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
+      });
+
+      it("hides admin links when the profile is unavailable", () => {
+        signIn(null);
+        render(<Sidebar />);
+
+        expect(screen.queryByRole("link", { name: "Admin Dashboard" })).not.toBeInTheDocument();
+
+        expect(screen.queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
+      });
     });
   });
 });

@@ -19,11 +19,7 @@ const COPY = {
 const columns: DataTableColumn<ApiProfile>[] = [
   {
     header: "id",
-    cell: (profile) => (
-      <Link className="text-blue-600 hover:underline" href={`/admin/users/${profile.user_id}/edit`}>
-        {profile.user_id.slice(0, 8)}{" "}
-      </Link>
-    ),
+    cell: (profile) => profile.user_id.slice(0, 8),
   },
   { header: "Name", cell: (profile) => profile.full_name ?? COPY.notSet },
   { header: "Email", cell: (profile) => profile.email ?? COPY.notSet },
@@ -86,6 +82,8 @@ export default function AdminUsersPage() {
           columns={columns}
           rows={users ?? []}
           getRowKey={(profile) => profile.user_id}
+          preUrl="/admin/users/"
+          postUrl="/edit"
           loading={users === null && error === null}
           loadingMessage={COPY.loading}
           error={error}

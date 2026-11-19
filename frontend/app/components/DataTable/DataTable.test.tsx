@@ -46,7 +46,11 @@ describe("DataTable", () => {
     renderTable({
       rows: makeRows(1),
       columns: [
-        { header: "Long header name", cell: (row) => row.name, className: "whitespace-nowrap" },
+        {
+          header: "Long header name",
+          cell: (row) => row.name,
+          className: "whitespace-nowrap",
+        },
       ],
     });
 
@@ -70,7 +74,11 @@ describe("DataTable", () => {
   });
 
   it("shows the loading message instead of rows while loading", () => {
-    renderTable({ rows: makeRows(2), loading: true, loadingMessage: "Loading things..." });
+    renderTable({
+      rows: makeRows(2),
+      loading: true,
+      loadingMessage: "Loading things...",
+    });
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading things...");
     expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
@@ -115,5 +123,105 @@ describe("DataTable", () => {
     expect(screen.getByText("Page 3 of 3")).toBeInTheDocument();
     expect(screen.getByText("Item 12")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+  });
+  describe("Row links", () => {
+    it("renders one edit link per row when preUrl is provided", () => {
+      renderTable({
+        rows: makeRows(2),
+        preUrl: "/admin/things/",
+      });
+
+      const links = screen.getAllByRole("link");
+
+      expect(links).toHaveLength(2);
+
+      expect(links[0]).toHaveAttribute("href", "/admin/things/row-1");
+
+      expect(links[1]).toHaveAttribute("href", "/admin/things/row-2");
+    });
+
+    it("uses the default postUrl when only preUrl is provided", () => {
+      renderTable({
+        rows: makeRows(1),
+        preUrl: "/admin/things/",
+      });
+
+      expect(screen.getByRole("link", { name: "Item 1" })).toHaveAttribute(
+        "href",
+        "/admin/things/row-1",
+      );
+    });
+
+    it("supports a custom postUrl", () => {
+      renderTable({
+        rows: makeRows(1),
+        preUrl: "/admin/things/",
+        postUrl: "/edit",
+      });
+
+      expect(screen.getByRole("link", { name: "Item 1" })).toHaveAttribute(
+        "href",
+        "/admin/things/row-1/edit",
+      );
+    });
+
+    it("supports a custom URL prefix and suffix", () => {
+      renderTable({
+        rows: makeRows(1),
+        preUrl: "/admin/users/",
+        postUrl: "/settings/permissions",
+      });
+
+      expect(screen.getByRole("link", { name: "Item 1" })).toHaveAttribute(
+        "href",
+        "/admin/users/row-1/settings/permissions",
+      );
+    });
+
+    it("does not render links when preUrl is omitted", () => {
+      renderTable({ rows: makeRows(2) });
+
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    });
+
+    it("applies stretched link overlay classes", () => {
+      renderTable({
+        rows: makeRows(1),
+        preUrl: "/admin/things/",
+      });
+
+      const link = screen.getByRole("link", { name: "Item 1" });
+
+      expect(link).toHaveClass("after:absolute", "after:inset-0", "after:content-['']");
+    });
+
+    it("makes each row the positioning context for its stretched link", () => {
+      renderTable({
+        rows: makeRows(1),
+        preUrl: "/admin/things/",
+      });
+
+      const row = screen.getByRole("row", { name: /Item 1/ });
+
+      expect(row).toHaveClass("group", "relative");
+    });
+
+    it("only renders the link in the first column", () => {
+      renderTable({
+        rows: makeRows(1),
+        preUrl: "/admin/things/",
+      });
+
+      const row = screen.getByRole("row", { name: /Item 1/ });
+      const cells = within(row).getAllByRole("cell");
+
+      expect(cells).toHaveLength(2);
+
+      expect(within(cells[0]).getByRole("link", { name: "Item 1" })).toBeInTheDocument();
+
+      expect(within(cells[1]).queryByRole("link")).not.toBeInTheDocument();
+
+      expect(cells[1]).toHaveTextContent("$1");
+    });
   });
 });

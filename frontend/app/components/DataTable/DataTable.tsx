@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type ReactNode, useState } from "react";
 import Button from "@/components/Button";
 
@@ -25,6 +26,8 @@ export type DataTableProps<T> = {
   columns: DataTableColumn<T>[];
   rows: T[];
   getRowKey: (row: T) => string;
+  preUrl?: string;
+  postUrl?: string;
   emptyMessage: string;
   loading?: boolean;
   loadingMessage?: string;
@@ -62,6 +65,8 @@ export function DataTable<T>({
   columns,
   rows,
   getRowKey,
+  preUrl,
+  postUrl = "",
   emptyMessage,
   loading = false,
   loadingMessage = COPY.loading,
@@ -95,13 +100,15 @@ export function DataTable<T>({
     message = <p>{emptyMessage}</p>;
   }
 
+  const navigateToRow = (rowID: string): string => `${preUrl ?? ""}${rowID}${postUrl}`;
+
   return (
     <section className="rounded-xl border border-border bg-surface shadow-sm">
       <div className="overflow-x-auto">
         <table className="w-full min-w-200 text-sm" aria-busy={loading}>
           <caption className="sr-only">{label}</caption>
           <thead>
-            <tr className="border-b border-border text-foreground-muted">
+            <tr className="border-b group relative border-border text-foreground-muted">
               {columns.map((column) => (
                 <th
                   key={column.header}
@@ -128,14 +135,23 @@ export function DataTable<T>({
               pageRows.map((row) => (
                 <tr
                   key={getRowKey(row)}
-                  className="text-foreground transition-colors hover:bg-surface-muted"
+                  className="group relative text-foreground transition-colors hover:bg-surface-muted"
                 >
-                  {columns.map((column) => (
+                  {columns.map((column, index) => (
                     <td
                       key={column.header}
                       className={`${padX} py-4 ${alignClass(column)} ${column.className ?? ""}`}
                     >
-                      {column.cell(row)}
+                      {index === 0 && preUrl ? (
+                        <Link
+                          href={navigateToRow(getRowKey(row))}
+                          className="rounded font-medium text-primary after:absolute after:inset-0 after:content-[''] group-hover:text-primary-hover group-hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {column.cell(row)}
+                        </Link>
+                      ) : (
+                        column.cell(row)
+                      )}
                     </td>
                   ))}
                 </tr>

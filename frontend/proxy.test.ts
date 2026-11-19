@@ -22,13 +22,19 @@ function visit(path: string) {
 }
 
 function signedIn() {
-  mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } }, error: null });
+  mockGetUser.mockResolvedValue({
+    data: { user: { id: "user-1" } },
+    error: null,
+  });
 }
 
 function signedOut() {
   mockGetUser.mockResolvedValue({
     data: { user: null },
-    error: { name: "AuthSessionMissingError", message: "Auth session missing!" },
+    error: {
+      name: "AuthSessionMissingError",
+      message: "Auth session missing!",
+    },
   });
 }
 
@@ -111,7 +117,13 @@ describe("proxy", () => {
   it("keeps the refreshed session cookies and cache headers Supabase sets", async () => {
     mockGetUser.mockImplementation(async () => {
       await mockSupabase.cookies?.setAll?.(
-        [{ name: "sb-auth", value: "new", options: { path: "/", httpOnly: true } }],
+        [
+          {
+            name: "sb-auth",
+            value: "new",
+            options: { path: "/", httpOnly: true },
+          },
+        ],
         { "Cache-Control": "private, no-store" },
       );
       return { data: { user: { id: "user-1" } }, error: null };
@@ -132,7 +144,10 @@ describe("proxy", () => {
         [{ name: "sb-auth", value: "", options: { path: "/", maxAge: 0 } }],
         {},
       );
-      return { data: { user: null }, error: { name: "AuthApiError", message: "expired" } };
+      return {
+        data: { user: null },
+        error: { name: "AuthApiError", message: "expired" },
+      };
     });
 
     const response = await visit("/dashboard");
