@@ -1,8 +1,6 @@
 import { type CookieOptions, createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
-import { canAccessRoute } from "@/lib/auth-permissions";
-import { accessRedirect, HOME_PATH } from "@/lib/auth-redirects";
-import type { Profile } from "@/types/user";
+import { accessRedirect } from "@/lib/auth-redirects";
 
 type SessionCookie = { name: string; value: string; options: CookieOptions };
 
@@ -51,48 +49,7 @@ export async function proxy(request: NextRequest) {
     console.error("proxy: could not read the Supabase session", error);
   }
 
-  let accessDenied = false;
-
-  if (signedIn) {
-    const pathname = request.nextUrl.pathname;
-
-    try {
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession();
-
-      if (error || !session?.access_token) {
-        accessDenied = true;
-      } else {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-
-        if (!apiUrl) {
-          throw new Error("NEXT_PUBLIC_API_URL is missing");
-        }
-
-        const meResponse = await fetch(`${apiUrl}/me`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          cache: "no-store",
-        });
-
-        if (!meResponse.ok) {
-          throw new Error(`Unable to load profile (${meResponse.status})`);
-        }
-
-        const profile: Profile = await meResponse.json();
-
-        accessDenied = !canAccessRoute(pathname, profile.role);
-      }
-    } catch (error) {
-      console.error("proxy: authorization failed", error);
-      accessDenied = true;
-    }
-  }
-  const target = accessDenied ? HOME_PATH : accessRedirect(new URL(request.url), signedIn);
+  const target = accessRedirect(new URL(request.url), signedIn);
   const response = target
     ? NextResponse.redirect(new URL(target, request.url))
     : NextResponse.next({ request });
